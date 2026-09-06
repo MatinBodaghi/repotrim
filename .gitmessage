@@ -1,0 +1,19 @@
+# <type>: <Capitalized imperative summary under ~50 chars, no period>
+#
+# <Optional detailed body hard-wrapped to 72 characters>
+#
+# Allowed types:
+#   feat:     Add a new feature to the codebase
+#   fix:      Fix a bug or error
+#   docs:     Add or update documentation
+#   style:    Formatting, whitespace, etc. (no code meaning change)
+#   refactor: Code changes that neither fix a bug nor add a feature
+#   perf:     A code change that improves performance
+#   test:     Add missing tests or correct existing tests
+#   chore:    Changes to build, tools, or dependencies
+#
+# Rules:
+#   - Imperative mood ("Fix bug", not "Fixed bug")
+#   - Omit trailing punctuation from summary
+#   - Hard wrap body paragraphs at 72 characters
+#   - DO NOT mention co-author
