@@ -1,0 +1,11 @@
+[package]
+name = "repotrim-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+blake3 = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
