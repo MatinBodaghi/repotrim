@@ -24,3 +24,7 @@ All commit messages in this repository must strictly adhere to the following sty
   - Hard wrap paragraphs to 72 characters.
 - **Constraints**:
   - DO NOT mention co-author (never add `Co-authored-by`).
+
+## Git Push Policy
+- DO NOT automatically push commits to remote (`git push`).
+- Keep commits local and only push when explicitly instructed by the user.

@@ -26,3 +26,7 @@ All commit messages in this repository must strictly adhere to the following sty
 
 3. **Author Rules**:
    - DO NOT mention co-author (no `Co-authored-by` or similar co-author lines).
+
+### Git Push Policy
+- DO NOT automatically push commits to remote (`git push`).
+- Keep all commits strictly local unless the user explicitly requests a push.
