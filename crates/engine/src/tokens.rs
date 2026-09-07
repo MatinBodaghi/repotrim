@@ -14,32 +14,32 @@ pub fn estimate_tokens(text: &str) -> usize {
     let mut token_count = 0;
     let mut in_word = false;
     let mut prev_char: Option<char> = None;
-    let chars: Vec<char> = text.chars().collect();
+    let mut chars = text.chars().peekable();
 
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-
+    while let Some(c) = chars.next() {
         if c.is_whitespace() {
             in_word = false;
             prev_char = Some(c);
-            i += 1;
             continue;
         }
 
         // Multi-character punctuation operators common in Rust
-        if (c == ':' && i + 1 < chars.len() && chars[i + 1] == ':')
-            || (c == '-' && i + 1 < chars.len() && chars[i + 1] == '>')
-            || (c == '=' && i + 1 < chars.len() && chars[i + 1] == '>')
-            || (c == '=' && i + 1 < chars.len() && chars[i + 1] == '=')
-            || (c == '!' && i + 1 < chars.len() && chars[i + 1] == '=')
-            || (c == '<' && i + 1 < chars.len() && chars[i + 1] == '=')
-            || (c == '>' && i + 1 < chars.len() && chars[i + 1] == '=')
-        {
+        let is_multi_punct = matches!(
+            (c, chars.peek().copied()),
+            (':', Some(':'))
+                | ('-', Some('>'))
+                | ('=', Some('>'))
+                | ('=', Some('='))
+                | ('!', Some('='))
+                | ('<', Some('='))
+                | ('>', Some('='))
+        );
+
+        if is_multi_punct {
+            let next_c = chars.next().unwrap();
             token_count += 1;
             in_word = false;
-            prev_char = Some(chars[i + 1]);
-            i += 2;
+            prev_char = Some(next_c);
             continue;
         }
 
@@ -47,7 +47,6 @@ pub fn estimate_tokens(text: &str) -> usize {
             token_count += 1;
             in_word = false;
             prev_char = Some(c);
-            i += 1;
             continue;
         }
 
@@ -61,15 +60,13 @@ pub fn estimate_tokens(text: &str) -> usize {
                     || (prev.is_ascii_digit() && c.is_alphabetic())
                     || (prev.is_uppercase()
                         && c.is_uppercase()
-                        && i + 1 < chars.len()
-                        && chars[i + 1].is_lowercase());
+                        && chars.peek().is_some_and(|next| next.is_lowercase()));
 
                 if is_camel_transition {
                     token_count += 1;
                 }
             }
             prev_char = Some(c);
-            i += 1;
             continue;
         }
 
@@ -77,7 +74,6 @@ pub fn estimate_tokens(text: &str) -> usize {
         token_count += 1;
         in_word = false;
         prev_char = Some(c);
-        i += 1;
     }
 
     token_count.max(baseline_floor)

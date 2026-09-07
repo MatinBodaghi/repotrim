@@ -1,23 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use thiserror::Error;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
 
+use crate::error::EngineError;
 use crate::symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 use crate::tokens::estimate_tokens;
 
 /// Embedded declarative Tree-sitter queries for Rust symbol and reference extraction.
 const RUST_QUERY_SOURCE: &str = include_str!("../../../queries/rust.scm");
-
-#[derive(Debug, Error)]
-pub enum EngineError {
-    #[error("Failed to parse AST with tree-sitter")]
-    ParseError,
-    #[error("Tree-sitter query error: {0}")]
-    QueryError(#[from] tree_sitter::QueryError),
-    #[error("UTF-8 decoding error: {0}")]
-    Utf8Error(#[from] std::str::Utf8Error),
-}
 
 /// AST symbol and reference extractor for source files.
 pub struct AstExtractor {
@@ -42,7 +32,9 @@ impl AstExtractor {
         next_id: &mut u32,
     ) -> Result<(Vec<SymbolNode>, Vec<ReferenceEdge>), EngineError> {
         let mut parser = Parser::new();
-        parser.set_language(&self.language).map_err(|_| EngineError::ParseError)?;
+        parser
+            .set_language(&self.language)
+            .map_err(|_| EngineError::ParseError)?;
 
         let tree = parser.parse(source, None).ok_or(EngineError::ParseError)?;
         let root_node = tree.root_node();
@@ -294,7 +286,10 @@ fn extract_docstring(node: Node, source: &[u8]) -> Option<String> {
             "line_comment" => {
                 let text = sibling.utf8_text(source).unwrap_or("");
                 let trimmed = text.trim();
-                if let Some(content) = trimmed.strip_prefix("///").or_else(|| trimmed.strip_prefix("//!")) {
+                if let Some(content) = trimmed
+                    .strip_prefix("///")
+                    .or_else(|| trimmed.strip_prefix("//!"))
+                {
                     doc_lines.push(content.trim().to_string());
                 } else {
                     break;

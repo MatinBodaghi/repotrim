@@ -1,8 +1,10 @@
+pub mod error;
 pub mod parser;
 pub mod symbol;
 pub mod tokens;
 
-pub use parser::{AstExtractor, EngineError};
+pub use error::EngineError;
+pub use parser::AstExtractor;
 pub use symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::estimate_tokens;
 
@@ -32,7 +34,11 @@ pub fn distance(p1: &Point, p2: &Point) -> f64 {
 
         let mut next_id = 0;
         let (symbols, edges) = extractor
-            .parse_file(Path::new("src/geometry.rs"), source.as_bytes(), &mut next_id)
+            .parse_file(
+                Path::new("src/geometry.rs"),
+                source.as_bytes(),
+                &mut next_id,
+            )
             .expect("Failed to parse file");
 
         // Verify dense numeric IDs
@@ -40,25 +46,46 @@ pub fn distance(p1: &Point, p2: &Point) -> f64 {
         assert_eq!(symbols.len(), 2);
 
         // Verify struct extraction
-        let struct_sym = symbols.iter().find(|s| s.name == "Point").expect("Point struct not found");
+        let struct_sym = symbols
+            .iter()
+            .find(|s| s.name == "Point")
+            .expect("Point struct not found");
         assert_eq!(struct_sym.id, SymbolId(0));
         assert_eq!(struct_sym.kind, SymbolKind::Struct);
         assert_eq!(struct_sym.file_path, Path::new("src/geometry.rs"));
         assert!(struct_sym.signature.contains("pub struct Point"));
-        assert_eq!(struct_sym.docstring.as_deref(), Some("Documentation for Point."));
-        assert_eq!(struct_sym.ast_hash, *blake3::hash(struct_sym.signature.as_bytes()).as_bytes());
+        assert_eq!(
+            struct_sym.docstring.as_deref(),
+            Some("Documentation for Point.")
+        );
+        assert_eq!(
+            struct_sym.ast_hash,
+            *blake3::hash(struct_sym.signature.as_bytes()).as_bytes()
+        );
         assert!(struct_sym.token_cost > 0);
 
         // Verify function extraction
-        let fn_sym = symbols.iter().find(|s| s.name == "distance").expect("distance function not found");
+        let fn_sym = symbols
+            .iter()
+            .find(|s| s.name == "distance")
+            .expect("distance function not found");
         assert_eq!(fn_sym.id, SymbolId(1));
         assert_eq!(fn_sym.kind, SymbolKind::Function);
-        assert_eq!(fn_sym.docstring.as_deref(), Some("Computes distance between two coordinates."));
-        assert_eq!(fn_sym.ast_hash, *blake3::hash(fn_sym.signature.as_bytes()).as_bytes());
+        assert_eq!(
+            fn_sym.docstring.as_deref(),
+            Some("Computes distance between two coordinates.")
+        );
+        assert_eq!(
+            fn_sym.ast_hash,
+            *blake3::hash(fn_sym.signature.as_bytes()).as_bytes()
+        );
         assert!(fn_sym.token_cost > 0);
 
         // Verify execution body is stripped from function signature
-        assert_eq!(fn_sym.signature, "pub fn distance(p1: &Point, p2: &Point) -> f64");
+        assert_eq!(
+            fn_sym.signature,
+            "pub fn distance(p1: &Point, p2: &Point) -> f64"
+        );
         assert!(!fn_sym.signature.contains('{'));
         assert!(!fn_sym.signature.contains("dx"));
         assert!(!fn_sym.signature.contains("sqrt"));
@@ -128,7 +155,10 @@ impl Service {
 
         // Symbols: struct Service and method handle_request
         assert_eq!(symbols.len(), 2);
-        let method_sym = symbols.iter().find(|s| s.name == "handle_request").expect("handle_request not found");
+        let method_sym = symbols
+            .iter()
+            .find(|s| s.name == "handle_request")
+            .expect("handle_request not found");
         assert_eq!(method_sym.kind, SymbolKind::Method);
         assert_eq!(method_sym.signature, "pub fn handle_request(&self)");
 
@@ -139,7 +169,10 @@ impl Service {
             .map(|e| e.target_ident.as_str())
             .collect();
 
-        assert_eq!(call_targets, vec!["authenticate", "validate", "log_info", "transform"]);
+        assert_eq!(
+            call_targets,
+            vec!["authenticate", "validate", "log_info", "transform"]
+        );
     }
 
     #[test]
@@ -159,11 +192,20 @@ pub trait Worker {
             .parse_file(Path::new("src/worker.rs"), source.as_bytes(), &mut next_id)
             .expect("Failed to parse file");
 
-        let trait_sym = symbols.iter().find(|s| s.name == "Worker").expect("Worker trait not found");
+        let trait_sym = symbols
+            .iter()
+            .find(|s| s.name == "Worker")
+            .expect("Worker trait not found");
         assert_eq!(trait_sym.kind, SymbolKind::Trait);
-        assert_eq!(trait_sym.docstring.as_deref(), Some("Worker trait interface."));
+        assert_eq!(
+            trait_sym.docstring.as_deref(),
+            Some("Worker trait interface.")
+        );
 
-        let fn_sym = symbols.iter().find(|s| s.name == "work").expect("work fn not found");
+        let fn_sym = symbols
+            .iter()
+            .find(|s| s.name == "work")
+            .expect("work fn not found");
         assert_eq!(fn_sym.signature, "fn work(&self)");
         assert_eq!(fn_sym.docstring.as_deref(), Some("Perform task."));
     }
@@ -184,6 +226,26 @@ pub trait Worker {
             .unwrap();
 
         assert_eq!(symbols1[0].ast_hash, symbols2[0].ast_hash);
-        assert_eq!(symbols1[0].ast_hash, *blake3::hash(b"pub fn foo()").as_bytes());
+        assert_eq!(
+            symbols1[0].ast_hash,
+            *blake3::hash(b"pub fn foo()").as_bytes()
+        );
+    }
+
+    #[test]
+    fn test_invalid_utf8_error() {
+        let extractor = AstExtractor::new().expect("Failed to initialize AstExtractor");
+        let invalid_utf8 = [0xff, 0xfe, 0xfd];
+        let mut next_id = 0;
+        let result = extractor.parse_file(Path::new("invalid.rs"), &invalid_utf8, &mut next_id);
+        assert!(matches!(result, Err(EngineError::Utf8Error(_))));
+    }
+
+    #[test]
+    fn test_symbol_id_copy_and_traits() {
+        let id1 = SymbolId(42);
+        let id2 = id1; // Verifies Copy trait
+        assert_eq!(id1, id2);
+        assert_eq!(format!("{}", id1), "42");
     }
 }
