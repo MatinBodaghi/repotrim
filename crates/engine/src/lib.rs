@@ -1,10 +1,16 @@
+pub mod csr;
 pub mod error;
+pub mod graph;
 pub mod parser;
+pub mod resolver;
 pub mod symbol;
 pub mod tokens;
 
+pub use csr::CsrMatrix;
 pub use error::EngineError;
+pub use graph::{LayerWeights, MultiplexGraph};
 pub use parser::AstExtractor;
+pub use resolver::ScopedResolver;
 pub use symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::estimate_tokens;
 
@@ -247,5 +253,81 @@ pub trait Worker {
         let id2 = id1; // Verifies Copy trait
         assert_eq!(id1, id2);
         assert_eq!(format!("{}", id1), "42");
+    }
+
+    #[test]
+    fn test_end_to_end_ast_to_multiplex_graph() {
+        let extractor = AstExtractor::new().expect("Failed to initialize AstExtractor");
+
+        let mod_a = r#"
+pub struct Config {
+    pub timeout: u64,
+}
+
+pub fn initialize() -> Config {
+    setup_logging();
+    Config { timeout: 30 }
+}
+"#;
+
+        let mod_b = r#"
+pub fn setup_logging() {
+    // initialize logger
+}
+
+pub fn run_server() {
+    initialize();
+}
+"#;
+
+        let mut next_id = 0;
+        let (mut symbols_a, mut edges_a) = extractor
+            .parse_file(Path::new("src/config.rs"), mod_a.as_bytes(), &mut next_id)
+            .expect("Failed to parse config.rs");
+
+        let (symbols_b, edges_b) = extractor
+            .parse_file(Path::new("src/server.rs"), mod_b.as_bytes(), &mut next_id)
+            .expect("Failed to parse server.rs");
+
+        symbols_a.extend(symbols_b);
+        edges_a.extend(edges_b);
+
+        let graph = MultiplexGraph::build(symbols_a, &edges_a, LayerWeights::default());
+
+        assert_eq!(graph.num_symbols(), 4);
+        // Edges: initialize -> setup_logging, run_server -> initialize
+        assert_eq!(graph.num_edges(), 2);
+
+        // Find run_server symbol
+        let run_sym = graph
+            .symbols()
+            .iter()
+            .find(|s| s.name == "run_server")
+            .expect("run_server not found");
+
+        let init_sym = graph
+            .symbols()
+            .iter()
+            .find(|s| s.name == "initialize")
+            .expect("initialize not found");
+
+        let logging_sym = graph
+            .symbols()
+            .iter()
+            .find(|s| s.name == "setup_logging")
+            .expect("setup_logging not found");
+
+        // run_server should have 1 out-neighbor pointing to initialize
+        let run_neighbors = graph.neighbors(run_sym.id);
+        assert_eq!(run_neighbors, &[init_sym.id.0]);
+
+        // initialize should have 1 out-neighbor pointing to setup_logging
+        let init_neighbors = graph.neighbors(init_sym.id);
+        assert_eq!(init_neighbors, &[logging_sym.id.0]);
+
+        // Transition probability from run_server to initialize is 1.0
+        let probs = graph.transition_probabilities(run_sym.id);
+        assert_eq!(probs.len(), 1);
+        assert!((probs[0] - 1.0).abs() < 1e-6);
     }
 }
