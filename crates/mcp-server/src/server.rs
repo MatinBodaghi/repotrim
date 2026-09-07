@@ -52,7 +52,7 @@ impl McpServer {
                 break;
             }
 
-            let trimmed = line_buffer.trim();
+            let trimmed = line_buffer.trim().trim_start_matches('\u{feff}');
             if trimmed.is_empty() {
                 continue;
             }

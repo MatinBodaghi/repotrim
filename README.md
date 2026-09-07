@@ -80,6 +80,48 @@ RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Co
 
 ---
 
+---
+
+## Model Context Protocol (MCP) Server Setup
+
+RepoTrim natively implements the **Model Context Protocol (MCP)** specification (`2024-11-05`) over `stdio`, allowing AI agents to query codebase context on-demand in `<1 ms`.
+
+### 1. Claude Desktop Configuration
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "repotrim": {
+      "command": "repotrim",
+      "args": ["mcp", "--path", "/path/to/your/codebase"]
+    }
+  }
+}
+```
+
+### 2. Cursor Configuration
+Add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "repotrim": {
+      "command": "repotrim",
+      "args": ["mcp", "--path", "."]
+    }
+  }
+}
+```
+
+### 3. Exposed MCP Tools
+- **`trim_context(seeds, budget, path, format)`**: Extracts mathematically optimal Markdown or JSON context.
+- **`query_graph_stats(path)`**: Retrieves syntax breakdown, edge density, and top PageRank hubs.
+- **`inspect_symbol(symbol, path)`**: Deeply inspects definitions, token costs, dependencies, and callers.
+- **`clean_cache(path)`**: Purges on-disk cache and resets in-memory daemon state.
+
+---
+
 ## Roadmap
 
 | Phase | Description | Status |
@@ -91,8 +133,8 @@ RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Co
 | **Phase 4** | Multiplex Edge Enrichment ($E_{\text{AST}}, E_{\text{Type}}$) & Multi-Resolution LOD Formatter | **Completed** |
 | **Phase 5** | Standalone CLI Binary (`crates/cli`) with `select`, `stats`, `inspect` | **Completed** |
 | **Phase 6** | Incremental AST Merkle Diffing & Fast Persistence (`bincode`) | **Completed** |
-| **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | Next |
-| **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release | Queued |
+| **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | **Completed** |
+| **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release | Next |
 
 ---
 
