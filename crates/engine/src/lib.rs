@@ -103,10 +103,20 @@ pub fn distance(p1: &Point, p2: &Point) -> f64 {
         assert!(!fn_sym.signature.contains("sqrt"));
 
         // Verify call reference edge
-        assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].source, fn_sym.id);
-        assert_eq!(edges[0].target_ident, "sqrt");
-        assert_eq!(edges[0].kind, EdgeKind::Call);
+        let call_edge = edges
+            .iter()
+            .find(|e| e.kind == EdgeKind::Call)
+            .expect("Call edge not found");
+        assert_eq!(call_edge.source, fn_sym.id);
+        assert_eq!(call_edge.target_ident, "sqrt");
+
+        // Verify type reference edge (p1, p2: &Point)
+        let type_edge = edges
+            .iter()
+            .find(|e| e.kind == EdgeKind::TypeRef)
+            .expect("TypeRef edge not found");
+        assert_eq!(type_edge.source, fn_sym.id);
+        assert_eq!(type_edge.target_ident, "Point");
     }
 
     #[test]
@@ -301,10 +311,10 @@ pub fn run_server() {
         let graph = MultiplexGraph::build(symbols_a, &edges_a, LayerWeights::default());
 
         assert_eq!(graph.num_symbols(), 4);
-        // Edges: initialize -> setup_logging, run_server -> initialize
-        assert_eq!(graph.num_edges(), 2);
+        // Edges: initialize -> setup_logging (Call), initialize -> Config (TypeRef), run_server -> initialize (Call)
+        assert_eq!(graph.num_edges(), 3);
 
-        // Find run_server symbol
+        // Find symbols
         let run_sym = graph
             .symbols()
             .iter()
@@ -323,17 +333,92 @@ pub fn run_server() {
             .find(|s| s.name == "setup_logging")
             .expect("setup_logging not found");
 
+        let config_sym = graph
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Config")
+            .expect("Config not found");
+
         // run_server should have 1 out-neighbor pointing to initialize
         let run_neighbors = graph.neighbors(run_sym.id);
         assert_eq!(run_neighbors, &[init_sym.id.0]);
 
-        // initialize should have 1 out-neighbor pointing to setup_logging
+        // initialize should have 2 out-neighbors pointing to Config and setup_logging
         let init_neighbors = graph.neighbors(init_sym.id);
-        assert_eq!(init_neighbors, &[logging_sym.id.0]);
+        assert_eq!(init_neighbors.len(), 2);
+        assert!(init_neighbors.contains(&config_sym.id.0));
+        assert!(init_neighbors.contains(&logging_sym.id.0));
 
         // Transition probability from run_server to initialize is 1.0
         let probs = graph.transition_probabilities(run_sym.id);
         assert_eq!(probs.len(), 1);
         assert!((probs[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_struct_methods_ast_parent_and_field_type_edges() {
+        let extractor = AstExtractor::new().expect("Failed to initialize AstExtractor");
+
+        let source = r#"
+pub struct Matrix {
+    pub rows: usize,
+}
+
+pub struct Engine {
+    pub matrix: Matrix,
+}
+
+impl Engine {
+    pub fn start(&self) {
+        boot();
+    }
+}
+
+pub fn boot() {}
+"#;
+
+        let mut next_id = 0;
+        let (symbols, edges) = extractor
+            .parse_file(Path::new("src/engine.rs"), source.as_bytes(), &mut next_id)
+            .expect("Failed to parse engine.rs");
+
+        // Verify AstParent edge from start() -> Engine
+        let start_sym = symbols
+            .iter()
+            .find(|s| s.name == "start")
+            .expect("start fn not found");
+        let parent_edge = edges
+            .iter()
+            .find(|e| e.source == start_sym.id && e.kind == EdgeKind::AstParent)
+            .expect("AstParent edge not found for start()");
+        assert_eq!(parent_edge.target_ident, "Engine");
+
+        // Verify TypeRef edge from Engine -> Matrix
+        let engine_sym = symbols
+            .iter()
+            .find(|s| s.name == "Engine")
+            .expect("Engine struct not found");
+        let type_edge = edges
+            .iter()
+            .find(|e| e.source == engine_sym.id && e.kind == EdgeKind::TypeRef)
+            .expect("TypeRef edge not found for Engine");
+        assert_eq!(type_edge.target_ident, "Matrix");
+
+        let start_id = start_sym.id;
+        let engine_id = engine_sym.id;
+
+        // Build MultiplexGraph and verify reverse containment: Engine -> start()
+        let graph = MultiplexGraph::build(symbols, &edges, LayerWeights::default());
+        let engine_neighbors = graph.neighbors(engine_id);
+
+        let matrix_sym = graph
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Matrix")
+            .expect("Matrix not found");
+
+        // Engine must connect to both its member method start() and its field type Matrix
+        assert!(engine_neighbors.contains(&start_id.0));
+        assert!(engine_neighbors.contains(&matrix_sym.id.0));
     }
 }

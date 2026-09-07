@@ -19,6 +19,10 @@
 (struct_item
   name: (type_identifier) @struct.name) @struct
 
+;; Enum items (capturing name)
+(enum_item
+  name: (type_identifier) @enum.name) @enum
+
 ;; Trait items (capturing name)
 (trait_item
   name: (type_identifier) @trait.name) @trait
@@ -46,3 +50,17 @@
 ;; Generic scoped calls: module::foo::<T>(...)
 (call_expression
   function: (generic_function function: (scoped_identifier name: (identifier) @call.target))) @call
+
+;; Impl block items capturing the target struct/type name
+(impl_item
+  type: (type_identifier) @impl.target) @impl
+
+(impl_item
+  type: (generic_type type: (type_identifier) @impl.target)) @impl
+
+;; Struct field declarations capturing member type references
+(field_declaration
+  type: (type_identifier) @field.type) @field
+
+(field_declaration
+  type: (generic_type type: (type_identifier) @field.type)) @field

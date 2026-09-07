@@ -26,7 +26,10 @@ fn test_dogfood_repotrim_engine() {
     let src_dir = manifest_dir.join("src");
 
     println!("\n================================================================================");
-    println!("DOGFOODING REPOTRIM ON ITS OWN CODEBASE: {}", src_dir.display());
+    println!(
+        "DOGFOODING REPOTRIM ON ITS OWN CODEBASE: {}",
+        src_dir.display()
+    );
     println!("================================================================================\n");
 
     let mut rs_files = Vec::new();
@@ -182,7 +185,10 @@ fn run_scenario(
     let reduction_pct = (1.0 - (used_tokens as f64 / total_repo_tokens as f64)) * 100.0;
 
     println!("   - Execution Latency:  {:?}", elapsed);
-    println!("   - Tokens Used:        {} / {} budget", used_tokens, budget);
+    println!(
+        "   - Tokens Used:        {} / {} budget",
+        used_tokens, budget
+    );
     println!(
         "   - Token Reduction:    {:.1}% (from {} total repo tokens)",
         reduction_pct, total_repo_tokens

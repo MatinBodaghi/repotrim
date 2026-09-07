@@ -82,9 +82,19 @@ impl MultiplexGraph {
             let source_node = &symbols[src_idx];
             if let Some((target_id, confidence)) = resolver.resolve(source_node, &edge.target_ident)
             {
+                if edge.source == target_id {
+                    continue;
+                }
+
                 let layer_w = weights.weight_for(edge.kind);
                 let combined_w = layer_w * confidence;
                 directed_edges.push((edge.source.0, target_id.0, combined_w));
+
+                // If this is an AST parent edge (e.g. method -> struct), also emit reverse
+                // containment edge (struct -> method) so struct seeds diffuse to their member methods.
+                if edge.kind == EdgeKind::AstParent {
+                    directed_edges.push((target_id.0, edge.source.0, combined_w));
+                }
             }
         }
 
