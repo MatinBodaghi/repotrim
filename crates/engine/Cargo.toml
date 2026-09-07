@@ -14,7 +14,10 @@ description = "Core AST parsing, Multiplex CPG, Personalized PageRank, and CELF 
 [dependencies]
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-typescript = "0.23"
 blake3 = "1.5"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 bincode = "1.3"
+
