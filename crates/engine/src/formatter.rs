@@ -14,7 +14,11 @@ pub struct ContextFormatter;
 impl ContextFormatter {
     /// Renders a single symbol at a given Level-of-Detail (LOD).
     pub fn render_symbol(symbol: &SymbolNode, lod: LodLevel, file_source: Option<&str>) -> String {
-        let ext = symbol.file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = symbol
+            .file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         let is_python = ext == "py";
 
         match lod {
@@ -225,7 +229,10 @@ impl ContextFormatter {
                 if idx > 0 {
                     output.push('\n');
                 }
-                output.push_str(&format!("{} Lines {}-{}\n", comment_prefix, start_line, end_line));
+                output.push_str(&format!(
+                    "{} Lines {}-{}\n",
+                    comment_prefix, start_line, end_line
+                ));
                 output.push_str(&rendered);
                 output.push('\n');
             }
@@ -247,7 +254,6 @@ impl ContextFormatter {
             _ => "text",
         }
     }
-
 }
 
 #[cfg(test)]

@@ -223,7 +223,6 @@ fn scan_directory(
             let rel_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
             files.push((path, rel_path));
         }
-
     }
 
     Ok(())

@@ -21,21 +21,21 @@
 Built specifically for AI coding assistants and autonomous harnesses (**Claude Code**, **Cursor**, **Windsurf**, **Antigravity**, **OpenCode**, **SWE-bench** runners), RepoTrim extracts the mathematically optimal context skeleton within strict token budgets—maximizing dependency awareness while preventing context bloat and "lost-in-the-middle" LLM reasoning degradation.
 
 ```text
-┌────────────────────────┐       Tree-sitter AST       ┌─────────────────────────────────┐
-│ Codebase (Rust, etc.)  │ ─────────────────────────>  │  Multiplex Code Property Graph  │
-└────────────────────────┘                             │  (AST, Call, Type, Import)      │
-                                                       └─────────────────────────────────┘
-                                                                        │
-┌────────────────────────┐   Personalized PageRank (PPR)                ▼
-│ Query / Seed Symbols   │ ─────────────────────────>  ┌─────────────────────────────────┐
-└────────────────────────┘     O(1/ε) Forward-Push     │  Local Relevance Vector π_q     │
-                                                       └─────────────────────────────────┘
-                                                                        │
-┌────────────────────────┐   Submodular Knapsack Solver                 ▼
-│ Token Budget (e.g. 500)│ ─────────────────────────>  ┌─────────────────────────────────┐
-└────────────────────────┘      CELF Lazy Forward      │  Multi-Resolution LOD Skeleton  │
-                                                       │  (Signatures, Slices & Bodies)  │
-                                                       └─────────────────────────────────┘
+┌─────────────────────────────────┐       Tree-sitter AST       ┌─────────────────────────────────┐
+│ Codebase (Rust, Python, TS/JS)  │ ─────────────────────────>  │  Multiplex Code Property Graph  │
+└─────────────────────────────────┘                             │  (AST, Call, Type, Import)      │
+                                                                └─────────────────────────────────┘
+                                                                                 │
+┌─────────────────────────────────┐   Personalized PageRank (PPR)                ▼
+│ Query / Seed Symbols            │ ─────────────────────────>  ┌─────────────────────────────────┐
+└─────────────────────────────────┘     O(1/ε) Forward-Push     │  Local Relevance Vector π_q     │
+                                                                └─────────────────────────────────┘
+                                                                                 │
+┌─────────────────────────────────┐   Submodular Knapsack Solver                 ▼
+│ Token Budget (e.g. 500)         │ ─────────────────────────>  ┌─────────────────────────────────┐
+└─────────────────────────────────┘      CELF Lazy Forward      │  Multi-Resolution LOD Skeleton  │
+                                                                │  (Signatures, Slices & Bodies)  │
+                                                                └─────────────────────────────────┘
 ```
 
 ---
@@ -75,12 +75,15 @@ Evaluated head-to-head on identical queries across the RepoTrim codebase (detail
 
 ## Key Features
 
+- **Multi-Language Polyglot Support**:
+  Native Tree-sitter AST parsing and symbol extraction for **Rust** (`.rs`), **Python** (`.py`), and **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) into a unified cross-language multiplex code graph.
 - **Multiplex Code Property Graph ($\mathcal{M} = (V, \{E_k\}, \mathbf{W})$)**:
-  Extracts granular syntax entities (functions, methods, structs, traits, modules) indexed by compact 32-bit `SymbolId`s with layered tensor weights:
-  - $E_{\text{AST}}$: Lexical containment (module $\to$ struct $\to$ method).
+  Extracts granular syntax entities (functions, methods, structs, classes, interfaces, traits, modules) indexed by compact 32-bit `SymbolId`s with layered tensor weights:
+  - $E_{\text{AST}}$: Lexical containment (module $\to$ struct/class $\to$ method).
   - $E_{\text{Call}}$: Explicit invocation call-graph edges.
-  - $E_{\text{Type}}$: Type dependencies (inputs, return values, field types).
-  - $E_{\text{Import}}$: Module paths and use statements.
+  - $E_{\text{Type}}$: Type dependencies (inputs, return values, field types, class inheritance).
+  - $E_{\text{Import}}$: Module paths and use/import statements.
+
 - **Bayesian Scoped Disambiguation**:
   Resolves call and type targets across files without requiring a slow compiler daemon, weighting lexical proximity, scope hierarchy, and receiver hints.
 - **Personalized PageRank (ACL Forward-Push)**:

@@ -510,12 +510,10 @@ impl AstExtractor {
 /// Helper searching children of a node matching specified kind names.
 fn find_child_by_kinds<'a>(node: Node<'a>, kinds: &[&str]) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-    }
-    None
+    let found = node
+        .children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()));
+    found
 }
 
 /// Determines if an AST node is contained within a class definition.
@@ -569,9 +567,17 @@ fn extract_python_docstring(node: Node, source: &[u8]) -> Option<String> {
                     let stripped = trimmed
                         .strip_prefix("\"\"\"")
                         .and_then(|s| s.strip_suffix("\"\"\""))
-                        .or_else(|| trimmed.strip_prefix("'''").and_then(|s| s.strip_suffix("'''")))
+                        .or_else(|| {
+                            trimmed
+                                .strip_prefix("'''")
+                                .and_then(|s| s.strip_suffix("'''"))
+                        })
                         .or_else(|| trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
-                        .or_else(|| trimmed.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                        .or_else(|| {
+                            trimmed
+                                .strip_prefix('\'')
+                                .and_then(|s| s.strip_suffix('\''))
+                        })
                         .unwrap_or(trimmed);
                     return Some(stripped.trim().to_string());
                 }
