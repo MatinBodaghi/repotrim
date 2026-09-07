@@ -5,6 +5,7 @@ pub mod graph;
 pub mod parser;
 pub mod ppr;
 pub mod resolver;
+pub mod selector;
 pub mod symbol;
 pub mod tokens;
 
@@ -15,6 +16,7 @@ pub use graph::{LayerWeights, MultiplexGraph};
 pub use parser::AstExtractor;
 pub use ppr::{PprConfig, PprSolver};
 pub use resolver::ScopedResolver;
+pub use selector::ContextSelector;
 pub use symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::estimate_tokens;
 
