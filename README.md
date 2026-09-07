@@ -45,6 +45,12 @@ RepoTrim replaces brute-force file dumping and naive vector retrieval with a det
 ```text
 repotrim/
 ├── Cargo.toml                  # Workspace manifest
+├── docs/
+│   └── harness/                # Agent harness guides, blueprint templates & server docs
+│       ├── OVERVIEW.md
+│       ├── FEATURE_BLUEPRINT_TEMPLATE.md
+│       ├── LOCAL_TO_SERVER.md
+│       └── TOKEN_OPTIMIZATION.md
 ├── queries/                    # Tree-sitter declarative S-expression queries
 │   └── rust.scm
 └── crates/
@@ -59,6 +65,17 @@ repotrim/
     ├── cli/                    # repotrim: Standalone terminal interface (Phase 6)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server (Phase 6)
 ```
+
+---
+
+## Agent Harness Integration & Documentation
+
+RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Code, Cursor, OpenCode, SWE-bench runners). Detailed documentation is organized under [`docs/harness/`](docs/harness/):
+
+- **[Harness Overview](docs/harness/OVERVIEW.md)**: How agent harnesses invoke RepoTrim to prevent context window exhaustion and "lost-in-the-middle" degradation.
+- **[Feature Blueprint Template](docs/harness/FEATURE_BLUEPRINT_TEMPLATE.md)**: Standardized template for specifying new features with high information density, allowing agents to anchor directly to seeds without blind directory scanning.
+- **[Local-to-Server Guide](docs/harness/LOCAL_TO_SERVER.md)**: Step-by-step instructions for moving from local development (Windows/macOS) to remote Linux servers, cloud VMs, and Docker containers.
+- **[Token Optimization Guide](docs/harness/TOKEN_OPTIMIZATION.md)**: 3-tier context funnel and dynamic budget allocation strategies to achieve 70–85% token reduction.
 
 ---
 
