@@ -1,7 +1,15 @@
 [package]
 name = "repotrim-engine"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Core AST parsing, Multiplex CPG, Personalized PageRank, and CELF knapsack engine for RepoTrim"
 
 [dependencies]
 tree-sitter = "0.25"

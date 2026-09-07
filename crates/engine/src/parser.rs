@@ -7,7 +7,7 @@ use crate::symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, T
 use crate::tokens::estimate_tokens;
 
 /// Embedded declarative Tree-sitter queries for Rust symbol and reference extraction.
-const RUST_QUERY_SOURCE: &str = include_str!("../../../queries/rust.scm");
+const RUST_QUERY_SOURCE: &str = include_str!("../queries/rust.scm");
 
 /// AST symbol and reference extractor for source files.
 pub struct AstExtractor {

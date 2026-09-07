@@ -1,7 +1,14 @@
 [package]
 name = "repotrim"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Mathematically optimal codebase context trimmer for AI coding agents"
 
 [lib]
@@ -13,8 +20,8 @@ name = "repotrim"
 path = "src/main.rs"
 
 [dependencies]
-repotrim-engine = { path = "../engine" }
-repotrim-mcp = { path = "../mcp-server" }
+repotrim-engine = { path = "../engine", version = "0.1.0" }
+repotrim-mcp = { path = "../mcp-server", version = "0.1.0" }
 clap = { version = "4.5", features = ["derive", "cargo"] }
 colored = "2.1"
 serde = { version = "1.0", features = ["derive"] }

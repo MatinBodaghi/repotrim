@@ -5,3 +5,16 @@ members = [
     "crates/cli",
     "crates/mcp-server",
 ]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Matin Bodaghi <matinbodaghi@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/matinbodaghi/repotrim"
+homepage = "https://github.com/matinbodaghi/repotrim"
+documentation = "https://docs.rs/repotrim"
+readme = "README.md"
+keywords = ["codebase", "llm", "context", "prompt", "ast"]
+categories = ["development-tools", "command-line-utilities", "algorithms"]
+

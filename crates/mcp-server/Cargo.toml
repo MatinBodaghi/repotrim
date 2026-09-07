@@ -1,7 +1,14 @@
 [package]
 name = "repotrim-mcp"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Model Context Protocol (MCP) server for RepoTrim"
 
 [lib]
@@ -13,6 +20,6 @@ name = "repotrim-mcp"
 path = "src/main.rs"
 
 [dependencies]
-repotrim-engine = { path = "../engine" }
+repotrim-engine = { path = "../engine", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
