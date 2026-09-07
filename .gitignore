@@ -59,3 +59,6 @@ $RECYCLE.BIN/
 *.swo
 [#]*[#]
 .#*
+
+# RepoTrim cache directory
+.repotrim/

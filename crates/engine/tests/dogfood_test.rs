@@ -13,7 +13,7 @@ fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 collect_rs_files(&path, files);
-            } else if path.extension().map_or(false, |ext| ext == "rs") {
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
                 files.push(path);
             }
         }

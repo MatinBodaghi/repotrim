@@ -33,6 +33,10 @@ pub struct SelectArgs {
     #[arg(short = 'f', long = "format", value_enum, default_value_t = OutputFormat::Markdown)]
     pub format: OutputFormat,
 
+    /// Disable incremental AST caching and force full re-parsing
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
+
     /// Optional file destination to write output (defaults to stdout)
     #[arg(short = 'o', long = "output")]
     pub output: Option<PathBuf>,
@@ -47,15 +51,30 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         args.path.display().to_string().bold()
     );
 
-    let repo = LoadedRepository::load(&args.path)?;
+    let mut repo = LoadedRepository::load_with_options(&args.path, !args.no_cache)?;
+    repo.load_all_sources()?;
     let load_time = start_time.elapsed();
 
+    let cache_info = if args.no_cache {
+        " (cache disabled)".dimmed().to_string()
+    } else {
+        format!(
+            " (cache: {}/{} warm hits, {:.1}%)",
+            repo.cache_report.cached_files,
+            repo.cache_report.total_files,
+            repo.cache_report.hit_ratio * 100.0
+        )
+        .dimmed()
+        .to_string()
+    };
+
     eprintln!(
-        "{} Ingested {} symbols across {} files in {:?}",
+        "{} Ingested {} symbols across {} files in {:?}{}",
         "✓".green().bold(),
         repo.symbols.len().to_string().bold(),
-        repo.file_sources.len().to_string().bold(),
-        load_time
+        repo.cache_report.total_files.to_string().bold(),
+        load_time,
+        cache_info
     );
 
     // Resolve seed strings to SymbolIds

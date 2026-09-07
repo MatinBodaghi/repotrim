@@ -14,6 +14,10 @@ pub struct InspectArgs {
     /// Target codebase directory to scan
     #[arg(short = 'p', long = "path", default_value = ".")]
     pub path: PathBuf,
+
+    /// Disable incremental AST caching and force full re-parsing
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
 }
 
 pub fn execute(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +27,7 @@ pub fn execute(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
         args.path.display().to_string().bold()
     );
 
-    let repo = LoadedRepository::load(&args.path)?;
+    let repo = LoadedRepository::load_with_options(&args.path, !args.no_cache)?;
     let graph = repo.build_graph();
 
     let matching_symbols: Vec<_> = graph

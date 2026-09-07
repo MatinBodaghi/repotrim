@@ -24,6 +24,8 @@ enum Commands {
     Stats(commands::stats::StatsArgs),
     /// Deeply inspect a symbol's graph dependencies and callers
     Inspect(commands::inspect::InspectArgs),
+    /// Clear incremental AST Merkle cache (.repotrim directory)
+    Clean(commands::clean::CleanArgs),
 }
 
 fn main() {
@@ -33,6 +35,7 @@ fn main() {
         Commands::Select(args) => commands::select::execute(args),
         Commands::Stats(args) => commands::stats::execute(args),
         Commands::Inspect(args) => commands::inspect::execute(args),
+        Commands::Clean(args) => commands::clean::execute(args),
     };
 
     if let Err(e) = result {

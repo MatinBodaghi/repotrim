@@ -97,3 +97,71 @@ fn test_cli_select_json() {
     assert!(parsed.get("symbols").is_some());
     assert!(parsed.get("markdown").is_some());
 }
+
+#[test]
+fn test_cli_clean_and_incremental_cache() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("repotrim_cli_cache_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("src")).unwrap();
+
+    let file_path = temp_dir.join("src/main.rs");
+    std::fs::write(
+        &file_path,
+        "pub fn compute_sum(a: i32, b: i32) -> i32 { a + b }",
+    )
+    .unwrap();
+
+    // 1. Cold stats run
+    let output_cold = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["stats", "--path"])
+        .arg(&temp_dir)
+        .output()
+        .expect("Failed to execute stats cold");
+    assert!(output_cold.status.success());
+    let _stderr_cold = String::from_utf8_lossy(&output_cold.stderr);
+    let stdout_cold = String::from_utf8_lossy(&output_cold.stdout);
+    assert!(stdout_cold.contains("Incremental Cache:"));
+    assert!(temp_dir.join(".repotrim/cache.bin").exists());
+
+    // 2. Warm stats run (cache hit)
+    let output_warm = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["stats", "--path"])
+        .arg(&temp_dir)
+        .output()
+        .expect("Failed to execute stats warm");
+    assert!(output_warm.status.success());
+    let stdout_warm = String::from_utf8_lossy(&output_warm.stdout);
+    assert!(stdout_warm.contains("1/1 files cached (100.0% warm hit)"));
+
+    // 3. No-cache stats run
+    let output_nocache = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["stats", "--no-cache", "--path"])
+        .arg(&temp_dir)
+        .output()
+        .expect("Failed to execute stats --no-cache");
+    assert!(output_nocache.status.success());
+    let stdout_nocache = String::from_utf8_lossy(&output_nocache.stdout);
+    assert!(stdout_nocache.contains("Disabled (--no-cache)"));
+
+    // 4. Select with warm cache
+    let output_select = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["select", "--seed", "compute_sum", "--path"])
+        .arg(&temp_dir)
+        .output()
+        .expect("Failed to execute select");
+    assert!(output_select.status.success());
+    let stdout_select = String::from_utf8_lossy(&output_select.stdout);
+    assert!(stdout_select.contains("pub fn compute_sum"));
+
+    // 5. Clean cache command
+    let output_clean = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["clean", "--path"])
+        .arg(&temp_dir)
+        .output()
+        .expect("Failed to execute clean");
+    assert!(output_clean.status.success());
+    assert!(!temp_dir.join(".repotrim").exists());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

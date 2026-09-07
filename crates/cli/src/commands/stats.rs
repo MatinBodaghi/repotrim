@@ -11,6 +11,10 @@ pub struct StatsArgs {
     /// Target codebase directory to scan
     #[arg(short = 'p', long = "path", default_value = ".")]
     pub path: PathBuf,
+
+    /// Disable incremental AST caching and force full re-parsing
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
 }
 
 pub fn execute(args: StatsArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +26,7 @@ pub fn execute(args: StatsArgs) -> Result<(), Box<dyn std::error::Error>> {
         args.path.display().to_string().bold()
     );
 
-    let repo = LoadedRepository::load(&args.path)?;
+    let repo = LoadedRepository::load_with_options(&args.path, !args.no_cache)?;
     let load_time = start_time.elapsed();
 
     let graph_start = Instant::now();
@@ -90,13 +94,26 @@ pub fn execute(args: StatsArgs) -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "    • Source Files:      {}",
-        repo.file_sources.len().to_string().bold()
+        repo.cache_report.total_files.to_string().bold()
     );
     println!(
         "    • Source Bytes:      {} bytes",
         repo.total_bytes.to_string().bold()
     );
     println!("    • Ingestion Time:    {:?}", load_time);
+    let cache_status = if args.no_cache {
+        "Disabled (--no-cache)".dimmed().to_string()
+    } else {
+        format!(
+            "{}/{} files cached ({:.1}% warm hit)",
+            repo.cache_report.cached_files,
+            repo.cache_report.total_files,
+            repo.cache_report.hit_ratio * 100.0
+        )
+        .cyan()
+        .to_string()
+    };
+    println!("    • Incremental Cache: {}", cache_status);
     println!(
         "    • Total Inventory:   {} tokens",
         total_tokens.to_string().bold()

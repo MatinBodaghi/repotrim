@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn test_unresolvable_identifier() {
         let n1 = make_test_node(0, "main", "src/main.rs");
-        let resolver = ScopedResolver::new(&[n1.clone()]);
+        let resolver = ScopedResolver::new(std::slice::from_ref(&n1));
 
         let result = resolver.resolve(&n1, "non_existent_function");
         assert!(result.is_none());
