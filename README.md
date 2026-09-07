@@ -88,8 +88,8 @@ RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Co
 | **Phase 2** | Multiplex Graph, Bayesian Scoped Resolution & CSR Packing | **Completed** |
 | **Phase 3** | Mathematical Engine (ACL Forward-Push PPR + CELF Knapsack) | **Completed** |
 | **Phase 4** | Multiplex Edge Enrichment ($E_{\text{AST}}, E_{\text{Type}}$) & Multi-Resolution LOD Formatter | **Completed** |
-| **Phase 5** | Standalone CLI Binary (`crates/cli`) with `select`, `stats`, `inspect` | Next |
-| **Phase 6** | Incremental AST Merkle Diffing & Zero-Copy Persistence (`rkyv`) | Queued |
+| **Phase 5** | Standalone CLI Binary (`crates/cli`) with `select`, `stats`, `inspect` | **Completed** |
+| **Phase 6** | Incremental AST Merkle Diffing & Zero-Copy Persistence (`rkyv`) | Next |
 | **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | Queued |
 | **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release | Queued |
 
