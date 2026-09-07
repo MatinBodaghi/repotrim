@@ -1,8 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use repotrim_cli::LoadedRepository;
-use repotrim_engine::{ContextSelector, PprSolver, SymbolId, SymbolKind};
+use repotrim_engine::{ContextSelector, LoadedRepository, PprSolver, SymbolId, SymbolKind};
 
 use crate::protocol::{
     InitializeResult, JsonRpcRequest, JsonRpcResponse, ServerCapabilities, ServerInfo,

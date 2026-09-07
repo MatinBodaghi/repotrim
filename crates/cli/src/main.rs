@@ -26,6 +26,8 @@ enum Commands {
     Inspect(commands::inspect::InspectArgs),
     /// Clear incremental AST Merkle cache (.repotrim directory)
     Clean(commands::clean::CleanArgs),
+    /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
+    Mcp(commands::mcp::McpArgs),
 }
 
 fn main() {
@@ -36,6 +38,7 @@ fn main() {
         Commands::Stats(args) => commands::stats::execute(args),
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),
+        Commands::Mcp(args) => commands::mcp::execute(args),
     };
 
     if let Err(e) = result {

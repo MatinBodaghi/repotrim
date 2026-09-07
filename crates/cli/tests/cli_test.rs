@@ -18,6 +18,8 @@ fn test_cli_help() {
     assert!(stdout.contains("select"));
     assert!(stdout.contains("stats"));
     assert!(stdout.contains("inspect"));
+    assert!(stdout.contains("clean"));
+    assert!(stdout.contains("mcp"));
 }
 
 #[test]
