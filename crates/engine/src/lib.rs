@@ -21,7 +21,7 @@ pub use error::EngineError;
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use loader::{CacheReport, LoadedRepository};
-pub use parser::AstExtractor;
+pub use parser::{AstExtractor, SupportedLanguage};
 pub use ppr::{PprConfig, PprSolver};
 pub use resolver::ScopedResolver;
 pub use selector::ContextSelector;
