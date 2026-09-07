@@ -196,7 +196,23 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
+### Antigravity Configuration
+
+Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_config.json` (global-level):
+
+```json
+{
+  "mcpServers": {
+    "repotrim": {
+      "command": "repotrim",
+      "args": ["mcp", "--path", "."]
+    }
+  }
+}
+```
+
 ### Exposed MCP Tools
+
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
