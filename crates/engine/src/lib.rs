@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod celf;
 pub mod csr;
 pub mod error;
@@ -10,6 +11,9 @@ pub mod selector;
 pub mod symbol;
 pub mod tokens;
 
+pub use cache::{
+    compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
+};
 pub use celf::{CelfConfig, CelfOptimizer};
 pub use csr::CsrMatrix;
 pub use error::EngineError;
