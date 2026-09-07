@@ -1,8 +1,25 @@
 # RepoTrim
 
+[![CI](https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml/badge.svg)](https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust Version](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
+
 A mathematically optimal codebase context trimmer for AI coding agents (Antigravity, OpenCode, Claude Code, Cursor).
 
 RepoTrim replaces brute-force file dumping and naive vector retrieval with a deterministic multiplex code property graph, Personalized PageRank (PPR), and CELF submodular knapsack packing.
+
+---
+
+## Empirical Benchmark Performance
+
+RepoTrim was evaluated head-to-head against industry-standard baselines across the repository graph (detailed in [Comparative Study](docs/benchmarks/comparative_study.md)):
+
+| Strategy | Token Reduction | Direct Dep Recall | Execution Latency | Context Quality |
+| :--- | :---: | :---: | :---: | :--- |
+| **Whole-File Dump** | 0.0% | 100.0% | ~300 µs | High token bloat, causes context window starvation |
+| **Naive Keyword / Grep** | 96.6% – 99.5% | 0.0% | ~50 µs | Catastrophic context loss; zero type or signature recall |
+| **Global PageRank (Aider-style)** | 79.7% – 87.3% | 0.0% – 11.1% | ~400 µs | Fills budget with global root hubs, omitting query context |
+| **RepoTrim (Ours)** | **80.1% – 87.3%** | **33.3% – 77.8%** | **<250 µs (release)** | **Strict token adherence, high local dependency recall** |
 
 ---
 
@@ -44,8 +61,14 @@ RepoTrim replaces brute-force file dumping and naive vector retrieval with a det
 
 ```text
 repotrim/
-├── Cargo.toml                  # Workspace manifest
+├── Cargo.toml                  # Workspace manifest & package metadata
+├── LICENSE-MIT                 # MIT License
+├── LICENSE-APACHE              # Apache 2.0 License
+├── .github/workflows/ci.yml    # Multi-platform CI (Ubuntu, Windows, macOS)
 ├── docs/
+│   ├── benchmarks/             # Comparative study & dogfood benchmarks
+│   │   ├── comparative_study.md
+│   │   └── dogfood_phase7.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
 │       ├── FEATURE_BLUEPRINT_TEMPLATE.md
@@ -63,7 +86,7 @@ repotrim/
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
     │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
     │       └── parser.rs       # Tree-sitter driver & signature extractor
-    ├── cli/                    # repotrim: Standalone CLI binary (select, stats, inspect, clean)
+    ├── cli/                    # repotrim: Standalone CLI binary (select, stats, inspect, clean, mcp)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server (Phase 7)
 ```
 
@@ -77,8 +100,6 @@ RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Co
 - **[Feature Blueprint Template](docs/harness/FEATURE_BLUEPRINT_TEMPLATE.md)**: Standardized template for specifying new features with high information density, allowing agents to anchor directly to seeds without blind directory scanning.
 - **[Local-to-Server Guide](docs/harness/LOCAL_TO_SERVER.md)**: Step-by-step instructions for moving from local development (Windows/macOS) to remote Linux servers, cloud VMs, and Docker containers.
 - **[Token Optimization Guide](docs/harness/TOKEN_OPTIMIZATION.md)**: 3-tier context funnel and dynamic budget allocation strategies to achieve 70–85% token reduction.
-
----
 
 ---
 
@@ -134,19 +155,55 @@ Add to `.cursor/mcp.json`:
 | **Phase 5** | Standalone CLI Binary (`crates/cli`) with `select`, `stats`, `inspect` | **Completed** |
 | **Phase 6** | Incremental AST Merkle Diffing & Fast Persistence (`bincode`) | **Completed** |
 | **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | **Completed** |
-| **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release | Next |
+| **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release Preparation | **Completed** |
+
+---
+
+## Installation & crates.io Publishing
+
+### Building from Source
+
+```bash
+# Clone and build optimized release binaries
+git clone https://github.com/matinbodaghi/repotrim.git
+cd repotrim
+cargo build --release --workspace
+
+# The binaries will be available at:
+# ./target/release/repotrim       (CLI binary with MCP support)
+# ./target/release/repotrim-mcp   (Dedicated standalone MCP server)
+```
+
+### Publishing to crates.io (Maintainers)
+
+The workspace crates are configured with inter-package version pinning and standalone assets:
+
+```bash
+# 1. Publish core engine
+cargo publish -p repotrim-engine
+
+# 2. Publish MCP server
+cargo publish -p repotrim-mcp
+
+# 3. Publish CLI tool
+cargo publish -p repotrim
+```
 
 ---
 
 ## Development & Testing
 
 ```bash
-# Run unit and integration tests
+# Run unit, integration, and comparative benchmark tests
 cargo test --workspace
 
+# Run baseline comparative benchmark suite with live output
+cargo test -p repotrim-engine --test benchmark_baselines -- --nocapture
+
 # Run linter
-cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 
 # Format code
 cargo fmt --check
 ```
+
