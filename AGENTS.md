@@ -32,3 +32,11 @@ All commit messages in this repository must strictly adhere to the following sty
 ## Atomic Commits & Phase Granularity
 - Split each development phase into multiple small, logical, self-contained atomic commits based on the sub-components/modules rather than one single commit for the whole phase.
 - Each intermediate commit must compile cleanly and pass its respective unit tests.
+
+## Post-Phase Dogfooding & Comparative Evolution Protocol
+- After completing every development phase:
+  1. Run/create a dedicated dogfood integration test benchmarking RepoTrim on its own repository.
+  2. Record and preserve the dogfood results alongside the previous phase's results for historical comparison (e.g. `docs/benchmarks/dogfood_phaseX.md`).
+  3. Compare the new metrics directly against the prior phase (latency, token reduction %, edge connectivity, struct/method coverage).
+  4. Assess whether the empirical findings indicate necessary roadmap or phase adjustments and report recommendations to the user before starting the next phase.
+
