@@ -54,16 +54,17 @@ repotrim/
 ├── queries/                    # Tree-sitter declarative S-expression queries
 │   └── rust.scm
 └── crates/
-    ├── engine/                 # repotrim-engine: AST parsing, CSR, PPR, CELF
+    ├── engine/                 # repotrim-engine: AST parsing, CSR, PPR, CELF, Cache
     │   ├── Cargo.toml
     │   └── src/
     │       ├── lib.rs
+    │       ├── cache.rs        # Incremental BLAKE3 Merkle cache and bincode persistence
     │       ├── error.rs        # Engine error types
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
     │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
     │       └── parser.rs       # Tree-sitter driver & signature extractor
-    ├── cli/                    # repotrim: Standalone terminal interface (Phase 6)
-    └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server (Phase 6)
+    ├── cli/                    # repotrim: Standalone CLI binary (select, stats, inspect, clean)
+    └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server (Phase 7)
 ```
 
 ---
@@ -89,8 +90,8 @@ RepoTrim is built natively for AI coding agent harnesses (Antigravity, Claude Co
 | **Phase 3** | Mathematical Engine (ACL Forward-Push PPR + CELF Knapsack) | **Completed** |
 | **Phase 4** | Multiplex Edge Enrichment ($E_{\text{AST}}, E_{\text{Type}}$) & Multi-Resolution LOD Formatter | **Completed** |
 | **Phase 5** | Standalone CLI Binary (`crates/cli`) with `select`, `stats`, `inspect` | **Completed** |
-| **Phase 6** | Incremental AST Merkle Diffing & Zero-Copy Persistence (`rkyv`) | Next |
-| **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | Queued |
+| **Phase 6** | Incremental AST Merkle Diffing & Fast Persistence (`bincode`) | **Completed** |
+| **Phase 7** | MCP Server (`stdio` JSON-RPC protocol) for Agent Harnesses | Next |
 | **Phase 8** | Empirical Benchmarking (vs. Aider/BM25/RAG) & crates.io Release | Queued |
 
 ---
