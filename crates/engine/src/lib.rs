@@ -1,3 +1,4 @@
+pub mod celf;
 pub mod csr;
 pub mod error;
 pub mod graph;
@@ -7,6 +8,7 @@ pub mod resolver;
 pub mod symbol;
 pub mod tokens;
 
+pub use celf::{CelfConfig, CelfOptimizer};
 pub use csr::CsrMatrix;
 pub use error::EngineError;
 pub use graph::{LayerWeights, MultiplexGraph};
