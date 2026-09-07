@@ -14,10 +14,15 @@ pub struct ContextFormatter;
 impl ContextFormatter {
     /// Renders a single symbol at a given Level-of-Detail (LOD).
     pub fn render_symbol(symbol: &SymbolNode, lod: LodLevel, file_source: Option<&str>) -> String {
+        let ext = symbol.file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let is_python = ext == "py";
+
         match lod {
             LodLevel::SignatureOnly => {
                 let sig = symbol.signature.trim();
-                if symbol.kind == SymbolKind::Function || symbol.kind == SymbolKind::Method {
+                if !is_python
+                    && (symbol.kind == SymbolKind::Function || symbol.kind == SymbolKind::Method)
+                {
                     if !sig.ends_with(';') {
                         format!("{};", sig)
                     } else {
@@ -30,9 +35,10 @@ impl ContextFormatter {
             LodLevel::SignatureAndDoc => {
                 let sig = Self::render_symbol(symbol, LodLevel::SignatureOnly, file_source);
                 if let Some(doc) = &symbol.docstring {
+                    let comment_prefix = if is_python { "#" } else { "///" };
                     let doc_formatted: String = doc
                         .lines()
-                        .map(|l| format!("/// {}", l))
+                        .map(|l| format!("{} {}", comment_prefix, l))
                         .collect::<Vec<_>>()
                         .join("\n");
                     format!("{}\n{}", doc_formatted, sig)
@@ -53,11 +59,19 @@ impl ContextFormatter {
                         {
                             return full.to_string();
                         }
-                        let sig = symbol.signature.trim_end_matches(';').trim();
-                        return format!(
-                            "{} {{\n    // ... [implementation body sliced for budget] ...\n}}",
-                            sig
-                        );
+                        if is_python {
+                            let sig = symbol.signature.trim_end_matches(':').trim();
+                            return format!(
+                                "{}:\n    # ... [implementation body sliced for budget] ...\n    pass",
+                                sig
+                            );
+                        } else {
+                            let sig = symbol.signature.trim_end_matches(';').trim();
+                            return format!(
+                                "{} {{\n    // ... [implementation body sliced for budget] ...\n}}",
+                                sig
+                            );
+                        }
                     }
                 }
                 Self::render_symbol(symbol, LodLevel::SignatureAndDoc, file_source)
@@ -192,9 +206,11 @@ impl ContextFormatter {
             file_syms.sort_by_key(|s| s.span.start_row);
 
             let file_src = file_sources.get(path).map(|s| s.as_str());
+            let lang_tag = Self::language_tag_for_path(path);
+            let comment_prefix = if lang_tag == "python" { "#" } else { "//" };
 
             output.push_str(&format!("### File: `{}`\n", path.display()));
-            output.push_str("```rust\n");
+            output.push_str(&format!("```{}\n", lang_tag));
 
             for (idx, sym) in file_syms.iter().enumerate() {
                 let lod = lod_map
@@ -209,7 +225,7 @@ impl ContextFormatter {
                 if idx > 0 {
                     output.push('\n');
                 }
-                output.push_str(&format!("// Lines {}-{}\n", start_line, end_line));
+                output.push_str(&format!("{} Lines {}-{}\n", comment_prefix, start_line, end_line));
                 output.push_str(&rendered);
                 output.push('\n');
             }
@@ -219,6 +235,19 @@ impl ContextFormatter {
 
         output.trim_end().to_string()
     }
+
+    /// Infers the syntax highlighting language tag from a file path.
+    pub fn language_tag_for_path(path: &std::path::Path) -> &'static str {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("rs") => "rust",
+            Some("py") => "python",
+            Some("ts") => "typescript",
+            Some("tsx") => "tsx",
+            Some("js" | "jsx" | "mjs" | "cjs") => "javascript",
+            _ => "text",
+        }
+    }
+
 }
 
 #[cfg(test)]

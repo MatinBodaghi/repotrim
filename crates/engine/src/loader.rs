@@ -1,6 +1,6 @@
 use crate::{
     compute_blake3_hash, get_mtime_nanos, AstExtractor, EngineError, FileCacheEntry, LayerWeights,
-    MultiplexGraph, ReferenceEdge, RepositoryCache, SymbolNode,
+    MultiplexGraph, ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -219,10 +219,11 @@ fn scan_directory(
             if !IGNORED_DIRS.contains(&file_name_str.as_ref()) {
                 scan_directory(root, &path, files)?;
             }
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
+        } else if SupportedLanguage::from_path(&path).is_some() {
             let rel_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
             files.push((path, rel_path));
         }
+
     }
 
     Ok(())
