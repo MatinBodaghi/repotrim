@@ -1,6 +1,7 @@
 pub mod celf;
 pub mod csr;
 pub mod error;
+pub mod formatter;
 pub mod graph;
 pub mod parser;
 pub mod ppr;
@@ -12,12 +13,13 @@ pub mod tokens;
 pub use celf::{CelfConfig, CelfOptimizer};
 pub use csr::CsrMatrix;
 pub use error::EngineError;
+pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use parser::AstExtractor;
 pub use ppr::{PprConfig, PprSolver};
 pub use resolver::ScopedResolver;
 pub use selector::ContextSelector;
-pub use symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
+pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::estimate_tokens;
 
 #[cfg(test)]

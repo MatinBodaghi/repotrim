@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use crate::celf::{CelfConfig, CelfOptimizer};
+use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::ppr::{PprConfig, PprSolver};
 use crate::symbol::{SymbolId, SymbolNode};
@@ -51,13 +55,13 @@ impl ContextSelector {
         // 4. Select optimal subset using CELF submodular knapsack
         let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
 
-        // 4. Collect symbol nodes
+        // 5. Collect symbol nodes
         let mut selected_symbols: Vec<SymbolNode> = selected_ids
             .into_iter()
             .filter_map(|id| graph.symbol(id).cloned())
             .collect();
 
-        // 5. Sort canonically: by file path, then line number, then start byte
+        // 6. Sort canonically: by file path, then line number, then start byte
         selected_symbols.sort_by(|a, b| {
             a.file_path
                 .cmp(&b.file_path)
@@ -66,6 +70,59 @@ impl ContextSelector {
         });
 
         selected_symbols
+    }
+
+    /// End-to-end pipeline: selects mathematically optimal symbols and formats them
+    /// into structured Markdown context with dynamic Level-of-Detail (LOD).
+    pub fn select_and_format_context(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String) {
+        if budget == 0 || graph.is_empty() || seed_ids.is_empty() {
+            return (Vec::new(), String::new());
+        }
+
+        // 1. Prepare uniform seed distribution
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+
+        // 2. Compute local PPR relevance diffusion
+        let mut ppr_scores = self.ppr.compute(graph, &seeds);
+
+        // 3. Anchor boost: prioritize user focus seeds as roots of the context tree
+        for &seed_id in seed_ids {
+            *ppr_scores.entry(seed_id).or_default() += 1.0;
+        }
+
+        // 4. Select optimal subset using CELF submodular knapsack
+        let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
+
+        // 5. Collect and canonically sort symbol nodes
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        // 6. Dynamically assign LOD and format into Markdown
+        let lod_map = ContextFormatter::assign_lod(
+            &selected_symbols,
+            &ppr_scores,
+            seed_ids,
+            budget,
+            file_sources,
+        );
+        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+
+        (selected_symbols, markdown)
     }
 }
 
@@ -147,5 +204,35 @@ mod tests {
         let context = selector.select_context(&graph, &[SymbolId(0)], 60);
         assert_eq!(context.len(), 1);
         assert_eq!(context[0].name, "entry");
+    }
+
+    #[test]
+    fn test_context_selector_select_and_format_pipeline() {
+        let s0 = make_test_symbol(0, "entry", "src/lib.rs", 0, 10);
+        let s1 = make_test_symbol(1, "helper", "src/lib.rs", 10, 10);
+
+        let edges = vec![ReferenceEdge {
+            source: SymbolId(0),
+            target_ident: "helper".to_string(),
+            kind: EdgeKind::Call,
+        }];
+
+        let graph = MultiplexGraph::build(vec![s0, s1], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let mut sources = HashMap::new();
+        sources.insert(
+            PathBuf::from("src/lib.rs"),
+            "fn entry() {\n    helper();\n}\n\nfn helper() {\n}\n".to_string(),
+        );
+
+        let (symbols, markdown) =
+            selector.select_and_format_context(&graph, &[SymbolId(0)], 100, &sources);
+
+        assert_eq!(symbols.len(), 2);
+        assert!(markdown.contains("### File: `src/lib.rs`"));
+        assert!(markdown.contains("```rust"));
+        assert!(markdown.contains("fn entry()"));
+        assert!(markdown.contains("fn helper()"));
     }
 }

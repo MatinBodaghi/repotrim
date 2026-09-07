@@ -24,6 +24,19 @@ pub enum SymbolKind {
     Module,
 }
 
+/// Discrete Level-of-Detail (LOD) resolution for rendered symbols.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum LodLevel {
+    /// LOD 0: Minimal signature declaration (e.g. `pub fn foo(...) -> Bar;`).
+    SignatureOnly = 0,
+    /// LOD 1: Signature preceded by docstrings.
+    SignatureAndDoc = 1,
+    /// LOD 2: Signature with sliced skeleton / control-flow outline.
+    SlicedBody = 2,
+    /// LOD 3: Complete source implementation from file content.
+    FullBody = 3,
+}
+
 /// Precise source code location span for an extracted symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TextSpan {
