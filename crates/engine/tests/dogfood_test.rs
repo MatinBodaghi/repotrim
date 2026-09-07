@@ -46,6 +46,8 @@ fn test_dogfood_repotrim_engine() {
 
     let mut all_symbols: Vec<SymbolNode> = Vec::new();
     let mut all_edges: Vec<ReferenceEdge> = Vec::new();
+    let mut file_sources: std::collections::HashMap<PathBuf, String> =
+        std::collections::HashMap::new();
     let mut next_id = 0u32;
     let mut total_raw_bytes = 0usize;
 
@@ -57,6 +59,8 @@ fn test_dogfood_repotrim_engine() {
 
         // Use relative path for canonical display
         let rel_path = file.strip_prefix(&manifest_dir).unwrap_or(file);
+        let text = String::from_utf8_lossy(&content).to_string();
+        file_sources.insert(rel_path.to_path_buf(), text);
 
         let (symbols, edges) = extractor
             .parse_file(rel_path, &content, &mut next_id)
@@ -159,6 +163,30 @@ fn test_dogfood_repotrim_engine() {
         600,
         total_repo_tokens,
     );
+
+    // Test Scenario D: End-to-End Formatting with Multi-Resolution LOD
+    println!("--------------------------------------------------------------------------------");
+    println!("Scenario D: Multi-Resolution LOD Formatting (select_context, Budget: 400 tokens)");
+    println!("--------------------------------------------------------------------------------");
+
+    let format_start = Instant::now();
+    let (fmt_symbols, markdown) =
+        selector.select_and_format_context(&graph, &[select_method_sym.id], 400, &file_sources);
+    let format_elapsed = format_start.elapsed();
+
+    println!("   - Pipeline Latency:   {:?}", format_elapsed);
+    println!("   - Selected Symbols:   {}", fmt_symbols.len());
+    println!("   - Formatted Markdown Length: {} bytes", markdown.len());
+    assert!(!markdown.is_empty());
+    assert!(markdown.contains("```rust"));
+    assert!(markdown.contains("### File:"));
+
+    let preview_lines: Vec<&str> = markdown.lines().take(25).collect();
+    println!("\n   Formatted Markdown Preview (first 25 lines):");
+    for line in preview_lines {
+        println!("     {}", line);
+    }
+    println!("     ...\n");
 
     println!("================================================================================");
     println!("DOGFOODING VALIDATION COMPLETED SUCCESSFULLY");
