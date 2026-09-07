@@ -62,3 +62,7 @@ $RECYCLE.BIN/
 
 # RepoTrim cache directory
 .repotrim/
+
+# Antigravity / MCP Server Configuration
+mcp_config.json
+.agents/mcp_config.json
