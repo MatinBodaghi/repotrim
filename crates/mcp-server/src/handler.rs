@@ -1,0 +1,551 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use repotrim_cli::LoadedRepository;
+use repotrim_engine::{ContextSelector, PprSolver, SymbolId, SymbolKind};
+
+use crate::protocol::{
+    InitializeResult, JsonRpcRequest, JsonRpcResponse, ServerCapabilities, ServerInfo,
+    ToolCallResult, ToolDefinition, ToolsCapability, ToolsListResult, INVALID_PARAMS,
+    MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND,
+};
+
+/// Handles incoming MCP requests and manages workspace repository caching.
+pub struct McpHandler {
+    default_root: PathBuf,
+    cached_repo: Option<(PathBuf, LoadedRepository)>,
+}
+
+impl Default for McpHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl McpHandler {
+    pub fn new() -> Self {
+        Self {
+            default_root: PathBuf::from("."),
+            cached_repo: None,
+        }
+    }
+
+    pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
+        Self {
+            default_root: root.into(),
+            cached_repo: None,
+        }
+    }
+
+    /// Dispatches a JSON-RPC request to the appropriate handler method.
+    pub fn handle_request(&mut self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+        // Notifications do not specify an id and do not expect a response
+        let is_notification = req.id.is_none();
+        let id = req.id.unwrap_or(serde_json::Value::Null);
+
+        match req.method.as_str() {
+            "initialize" => {
+                let result = InitializeResult {
+                    protocol_version: MCP_PROTOCOL_VERSION.to_string(),
+                    capabilities: ServerCapabilities {
+                        tools: ToolsCapability {
+                            list_changed: Some(false),
+                        },
+                    },
+                    server_info: ServerInfo {
+                        name: "repotrim-mcp".to_string(),
+                        version: env!("CARGO_PKG_VERSION").to_string(),
+                    },
+                };
+                Some(JsonRpcResponse::success(
+                    id,
+                    serde_json::to_value(result).unwrap(),
+                ))
+            }
+            "notifications/initialized" => {
+                eprintln!("repotrim-mcp: Client handshake completed (notifications/initialized)");
+                None
+            }
+            "ping" => Some(JsonRpcResponse::success(id, serde_json::json!({}))),
+            "tools/list" => {
+                let list = ToolsListResult {
+                    tools: self.declared_tools(),
+                };
+                Some(JsonRpcResponse::success(
+                    id,
+                    serde_json::to_value(list).unwrap(),
+                ))
+            }
+            "tools/call" => {
+                let params = match req.params {
+                    Some(p) => p,
+                    None => {
+                        return Some(JsonRpcResponse::error(
+                            id,
+                            INVALID_PARAMS,
+                            "Missing 'params' in tools/call request",
+                        ))
+                    }
+                };
+
+                let tool_name = match params.get("name").and_then(|n| n.as_str()) {
+                    Some(n) => n,
+                    None => {
+                        return Some(JsonRpcResponse::error(
+                            id,
+                            INVALID_PARAMS,
+                            "Missing 'name' field in tools/call params",
+                        ))
+                    }
+                };
+
+                let arguments = params
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
+                let tool_result = self.execute_tool(tool_name, arguments);
+                Some(JsonRpcResponse::success(
+                    id,
+                    serde_json::to_value(tool_result).unwrap(),
+                ))
+            }
+            _ => {
+                if is_notification {
+                    None
+                } else {
+                    Some(JsonRpcResponse::error(
+                        id,
+                        METHOD_NOT_FOUND,
+                        format!("Unknown method: '{}'", req.method),
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Declares the tool specifications exposed to AI agents via the MCP protocol.
+    pub fn declared_tools(&self) -> Vec<ToolDefinition> {
+        vec![
+            ToolDefinition {
+                name: "trim_context".to_string(),
+                description: "Extract mathematically optimal prompt context within a token budget for given seed symbol(s) using Personalized PageRank and CELF knapsack optimization.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "seeds": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of seed symbol identifiers to anchor context around (e.g. ['ContextSelector', 'select_context'])"
+                        },
+                        "budget": {
+                            "type": "integer",
+                            "description": "Maximum token budget for selected context (default: 1000)"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        }
+                    },
+                    "required": ["seeds"]
+                }),
+            },
+            ToolDefinition {
+                name: "query_graph_stats".to_string(),
+                description: "Retrieve repository code graph connectivity metrics, syntax entity counts, and global PageRank architectural hubs.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "inspect_symbol".to_string(),
+                description: "Inspect a symbol's declaration details, token cost, outgoing dependencies with transition weights, and incoming callers across the workspace.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Name of the symbol to inspect"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["symbol"]
+                }),
+            },
+            ToolDefinition {
+                name: "clean_cache".to_string(),
+                description: "Clear the incremental AST Merkle cache (.repotrim directory) to force a fresh re-scan.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory containing .repotrim cache (default: '.')"
+                        }
+                    }
+                }),
+            },
+        ]
+    }
+
+    /// Dispatches tool execution to the appropriate internal tool logic.
+    fn execute_tool(&mut self, name: &str, arguments: serde_json::Value) -> ToolCallResult {
+        match name {
+            "trim_context" => self.tool_trim_context(arguments),
+            "query_graph_stats" => self.tool_query_graph_stats(arguments),
+            "inspect_symbol" => self.tool_inspect_symbol(arguments),
+            "clean_cache" => self.tool_clean_cache(arguments),
+            _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
+        }
+    }
+
+    /// Resolves target directory from optional argument or default root.
+    fn resolve_path(&self, args: &serde_json::Value) -> PathBuf {
+        args.get("path")
+            .and_then(|p| p.as_str())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.default_root.clone())
+    }
+
+    /// Retrieves or loads the repository with incremental caching.
+    fn get_or_load_repo(&mut self, target_path: &Path) -> Result<&mut LoadedRepository, String> {
+        let needs_reload = match &self.cached_repo {
+            Some((cached_path, _)) => cached_path != target_path,
+            None => true,
+        };
+
+        if needs_reload {
+            let loaded = LoadedRepository::load(target_path).map_err(|e| {
+                format!(
+                    "Failed to load repository at '{}': {}",
+                    target_path.display(),
+                    e
+                )
+            })?;
+            self.cached_repo = Some((target_path.to_path_buf(), loaded));
+        }
+
+        Ok(&mut self.cached_repo.as_mut().unwrap().1)
+    }
+
+    fn tool_trim_context(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let seeds: Vec<String> = match args.get("seeds").and_then(|s| s.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            None => {
+                return ToolCallResult::error(
+                    "Missing required parameter 'seeds' (array of strings)",
+                )
+            }
+        };
+
+        if seeds.is_empty() {
+            return ToolCallResult::error("Parameter 'seeds' cannot be empty");
+        }
+
+        let budget = args.get("budget").and_then(|b| b.as_u64()).unwrap_or(1000) as usize;
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+        let target_path = self.resolve_path(&args);
+
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let mut seed_ids: Vec<SymbolId> = Vec::new();
+        let mut missing_seeds: Vec<String> = Vec::new();
+
+        for seed_name in &seeds {
+            let mut matches: Vec<SymbolId> = repo
+                .symbols
+                .iter()
+                .filter(|s| s.name == *seed_name || s.name.eq_ignore_ascii_case(seed_name))
+                .map(|s| s.id)
+                .collect();
+
+            if !matches.is_empty() {
+                seed_ids.append(&mut matches);
+            } else {
+                missing_seeds.push(seed_name.clone());
+            }
+        }
+
+        if seed_ids.is_empty() {
+            return ToolCallResult::error(format!(
+                "None of the seed identifiers ({}) were found in {}",
+                seeds.join(", "),
+                target_path.display()
+            ));
+        }
+
+        if let Err(e) = repo.load_all_sources() {
+            return ToolCallResult::error(format!("Failed to load sources: {}", e));
+        }
+
+        let graph = repo.build_graph();
+        let selector = ContextSelector::default();
+        let (selected, markdown) =
+            selector.select_and_format_context(&graph, &seed_ids, budget, &repo.file_sources);
+
+        let total_tokens: usize = selected.iter().map(|s| s.token_cost).sum();
+
+        if format_str == "json" {
+            let json_val = serde_json::json!({
+                "budget": budget,
+                "tokens_used": total_tokens,
+                "symbols_count": selected.len(),
+                "symbols": selected.iter().map(|s| {
+                    serde_json::json!({
+                        "id": s.id.0,
+                        "name": s.name,
+                        "kind": format!("{:?}", s.kind),
+                        "file": s.file_path.display().to_string(),
+                        "lines": [s.span.start_row + 1, s.span.end_row + 1],
+                        "token_cost": s.token_cost,
+                        "signature": s.signature,
+                    })
+                }).collect::<Vec<_>>(),
+                "markdown": markdown,
+            });
+            ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
+        } else {
+            let prefix = if !missing_seeds.is_empty() {
+                format!(
+                    "<!-- Warning: Unresolved seeds: {} -->\n\n",
+                    missing_seeds.join(", ")
+                )
+            } else {
+                String::new()
+            };
+            ToolCallResult::success(format!("{}{}", prefix, markdown))
+        }
+    }
+
+    fn tool_query_graph_stats(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let graph = repo.build_graph();
+        let num_symbols = graph.num_symbols();
+        let num_edges = graph.num_edges();
+
+        let mut num_fns = 0;
+        let mut num_methods = 0;
+        let mut num_structs = 0;
+        let mut num_enums = 0;
+        let mut num_traits = 0;
+        let mut total_tokens = 0;
+
+        for s in graph.symbols() {
+            total_tokens += s.token_cost;
+            match s.kind {
+                SymbolKind::Function => num_fns += 1,
+                SymbolKind::Method => num_methods += 1,
+                SymbolKind::Struct => num_structs += 1,
+                SymbolKind::Enum => num_enums += 1,
+                SymbolKind::Trait => num_traits += 1,
+                _ => {}
+            }
+        }
+
+        let ppr = PprSolver::default();
+        let uniform_seeds: Vec<(SymbolId, f32)> = (0..num_symbols as u32)
+            .map(|id| (SymbolId(id), 1.0 / num_symbols.max(1) as f32))
+            .collect();
+
+        let ppr_scores = ppr.compute(&graph, &uniform_seeds);
+        let mut hub_scores: Vec<(SymbolId, f32)> = ppr_scores.into_iter().collect();
+        hub_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut out = String::new();
+        out.push_str("### RepoTrim Codebase Graph Statistics\n\n");
+        out.push_str(&format!(
+            "- **Directory:** `{}`\n",
+            repo.root_path.display()
+        ));
+        out.push_str(&format!(
+            "- **Files:** {} (Cache: {}/{} warm hits, {:.1}%)\n",
+            repo.cache_report.total_files,
+            repo.cache_report.cached_files,
+            repo.cache_report.total_files,
+            repo.cache_report.hit_ratio * 100.0,
+        ));
+        out.push_str(&format!("- **Total Code Tokens:** {}\n", total_tokens));
+        out.push_str(&format!("- **Symbols (Nodes V):** {} (Functions: {}, Methods: {}, Structs: {}, Enums: {}, Traits: {})\n",
+            num_symbols, num_fns, num_methods, num_structs, num_enums, num_traits
+        ));
+        out.push_str(&format!(
+            "- **Resolved Edges (E):** {} (Avg Out-Degree: {:.2})\n\n",
+            num_edges,
+            if num_symbols > 0 {
+                num_edges as f32 / num_symbols as f32
+            } else {
+                0.0
+            }
+        ));
+
+        out.push_str("#### Top Architectural Hubs (Global PageRank Centrality):\n");
+        for (rank, (sym_id, score)) in hub_scores.iter().take(8).enumerate() {
+            if let Some(sym) = graph.symbol(*sym_id) {
+                out.push_str(&format!(
+                    "{}. `{}` ({:?}) - {:.2}% PR | {}:L{}\n",
+                    rank + 1,
+                    sym.name,
+                    sym.kind,
+                    score * 100.0,
+                    sym.file_path.display(),
+                    sym.span.start_row + 1
+                ));
+            }
+        }
+
+        ToolCallResult::success(out)
+    }
+
+    fn tool_inspect_symbol(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let symbol_name = match args.get("symbol").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => return ToolCallResult::error("Missing required parameter 'symbol'"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let graph = repo.build_graph();
+        let matching_symbols: Vec<_> = graph
+            .symbols()
+            .iter()
+            .filter(|s| s.name.eq_ignore_ascii_case(symbol_name))
+            .collect();
+
+        if matching_symbols.is_empty() {
+            return ToolCallResult::error(format!(
+                "Symbol '{}' was not found in parsed graph",
+                symbol_name
+            ));
+        }
+
+        let num_symbols = graph.num_symbols();
+        let mut out = String::new();
+
+        for sym in matching_symbols {
+            let sym_id = sym.id;
+            let neighbors = graph.neighbors(sym_id);
+            let weights = graph.transition_probabilities(sym_id);
+
+            let mut incoming_callers = Vec::new();
+            for other_id in 0..num_symbols as u32 {
+                if other_id == sym_id.0 {
+                    continue;
+                }
+                let other_neighbors = graph.neighbors(SymbolId(other_id));
+                if other_neighbors.contains(&sym_id.0) {
+                    if let Some(other_sym) = graph.symbol(SymbolId(other_id)) {
+                        incoming_callers.push(other_sym);
+                    }
+                }
+            }
+
+            out.push_str(&format!("### Symbol: `{}` ({:?})\n", sym.name, sym.kind));
+            out.push_str(&format!(
+                "- **Location:** `{}:L{}-L{}`\n",
+                sym.file_path.display(),
+                sym.span.start_row + 1,
+                sym.span.end_row + 1
+            ));
+            out.push_str(&format!("- **Token Cost:** ~{} tokens\n", sym.token_cost));
+            out.push_str(&format!("- **Signature:** `{}`\n", sym.signature));
+            if let Some(doc) = &sym.docstring {
+                out.push_str(&format!("- **Docstring:** {}\n", doc));
+            }
+
+            out.push_str(&format!(
+                "\n**Outgoing Dependencies ({}):**\n",
+                neighbors.len()
+            ));
+            if neighbors.is_empty() {
+                out.push_str("- None (leaf node)\n");
+            } else {
+                for (idx, &dst_id) in neighbors.iter().enumerate() {
+                    let prob = weights.get(idx).copied().unwrap_or(0.0);
+                    if let Some(dst) = graph.symbol(SymbolId(dst_id)) {
+                        out.push_str(&format!(
+                            "- `->` `{}` ({:?}) | {:.1}% weight | {}:L{}\n",
+                            dst.name,
+                            dst.kind,
+                            prob * 100.0,
+                            dst.file_path.display(),
+                            dst.span.start_row + 1
+                        ));
+                    }
+                }
+            }
+
+            out.push_str(&format!(
+                "\n**Incoming Callers / References ({}):**\n",
+                incoming_callers.len()
+            ));
+            if incoming_callers.is_empty() {
+                out.push_str("- None in workspace\n");
+            } else {
+                for caller in incoming_callers {
+                    out.push_str(&format!(
+                        "- `<-` `{}` ({:?}) | {}:L{}\n",
+                        caller.name,
+                        caller.kind,
+                        caller.file_path.display(),
+                        caller.span.start_row + 1
+                    ));
+                }
+            }
+            out.push_str("\n---\n\n");
+        }
+
+        ToolCallResult::success(out)
+    }
+
+    fn tool_clean_cache(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let target_path = self.resolve_path(&args);
+        let cache_dir = target_path.join(".repotrim");
+        self.cached_repo = None;
+
+        if cache_dir.exists() {
+            match fs::remove_dir_all(&cache_dir) {
+                Ok(_) => ToolCallResult::success(format!(
+                    "Successfully removed cache at '{}'",
+                    cache_dir.display()
+                )),
+                Err(e) => ToolCallResult::error(format!("Failed to remove cache: {}", e)),
+            }
+        } else {
+            ToolCallResult::success(format!(
+                "No cache directory found at '{}'",
+                cache_dir.display()
+            ))
+        }
+    }
+}

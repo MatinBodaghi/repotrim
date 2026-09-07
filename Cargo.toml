@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "crates/engine",
     "crates/cli",
+    "crates/mcp-server",
 ]
