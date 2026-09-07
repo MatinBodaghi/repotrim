@@ -66,3 +66,7 @@ $RECYCLE.BIN/
 # Antigravity / MCP Server Configuration
 mcp_config.json
 .agents/mcp_config.json
+
+# Internal Development Planning
+docs/PHASE_PLAN.md
+
