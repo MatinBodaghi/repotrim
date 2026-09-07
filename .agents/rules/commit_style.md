@@ -30,3 +30,7 @@ All commit messages in this repository must strictly adhere to the following sty
 ### Git Push Policy
 - DO NOT automatically push commits to remote (`git push`).
 - Keep all commits strictly local unless the user explicitly requests a push.
+
+### Atomic Commits & Phase Granularity
+- Split each phase into multiple small, logical, self-contained atomic commits based on the sub-components/modules rather than one single commit for the whole phase.
+- Ensure every intermediate commit compiles cleanly and passes its unit tests.
