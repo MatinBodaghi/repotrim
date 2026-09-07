@@ -12,7 +12,7 @@ To achieve 70–85% token reduction across multi-turn agent sessions, structure 
 ┌────────────────────────────────────────────────────────┐
 │  Tier 1: Feature Blueprint (~300 tokens)               │  <-- docs/harness/FEATURE_BLUEPRINT_TEMPLATE.md
 ├────────────────────────────────────────────────────────┤
-│  Tier 2: RepoTrim Sliced Skeleton (~2,000–4,000 tokens) │  <-- Output from repotrim pack
+│  Tier 2: RepoTrim Sliced Skeleton (~2,000–4,000 tokens) │  <-- Output from repotrim select
 ├────────────────────────────────────────────────────────┤
 │  Tier 3: Active Working File (~1,000 tokens)            │  <-- Exact file being edited
 └────────────────────────────────────────────────────────┘

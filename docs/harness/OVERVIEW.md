@@ -47,4 +47,4 @@ sequenceDiagram
    - **Small repos (500–5,000 LOC):** Naturally upgrades symbols to full bodies if the budget allows, providing lossless full context.
    - **Large monorepos (100k+ LOC):** Prunes 98%+ of irrelevant code, surfacing only the topologically relevant subgraph.
 4. **Model Context Protocol (MCP) Support:**
-   - Exposes standard JSON-RPC tools (`repotrim_pack`, `repotrim_query`) over `stdio` so any modern harness can call it natively.
+   - Exposes standard JSON-RPC tools (`trim_context`, `query_graph_stats`, `inspect_symbol`, `clean_cache`) over `stdio` so any modern harness can call it natively.

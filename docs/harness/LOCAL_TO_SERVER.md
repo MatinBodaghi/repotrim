@@ -81,8 +81,8 @@ cargo build --release --target x86_64-unknown-linux-musl
 ### A. Headless CLI Mode (SWE-bench / Shell Agents)
 Inside remote automated agent loops, invoke RepoTrim directly to inject budget-aware context into the prompt:
 ```bash
-# Extract optimal 4000-token context seeded at the active file
-./target/release/repotrim pack --budget 4000 --seed src/parser.rs > context.md
+# Extract optimal 4000-token context seeded at the target symbol or file
+./target/release/repotrim select --budget 4000 --seed AstExtractor > context.md
 ```
 
 ### B. Remote Model Context Protocol (MCP) Mode
@@ -96,8 +96,9 @@ Add the server configuration to your IDE's `mcpServers` JSON config:
       "command": "ssh",
       "args": [
         "user@your-server-ip",
-        "/home/user/repotrim/target/release/repotrim-mcp",
-        "--root",
+        "/home/user/repotrim/target/release/repotrim",
+        "mcp",
+        "--path",
         "/home/user/target-project"
       ]
     }
@@ -116,15 +117,16 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 COPY --from=builder /app/target/release/repotrim /usr/local/bin/
 COPY --from=builder /app/target/release/repotrim-mcp /usr/local/bin/
-ENTRYPOINT ["repotrim-mcp"]
+ENTRYPOINT ["repotrim", "mcp"]
 ```
 
 ---
 
-## 6. Environment Variables Reference
+## 6. Environment & Path Reference
 
-| Variable | Default | Purpose |
+| Configuration | Default | Purpose |
 | :--- | :--- | :--- |
-| `REPOTRIM_CACHE_DIR` | `.repotrim_cache/` | Path for zero-copy memory-mapped graph cache |
-| `REPOTRIM_LOG` | `info` | Logging verbosity (`error`, `warn`, `info`, `debug`, `trace`) |
-| `REPOTRIM_DEFAULT_BUDGET` | `4000` | Default token knapsack budget if unspecified |
+| Cache Directory | `.repotrim/` | Incremental BLAKE3 Merkle cache and bincode serialization |
+| Stdio Protocol | JSON-RPC 2.0 | MCP server communication over `stdin`/`stdout` |
+| Diagnostic Logs | `stderr` | All loader and indexing logs routed to avoid stdout pollution |
+
