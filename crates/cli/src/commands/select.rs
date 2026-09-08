@@ -1,7 +1,8 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
-use repotrim_engine::{ContextSelector, SymbolId};
+use repotrim_engine::{ContextSelector, DiffResolver, IntentResolver, SymbolId};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -18,8 +19,16 @@ pub enum OutputFormat {
 #[derive(Args, Debug)]
 pub struct SelectArgs {
     /// One or more seed symbol identifiers (functions, methods, structs, traits)
-    #[arg(short = 's', long = "seed", required = true)]
+    #[arg(short = 's', long = "seed")]
     pub seed: Vec<String>,
+
+    /// Natural language intent, query terms, or error message to automatically infer seeds
+    #[arg(short = 'q', long = "query")]
+    pub query: Option<String>,
+
+    /// Automatically infer seeds from current git diff (staged and unstaged changes)
+    #[arg(long = "from-diff")]
+    pub from_diff: bool,
 
     /// Maximum token budget for selected context
     #[arg(short = 'b', long = "budget", default_value_t = 1000)]
@@ -43,6 +52,13 @@ pub struct SelectArgs {
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
+    if args.seed.is_empty() && args.query.is_none() && !args.from_diff {
+        return Err(
+            "At least one seed source must be provided: use --seed <name>, --query \"<intent>\", or --from-diff"
+                .into(),
+        );
+    }
+
     let start_time = Instant::now();
 
     eprintln!(
@@ -77,10 +93,10 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         cache_info
     );
 
-    // Resolve seed strings to SymbolIds
-    let mut seed_ids: Vec<SymbolId> = Vec::new();
-    let mut missing_seeds: Vec<&str> = Vec::new();
+    let mut weighted_seeds: HashMap<SymbolId, f32> = HashMap::new();
 
+    // 1. Resolve explicit seed strings
+    let mut missing_seeds: Vec<&str> = Vec::new();
     for seed_name in &args.seed {
         let mut matches: Vec<SymbolId> = repo
             .symbols
@@ -100,7 +116,9 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if !matches.is_empty() {
-            seed_ids.extend(matches);
+            for id in matches {
+                *weighted_seeds.entry(id).or_default() += 2.0;
+            }
         } else {
             missing_seeds.push(seed_name);
         }
@@ -133,14 +151,91 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if seed_ids.is_empty() {
+    // 2. Resolve natural language query seeds
+    if let Some(query_str) = &args.query {
+        let query_seeds = IntentResolver::resolve_query(&repo.symbols, query_str, 5);
+        if !query_seeds.is_empty() {
+            let names: Vec<String> = query_seeds
+                .iter()
+                .filter_map(|(id, w)| {
+                    repo.symbols
+                        .iter()
+                        .find(|s| s.id == *id)
+                        .map(|s| format!("{} ({:.0}%)", s.name.bold(), w * 100.0))
+                })
+                .collect();
+
+            eprintln!(
+                "{} Inferred seeds from query '{}': {}",
+                "⚙".cyan().bold(),
+                query_str.bold(),
+                names.join(", ")
+            );
+
+            for (id, weight) in query_seeds {
+                *weighted_seeds.entry(id).or_default() += weight;
+            }
+        } else {
+            eprintln!(
+                "{} No matching symbols found for query '{}'",
+                "!".yellow().bold(),
+                query_str
+            );
+        }
+    }
+
+    // 3. Resolve git diff seeds
+    if args.from_diff {
+        match DiffResolver::get_git_diff(&args.path) {
+            Ok(diff_text) => {
+                let modified_lines = DiffResolver::parse_unified_diff(&diff_text);
+                let diff_seeds =
+                    DiffResolver::resolve_modified_symbols(&repo.symbols, &modified_lines);
+
+                if !diff_seeds.is_empty() {
+                    let names: Vec<String> = diff_seeds
+                        .iter()
+                        .take(5)
+                        .filter_map(|(id, _)| {
+                            repo.symbols
+                                .iter()
+                                .find(|s| s.id == *id)
+                                .map(|s| s.name.bold().to_string())
+                        })
+                        .collect();
+
+                    eprintln!(
+                        "{} Inferred {} seeds from git diff: {}",
+                        "⚙".cyan().bold(),
+                        diff_seeds.len().to_string().bold(),
+                        names.join(", ")
+                    );
+
+                    for (id, weight) in diff_seeds {
+                        *weighted_seeds.entry(id).or_default() += weight;
+                    }
+                } else {
+                    eprintln!(
+                        "{} Git diff did not intersect with any known symbol declarations",
+                        "!".yellow().bold()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("{} Failed to read git diff: {}", "!".yellow().bold(), e);
+            }
+        }
+    }
+
+    if weighted_seeds.is_empty() {
         return Err(format!(
-            "None of the provided seed identifiers ({}) could be resolved in {}",
-            args.seed.join(", "),
+            "No valid seed symbols could be identified from the provided parameters in {}",
             args.path.display()
         )
         .into());
     }
+
+    let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
 
     eprintln!(
         "{} Building multiplex graph & running CELF submodular knapsack...",
@@ -151,8 +246,12 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
     let selector = ContextSelector::default();
 
     let select_start = Instant::now();
-    let (selected_symbols, markdown) =
-        selector.select_and_format_context(&graph, &seed_ids, args.budget, &repo.file_sources);
+    let (selected_symbols, markdown) = selector.select_and_format_context_weighted(
+        &graph,
+        &seed_pairs,
+        args.budget,
+        &repo.file_sources,
+    );
     let select_duration = select_start.elapsed();
 
     let total_tokens_used: usize = selected_symbols.iter().map(|s| s.token_cost).sum();

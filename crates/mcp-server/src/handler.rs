@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use repotrim_engine::{ContextSelector, LoadedRepository, PprSolver, SymbolId, SymbolKind};
+use repotrim_engine::{
+    ContextSelector, DiffResolver, IntentResolver, LoadedRepository, PprSolver, SymbolId,
+    SymbolKind,
+};
 
 use crate::protocol::{
     InitializeResult, JsonRpcRequest, JsonRpcResponse, ServerCapabilities, ServerInfo,
@@ -127,14 +130,22 @@ impl McpHandler {
         vec![
             ToolDefinition {
                 name: "trim_context".to_string(),
-                description: "Extract mathematically optimal prompt context within a token budget for given seed symbol(s) using Personalized PageRank and CELF knapsack optimization.".to_string(),
+                description: "Extract mathematically optimal prompt context within a token budget using Personalized PageRank and CELF knapsack optimization. Seeds can be explicit symbol names, a natural language query, or inferred from current git diff.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "seeds": {
                             "type": "array",
                             "items": { "type": "string" },
-                            "description": "List of seed symbol identifiers to anchor context around (e.g. ['ContextSelector', 'select_context'])"
+                            "description": "Optional list of seed symbol identifiers to anchor context around (e.g. ['ContextSelector', 'select_context'])"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Optional natural language intent, search terms, or error message to automatically infer seeds"
+                        },
+                        "fromDiff": {
+                            "type": "boolean",
+                            "description": "Optional flag to automatically infer seeds from current uncommitted git changes"
                         },
                         "budget": {
                             "type": "integer",
@@ -149,8 +160,7 @@ impl McpHandler {
                             "enum": ["markdown", "json"],
                             "description": "Output serialization format (default: 'markdown')"
                         }
-                    },
-                    "required": ["seeds"]
+                    }
                 }),
             },
             ToolDefinition {
@@ -241,20 +251,26 @@ impl McpHandler {
     }
 
     fn tool_trim_context(&mut self, args: serde_json::Value) -> ToolCallResult {
-        let seeds: Vec<String> = match args.get("seeds").and_then(|s| s.as_array()) {
-            Some(arr) => arr
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect(),
-            None => {
-                return ToolCallResult::error(
-                    "Missing required parameter 'seeds' (array of strings)",
-                )
-            }
-        };
+        let seeds_opt: Option<Vec<String>> =
+            args.get("seeds").and_then(|s| s.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            });
+        let query_opt = args
+            .get("query")
+            .and_then(|q| q.as_str())
+            .map(|s| s.to_string());
+        let from_diff = args
+            .get("fromDiff")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false);
 
-        if seeds.is_empty() {
-            return ToolCallResult::error("Parameter 'seeds' cannot be empty");
+        let seeds = seeds_opt.unwrap_or_default();
+        if seeds.is_empty() && query_opt.is_none() && !from_diff {
+            return ToolCallResult::error(
+                "At least one seed source must be provided: 'seeds', 'query', or 'fromDiff: true'",
+            );
         }
 
         let budget = args.get("budget").and_then(|b| b.as_u64()).unwrap_or(1000) as usize;
@@ -269,11 +285,13 @@ impl McpHandler {
             Err(e) => return ToolCallResult::error(e),
         };
 
-        let mut seed_ids: Vec<SymbolId> = Vec::new();
+        let mut weighted_seeds: std::collections::HashMap<SymbolId, f32> =
+            std::collections::HashMap::new();
         let mut missing_seeds: Vec<String> = Vec::new();
 
+        // 1. Explicit seeds
         for seed_name in &seeds {
-            let mut matches: Vec<SymbolId> = repo
+            let matches: Vec<SymbolId> = repo
                 .symbols
                 .iter()
                 .filter(|s| s.name == *seed_name || s.name.eq_ignore_ascii_case(seed_name))
@@ -281,16 +299,36 @@ impl McpHandler {
                 .collect();
 
             if !matches.is_empty() {
-                seed_ids.append(&mut matches);
+                for id in matches {
+                    *weighted_seeds.entry(id).or_default() += 2.0;
+                }
             } else {
                 missing_seeds.push(seed_name.clone());
             }
         }
 
-        if seed_ids.is_empty() {
+        // 2. Natural language query seeds
+        if let Some(query) = &query_opt {
+            let query_seeds = IntentResolver::resolve_query(&repo.symbols, query, 5);
+            for (id, weight) in query_seeds {
+                *weighted_seeds.entry(id).or_default() += weight;
+            }
+        }
+
+        // 3. Git diff seeds
+        if from_diff {
+            if let Ok(diff_text) = DiffResolver::get_git_diff(&target_path) {
+                let modified = DiffResolver::parse_unified_diff(&diff_text);
+                let diff_seeds = DiffResolver::resolve_modified_symbols(&repo.symbols, &modified);
+                for (id, weight) in diff_seeds {
+                    *weighted_seeds.entry(id).or_default() += weight;
+                }
+            }
+        }
+
+        if weighted_seeds.is_empty() {
             return ToolCallResult::error(format!(
-                "None of the seed identifiers ({}) were found in {}",
-                seeds.join(", "),
+                "No valid seed symbols could be identified from the provided parameters in {}",
                 target_path.display()
             ));
         }
@@ -299,10 +337,15 @@ impl McpHandler {
             return ToolCallResult::error(format!("Failed to load sources: {}", e));
         }
 
+        let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
         let graph = repo.build_graph();
         let selector = ContextSelector::default();
-        let (selected, markdown) =
-            selector.select_and_format_context(&graph, &seed_ids, budget, &repo.file_sources);
+        let (selected, markdown) = selector.select_and_format_context_weighted(
+            &graph,
+            &seed_pairs,
+            budget,
+            &repo.file_sources,
+        );
 
         let total_tokens: usize = selected.iter().map(|s| s.token_cost).sum();
 
@@ -326,14 +369,22 @@ impl McpHandler {
             });
             ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
         } else {
-            let prefix = if !missing_seeds.is_empty() {
-                format!(
-                    "<!-- Warning: Unresolved seeds: {} -->\n\n",
+            let mut prefix = String::new();
+            if !missing_seeds.is_empty() {
+                prefix.push_str(&format!(
+                    "<!-- Warning: Unresolved explicit seeds: {} -->\n\n",
                     missing_seeds.join(", ")
-                )
-            } else {
-                String::new()
-            };
+                ));
+            }
+            if let Some(query) = &query_opt {
+                prefix.push_str(&format!(
+                    "<!-- Inferred context from query: \"{}\" -->\n\n",
+                    query
+                ));
+            }
+            if from_diff {
+                prefix.push_str("<!-- Inferred context from git diff changes -->\n\n");
+            }
             ToolCallResult::success(format!("{}{}", prefix, markdown))
         }
     }
