@@ -37,31 +37,39 @@ impl ContextSelector {
         seed_ids: &[SymbolId],
         budget: usize,
     ) -> Vec<SymbolNode> {
-        if budget == 0 || graph.is_empty() || seed_ids.is_empty() {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_context_weighted(graph, &seeds, budget)
+    }
+
+    /// Selects the optimal set of symbols matching the `budget` (in tokens), seeded by `weighted_seeds`.
+    pub fn select_context_weighted(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+    ) -> Vec<SymbolNode> {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
             return Vec::new();
         }
 
-        // 1. Prepare uniform seed distribution
-        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        // 1. Compute local PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
 
-        // 2. Compute local PPR relevance diffusion
-        let mut ppr_scores = self.ppr.compute(graph, &seeds);
-
-        // 3. Anchor boost: prioritize user focus seeds as roots of the context tree
-        for &seed_id in seed_ids {
-            *ppr_scores.entry(seed_id).or_default() += 1.0;
+        // 2. Anchor boost: prioritize user focus seeds as roots of the context tree proportional to weights
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
         }
 
-        // 4. Select optimal subset using CELF submodular knapsack
+        // 3. Select optimal subset using CELF submodular knapsack
         let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
 
-        // 5. Collect symbol nodes
+        // 4. Collect symbol nodes
         let mut selected_symbols: Vec<SymbolNode> = selected_ids
             .into_iter()
             .filter_map(|id| graph.symbol(id).cloned())
             .collect();
 
-        // 6. Sort canonically: by file path, then line number, then start byte
+        // 5. Sort canonically: by file path, then line number, then start byte
         selected_symbols.sort_by(|a, b| {
             a.file_path
                 .cmp(&b.file_path)
@@ -81,25 +89,35 @@ impl ContextSelector {
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
     ) -> (Vec<SymbolNode>, String) {
-        if budget == 0 || graph.is_empty() || seed_ids.is_empty() {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_and_format_context_weighted(graph, &seeds, budget, file_sources)
+    }
+
+    /// End-to-end pipeline with weighted seeds: selects mathematically optimal symbols and formats
+    /// them into structured Markdown context with dynamic Level-of-Detail (LOD).
+    pub fn select_and_format_context_weighted(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String) {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
             return (Vec::new(), String::new());
         }
 
-        // 1. Prepare uniform seed distribution
-        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        // 1. Compute local PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
 
-        // 2. Compute local PPR relevance diffusion
-        let mut ppr_scores = self.ppr.compute(graph, &seeds);
-
-        // 3. Anchor boost: prioritize user focus seeds as roots of the context tree
-        for &seed_id in seed_ids {
-            *ppr_scores.entry(seed_id).or_default() += 1.0;
+        // 2. Anchor boost: prioritize user focus seeds as roots of the context tree proportional to weights
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
         }
 
-        // 4. Select optimal subset using CELF submodular knapsack
+        // 3. Select optimal subset using CELF submodular knapsack
         let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
 
-        // 5. Collect and canonically sort symbol nodes
+        // 4. Collect and canonically sort symbol nodes
         let mut selected_symbols: Vec<SymbolNode> = selected_ids
             .into_iter()
             .filter_map(|id| graph.symbol(id).cloned())
@@ -112,11 +130,12 @@ impl ContextSelector {
                 .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
         });
 
-        // 6. Dynamically assign LOD and format into Markdown
+        // 5. Dynamically assign LOD and format into Markdown
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
         let lod_map = ContextFormatter::assign_lod(
             &selected_symbols,
             &ppr_scores,
-            seed_ids,
+            &seed_id_list,
             budget,
             file_sources,
         );
@@ -234,5 +253,36 @@ mod tests {
         assert!(markdown.contains("```rust"));
         assert!(markdown.contains("fn entry()"));
         assert!(markdown.contains("fn helper()"));
+    }
+
+    #[test]
+    fn test_context_selector_weighted_seeds() {
+        let s0 = make_test_symbol(0, "heavy_seed", "src/lib.rs", 0, 10);
+        let s1 = make_test_symbol(1, "light_seed", "src/lib.rs", 10, 10);
+        let s2 = make_test_symbol(2, "leaf", "src/lib.rs", 20, 10);
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "leaf".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "leaf".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let weighted_seeds = vec![(SymbolId(0), 10.0), (SymbolId(1), 0.1)];
+        let selected = selector.select_context_weighted(&graph, &weighted_seeds, 25);
+
+        // Budget of 25 fits 2 symbols (each is 10 tokens).
+        // heavy_seed (weight 10.0) should be prioritized.
+        assert_eq!(selected.len(), 2);
+        assert!(selected.iter().any(|s| s.name == "heavy_seed"));
     }
 }
