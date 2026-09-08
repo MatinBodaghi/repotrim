@@ -26,10 +26,12 @@ sequenceDiagram
     participant LLM as Language Model
 
     User->>Harness: Request: "Refactor error handling in parser"
-    Harness->>RT: Query context (Budget: 3500 tokens, Seed: src/parser.rs)
-    RT->>RT: ACL Forward-Push PPR + Multi-Resolution LOD Knapsack
-    RT-->>Harness: Optimal Context Skeleton (Signatures, Slices & Types)
-    Harness->>LLM: Prompt = Feature Blueprint + Pruned Context Skeleton
+    Harness->>RT: Generate blueprint ("Refactor error handling in parser", Budget: 3000)
+    RT-->>Harness: Tier 1 Feature Blueprint (Target files, anchors & constraints)
+    Harness->>RT: Query context (query="error handling", budget=3000)
+    RT->>RT: BM25/Trigram Seeds + ACL Forward-Push PPR + CELF Knapsack
+    RT-->>Harness: Tier 2 Optimal Context Skeleton (Signatures, Slices & Types)
+    Harness->>LLM: Prompt = Blueprint + Pruned Skeleton + Target File (Tier 3)
     LLM-->>Harness: Precise, hallucination-free code edit
     Harness->>User: Applied clean diff
 ```
@@ -38,13 +40,19 @@ sequenceDiagram
 
 ## 3. Core Capabilities for Harnesses
 
-1. **Deterministic & Fast:**
-   - Evaluates in **< 5ms** via Andersen-Chung-Lang Forward-Push PPR. No heavy compiler daemons or language servers required.
-2. **Multi-Resolution Level of Detail (LOD):**
-   - Active symbols receive full implementations or control-flow slices ($\text{LOD}_2$ / $\text{LOD}_3$).
-   - Dependencies receive clean signatures and docstrings ($\text{LOD}_0$ / $\text{LOD}_1$).
-3. **Seamless Scale Adaptation:**
-   - **Small repos (500–5,000 LOC):** Naturally upgrades symbols to full bodies if the budget allows, providing lossless full context.
-   - **Large monorepos (100k+ LOC):** Prunes 98%+ of irrelevant code, surfacing only the topologically relevant subgraph.
-4. **Model Context Protocol (MCP) Support:**
-   - Exposes standard JSON-RPC tools (`trim_context`, `query_graph_stats`, `inspect_symbol`, `clean_cache`) over `stdio` so any modern harness can call it natively.
+1. **Polyglot Cross-Language Multiplex Graph:**
+   - Ingests **Rust**, **Python**, and **TypeScript / JavaScript** into a unified Code Property Graph connecting calls, type dependencies, and module containment.
+2. **Automatic Intent & Diff Inference:**
+   - Resolves natural language task descriptions (`--query "jwt token verification"`) via BM25 and trigram similarity.
+   - Automatically maps git changes (`--from-diff`) directly to enclosing AST symbols for instant PR and code-review context.
+3. **Turn-Key Agent Skill (`skills/repotrim/SKILL.md`):**
+   - Implements the **3-Tier Context Funnel** (Blueprint $\to$ Skeleton $\to$ Active File) natively for Antigravity, Claude Code, Cursor, and OpenCode.
+4. **Interactive Feature Blueprint Generator:**
+   - Emits structured `FEATURE_BLUEPRINT.md` via `repotrim blueprint` CLI command or `generate_blueprint` MCP tool.
+5. **Deterministic & Sub-Millisecond Speed:**
+   - Evaluates in **< 1ms** via Andersen-Chung-Lang Forward-Push PPR and flat CSR matrix representation.
+6. **Multi-Resolution Level of Detail (LOD):**
+   - Active symbols receive full implementations or control-flow slices ($\text{LOD}_2$).
+   - Dependencies receive clean signatures and docstrings ($\text{LOD}_1$ / $\text{LOD}_0$).
+7. **Model Context Protocol (MCP) Integration:**
+   - Exposes 5 standard JSON-RPC tools (`trim_context`, `query_graph_stats`, `inspect_symbol`, `clean_cache`, `generate_blueprint`) over `stdio`.

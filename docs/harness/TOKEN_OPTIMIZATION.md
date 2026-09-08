@@ -22,16 +22,16 @@ Total context payload: **~3,500 – 5,500 tokens** vs. **30,000 – 80,000 token
 
 ---
 
-## 2. Seed Selection Best Practices
+## 2. Automated Intent & Seed Inference
 
-Personalized PageRank is only as effective as the personalization seed $\mathbf{p}_0$. Choose seeds based on the agent's task phase:
+Personalized PageRank is seeded with initial mass $\mathbf{p}_0$. RepoTrim provides automated inference so agents and developers do not need to manually guess exact symbol names:
 
-| Agent Phase | Recommended Seed | Why |
+| Agent Task Type | Recommended Invocation | How RepoTrim Resolves Context |
 | :--- | :--- | :--- |
-| **Bug Fixing / Triage** | Stack trace symbols or failing test file | Concentrates probability mass directly on the bug site and its immediate callers. |
-| **Feature Addition** | Target interface/trait and relevant feature blueprint | Traverses type signatures and imports to surface all integration touchpoints. |
-| **Refactoring** | The struct or module being refactored | Explores AST containment ($E_{\text{AST}}$) and call sites ($E_{\text{Call}}$) across all consumers. |
-| **Code Review / PR** | Git diff files (`git diff --name-only`) | Diffuses relevance strictly along modified symbols and dependent call graphs. |
+| **Bug Fixing / Triage** | `repotrim select --query "TypeError in auth token validation"` | BM25 + trigram matching identifies culprit symbols (`validate_token`, `AuthHeader`) and seeds PPR. |
+| **Feature Addition** | `repotrim blueprint "implement rate limiter middleware"` | Generates `FEATURE_BLUEPRINT.md` with identified seed anchors and target files. |
+| **Code Review / PR** | `repotrim select --from-diff` | Maps git diff line ranges to enclosing AST symbols, packing affected callers and type dependencies. |
+| **Precise Refactoring** | `repotrim select --seed ContextSelector --budget 3000` | Explores AST containment ($E_{\text{AST}}$) and call sites ($E_{\text{Call}}$) from exact symbols. |
 
 ---
 
@@ -39,14 +39,15 @@ Personalized PageRank is only as effective as the personalization seed $\mathbf{
 
 Instead of using a static 8,000-token budget for every request, scale the budget dynamically:
 
-- **Quick Verification / Type Checks:** `1,500` tokens (mostly $\text{LOD}_0$ signatures).
-- **Standard Feature Implementation:** `3,500 – 4,500` tokens (mix of $\text{LOD}_2$ slices and $\text{LOD}_0$ signatures).
-- **Complex Multi-Module Architecture:** `8,000` tokens (elevated diversity penalty to pull symbols across distant modules).
+- **Quick Verification / Type Checks:** `1,000 – 1,500` tokens (mostly $\text{LOD}_0$ signatures).
+- **Standard Feature Implementation:** `3,000 – 4,500` tokens (mix of $\text{LOD}_2$ slices and $\text{LOD}_1$ signatures).
+- **Complex Multi-Module Architecture:** `6,000 – 8,000` tokens (elevated diversity penalty to pull symbols across distant modules).
 
 ---
 
 ## 4. Avoiding Common Token Traps
 
-1. **Do not re-dump unchanged dependencies:** Once a dependency's signature is in context, subsequent turns should only query symbols touched in the latest turn.
-2. **Prefer $\text{LOD}_2$ (control-flow slices) over raw files:** Functions with 200 lines of internal loop calculations or logging can be expressed in 20 tokens of control structure and return statements.
-3. **Use Markdown fences:** RepoTrim formats context with clear file and line demarcation, helping LLMs generate accurate diffs without hallucinating line offsets.
+1. **Leverage the 3-Tier Context Funnel ([`skills/repotrim/SKILL.md`](../../skills/repotrim/SKILL.md)):** Never dump whole modules when a Tier 2 skeleton (~1k–3k tokens) supplies exact type interfaces.
+2. **Do not re-dump unchanged dependencies:** Once a dependency's signature is in context, subsequent turns should only query symbols touched in the latest turn.
+3. **Prefer $\text{LOD}_2$ (control-flow slices) over raw files:** Functions with 200 lines of internal loop calculations or logging can be expressed in 20 tokens of control structure and return statements.
+4. **Use Markdown fences:** RepoTrim formats context with clear file and line demarcation, helping LLMs generate accurate diffs without hallucinating line offsets.

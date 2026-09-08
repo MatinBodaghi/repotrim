@@ -8,7 +8,7 @@
   <a href="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml"><img src="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License" /></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.80%2B-orange.svg" alt="Rust Version" /></a>
-  <a href="https://crates.io/crates/repotrim"><img src="https://img.shields.io/badge/crates.io-v0.1.0-red.svg" alt="crates.io" /></a>
+  <a href="https://crates.io/crates/repotrim"><img src="https://img.shields.io/badge/crates.io-v0.2.0-red.svg" alt="crates.io" /></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2024--11--05-green.svg" alt="MCP Compatible" /></a>
 </p>
 
@@ -60,16 +60,24 @@ When constructing prompts for large codebases, AI coding agents face two catastr
 
 ## Empirical Benchmark Performance
 
-Evaluated head-to-head on identical queries across the RepoTrim codebase (detailed methodology in [Comparative Study](docs/benchmarks/comparative_study.md)):
+Evaluated head-to-head on identical queries across Rust, Python, and TypeScript codebases (detailed methodology in [Comparative Study](docs/benchmarks/comparative_study.md) and [Polyglot External Evaluations](docs/benchmarks/external_evaluations.md)):
 
-| Context Strategy | Token Reduction | Direct Dep Recall | Solver Latency | Information Quality |
-| :--- | :---: | :---: | :---: | :--- |
-| **Whole-File Dump** | 0.0% | **100.0%** | ~300 µs | High token bloat, causes context window exhaustion |
-| **Naive Keyword / Grep** | 96.6% – 99.5% | **0.0%** | **~50 µs** | Catastrophic context loss; zero type or signature recall |
-| **Global PageRank (Aider-style)** | 79.7% – 87.3% | 0.0% – 11.1% | ~400 µs | Wastes budget on global root hubs, omitting query context |
-| **RepoTrim (Ours)** | **80.1% – 87.3%** | **33.3% – 77.8%** | **<250 µs** | **Strict budget adherence, high local dependency recall** |
+| Language / Framework | Target Seed | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall | Latency |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| **Python (FastAPI)** | `login` | Whole-File Dump | 294 | 0.0% | **100.0%** | 32 µs |
+| | | Naive Grep | 5 | 98.3% | 0.0% | **8 µs** |
+| | | Global PageRank | 93 | 68.4% | **100.0%** | 134 µs |
+| | | **RepoTrim (Ours)** | **86** | **70.7%** | **100.0%** | 294 µs |
+| **TypeScript (React)** | `UserProfileCard` | Whole-File Dump | 243 | 0.0% | **100.0%** | 23 µs |
+| | | Naive Grep | 7 | 97.1% | 0.0% | **1 µs** |
+| | | Global PageRank | 93 | 61.7% | **100.0%** | 14 µs |
+| | | **RepoTrim (Ours)** | **93** | **61.7%** | **100.0%** | 148 µs |
+| **Rust (Engine)** | `ContextSelector` | Whole-File Dump | 3,077 | 0.0% | **100.0%** | 266 µs |
+| | | Naive Grep | 26 | 99.2% | 0.0% | **40 µs** |
+| | | Global PageRank | 497 | 83.8% | 0.0% | 353 µs |
+| | | **RepoTrim (Ours)** | **491** | **84.0%** | **42.9%** | 828 µs |
 
-*Self-indexing dogfooding metrics (31 files, 206 symbols, 628 edges): Cold ingestion: 118 ms; Warm ingestion (BLAKE3 cache): **6.4 ms (18.4x faster)**; MCP repeat query: **<0.5 ms**. See [Dogfood Report](docs/benchmarks/dogfood.md).*
+*Self-indexing dogfooding metrics (31 files, 206 symbols, 628 edges): Cold ingestion: 118 ms; Warm ingestion (BLAKE3 cache): **6.4 ms (18.4x faster)**; MCP repeat query: **<0.5 ms**. See [Dogfood Report](docs/benchmarks/dogfood.md) and [External Evaluations](docs/benchmarks/external_evaluations.md).*
 
 ---
 
@@ -132,6 +140,12 @@ Extract the mathematically optimal context skeleton within a token budget:
 # Trim context seeded around a key symbol within a 500-token budget
 repotrim select --seed ContextSelector --budget 500
 
+# Natural language intent query (automatic BM25 / trigram seed discovery)
+repotrim select --query "jwt token verification" --budget 1500
+
+# Git diff context packing (maps changes directly to enclosing AST symbols)
+repotrim select --from-diff --budget 2000
+
 # Multiple seeds with custom path
 repotrim select --seed PprSolver --seed CsrMatrix --budget 750 --path ./my-project
 
@@ -139,7 +153,19 @@ repotrim select --seed PprSolver --seed CsrMatrix --budget 750 --path ./my-proje
 repotrim select --seed RepositoryCache --budget 400 --format json
 ```
 
-### 2. View Repository Graph Statistics (`stats`)
+### 2. Generate Feature Blueprint (`blueprint`)
+
+Generate an agent-ready high-density feature specification with automatically inferred seed anchors and target files:
+
+```bash
+# Print blueprint to stdout
+repotrim blueprint "implement rate limiter middleware" --budget 3000
+
+# Write to file
+repotrim blueprint "fix session expiration bug" --output FEATURE_BLUEPRINT.md
+```
+
+### 3. View Repository Graph Statistics (`stats`)
 
 Analyze symbol inventory, edge density, and top architectural PageRank hubs:
 
@@ -147,7 +173,7 @@ Analyze symbol inventory, edge density, and top architectural PageRank hubs:
 repotrim stats
 ```
 
-### 3. Deep Symbol Inspection (`inspect`)
+### 4. Deep Symbol Inspection (`inspect`)
 
 Examine a symbol's declaration signature, token cost, outgoing dependencies, and incoming callers:
 
@@ -155,7 +181,7 @@ Examine a symbol's declaration signature, token cost, outgoing dependencies, and
 repotrim inspect --symbol ContextSelector
 ```
 
-### 4. Cache Management (`clean`)
+### 5. Cache Management (`clean`)
 
 Purge incremental `.repotrim/` cache directory:
 
@@ -219,7 +245,8 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds: string[]`, `budget: number`, `format?: string` | Computes optimal Markdown or JSON context skeleton |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget: number`, `format?: string` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference |
+| **`generate_blueprint`** | `task: string`, `budget?: number`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors |
 | **`query_graph_stats`** | `path?: string` | Retrieves syntax breakdown, edge density, and top PageRank hubs |
 | **`inspect_symbol`** | `symbol: string`, `path?: string` | Deeply inspects definitions, token costs, dependencies, and callers |
 | **`clean_cache`** | `path?: string` | Clears on-disk cache and resets in-memory daemon state |
@@ -228,8 +255,9 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 ## Agent Harness Integration
 
-RepoTrim is designed natively for autonomous agent loops (SWE-bench, Antigravity, Claude Code). In-depth architectural guides are available under [`docs/harness/`](docs/harness/):
+RepoTrim is designed natively for autonomous agent loops (SWE-bench, Antigravity, Claude Code). In-depth architectural guides and turn-key skills are available:
 
+- **[Standardized Agent Skill](skills/repotrim/SKILL.md)**: Turn-key Antigravity / Claude Code skill implementing the 3-Tier Context Funnel and budget heuristics.
 - **[Harness Overview](docs/harness/OVERVIEW.md)**: Integrating RepoTrim between codebases and LLM reasoning loops.
 - **[Feature Blueprint Template](docs/harness/FEATURE_BLUEPRINT_TEMPLATE.md)**: High-density specification pattern for zero-hallucination agent prompting.
 - **[Token Optimization Guide](docs/harness/TOKEN_OPTIMIZATION.md)**: 3-tier context funnel and dynamic budget allocation strategies.
@@ -245,9 +273,13 @@ repotrim/
 ├── LICENSE-MIT                 # MIT License
 ├── LICENSE-APACHE              # Apache 2.0 License
 ├── .github/workflows/ci.yml    # Multi-platform CI (Ubuntu, Windows, macOS)
+├── skills/
+│   └── repotrim/
+│       └── SKILL.md            # Turn-key Antigravity / Claude Code agent skill
 ├── docs/
-│   ├── benchmarks/             # Comparative study & dogfood benchmarks
+│   ├── benchmarks/             # Comparative study, polyglot & dogfood benchmarks
 │   │   ├── comparative_study.md
+│   │   ├── external_evaluations.md
 │   │   └── dogfood.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
@@ -257,14 +289,18 @@ repotrim/
 └── crates/
     ├── engine/                 # repotrim-engine: AST parsing, CSR, PPR, CELF, Cache
     │   ├── Cargo.toml
+    │   ├── queries/            # Declarative Tree-sitter query files (Rust, Python, TS)
     │   └── src/
     │       ├── lib.rs
     │       ├── cache.rs        # Incremental BLAKE3 Merkle cache and bincode persistence
+    │       ├── diff.rs         # Unified git diff parser and symbol mapping
     │       ├── error.rs        # Engine error types
+    │       ├── intent.rs       # BM25 + trigram natural language query resolver
+    │       ├── parser.rs       # Polyglot Tree-sitter AST symbol extractor
+    │       ├── selector.rs     # CELF knapsack context selector
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
-    │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
-    │       └── parser.rs       # Tree-sitter driver & signature extractor
-    ├── cli/                    # repotrim: Standalone CLI binary (select, stats, inspect, clean, mcp)
+    │       └── tokens.rs       # In-engine allocation-free BPE token estimator
+    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, mcp)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server
 ```
 

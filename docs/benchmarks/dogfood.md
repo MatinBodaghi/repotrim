@@ -43,14 +43,15 @@ Calculated via power-iteration PageRank over the complete 628-edge multiplex gra
 
 | Method / Tool | Parameters | Latency | Status | Output Summary |
 | :--- | :--- | :--- | :---: | :--- |
-| **`initialize`** | `protocolVersion: "2024-11-05"` | **< 0.1 ms** | **PASS** | Returns capabilities and server info (`repotrim-mcp 0.1.0`) |
+| **`initialize`** | `protocolVersion: "2024-11-05"` | **< 0.1 ms** | **PASS** | Returns capabilities and server info (`repotrim-mcp 0.2.0`) |
 | **`notifications/initialized`** | None | **< 0.1 ms** | **PASS** | Handshake confirmed with clean stderr logging |
 | **`ping`** | None | **< 0.1 ms** | **PASS** | Returns empty JSON object `{}` |
-| **`tools/list`** | None | **< 0.1 ms** | **PASS** | Returns tool schemas (`trim_context`, `query_graph_stats`, `inspect_symbol`, `clean_cache`) |
+| **`tools/list`** | None | **< 0.1 ms** | **PASS** | Returns 5 tool schemas (`trim_context`, `query_graph_stats`, `inspect_symbol`, `clean_cache`, `generate_blueprint`) |
 | **`tools/call: query_graph_stats`** | `path: "."` | **6.4 ms (cold) / 0.4 ms (warm)** | **PASS** | Syntax breakdown, edge density, and top PageRank hubs |
 | **`tools/call: trim_context`** | `seeds: ["ContextSelector"]`, `budget: 500` | **7.2 ms (cold) / 0.5 ms (warm)** | **PASS** | Optimal Markdown context strictly bounded within 500 tokens |
 | **`tools/call: inspect_symbol`** | `symbol: "ContextSelector"` | **6.5 ms (cold) / 0.4 ms (warm)** | **PASS** | Symbol signature, docstrings, 5 outgoing dependencies, 4 callers |
 | **`tools/call: clean_cache`** | `path: "."` | **1.2 ms** | **PASS** | Purges `.repotrim/` and resets in-memory cache |
+| **`tools/call: generate_blueprint`** | `task: "Add auth"`, `budget: 3000` | **7.5 ms (cold) / 0.5 ms (warm)** | **PASS** | Generates structured markdown feature blueprint with inferred seed anchors |
 
 ---
 
