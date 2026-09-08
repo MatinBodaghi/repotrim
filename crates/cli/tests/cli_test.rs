@@ -167,3 +167,37 @@ fn test_cli_clean_and_incremental_cache() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_cli_select_query() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--query",
+            "estimate tokens",
+            "--budget",
+            "300",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select --query");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("estimate_tokens") || stdout.contains("tokens"));
+}
+
+#[test]
+fn test_cli_select_missing_args_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["select", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select with no seed or query");
+
+    // Should fail with error message
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("At least one seed source must be provided"));
+}
