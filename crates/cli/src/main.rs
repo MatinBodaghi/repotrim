@@ -20,6 +20,8 @@ struct Cli {
 enum Commands {
     /// Select mathematically optimal code context for AI prompts
     Select(commands::select::SelectArgs),
+    /// Generate a structured feature blueprint with inferred seed anchors for agent harnesses
+    Blueprint(commands::blueprint::BlueprintArgs),
     /// Display repository graph statistics and central architectural hubs
     Stats(commands::stats::StatsArgs),
     /// Deeply inspect a symbol's graph dependencies and callers
@@ -35,6 +37,7 @@ fn main() {
 
     let result = match cli.command {
         Commands::Select(args) => commands::select::execute(args),
+        Commands::Blueprint(args) => commands::blueprint::execute(args),
         Commands::Stats(args) => commands::stats::execute(args),
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),
