@@ -34,14 +34,17 @@ fn test_mcp_full_lifecycle_and_tools() {
             // 7. tools/call: trim_context (json)
             r#"{{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":300,"format":"json","path":"{}"}}}}}}"#,
             "\n",
-            // 8. tools/call: unknown tool error handling
-            r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            // 8. tools/call: generate_blueprint
+            r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{{"name":"generate_blueprint","arguments":{{"task":"token estimation","path":"{}"}}}}}}"#,
             "\n",
-            // 9. unknown method error handling
-            r#"{{"jsonrpc":"2.0","id":8,"method":"unknown_method"}}"#,
+            // 9. tools/call: unknown tool error handling
+            r#"{{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            "\n",
+            // 10. unknown method error handling
+            r#"{{"jsonrpc":"2.0","id":9,"method":"unknown_method"}}"#,
             "\n"
         ),
-        root_str, root_str, root_str, root_str
+        root_str, root_str, root_str, root_str, root_str
     );
 
     let reader = Cursor::new(input.as_bytes());
@@ -62,9 +65,10 @@ fn test_mcp_full_lifecycle_and_tools() {
     // id:4 (inspect_symbol)
     // id:5 (trim_context markdown)
     // id:6 (trim_context json)
-    // id:7 (nonexistent_tool error)
-    // id:8 (unknown_method error)
-    assert_eq!(lines.len(), 8);
+    // id:7 (generate_blueprint)
+    // id:8 (nonexistent_tool error)
+    // id:9 (unknown_method error)
+    assert_eq!(lines.len(), 9);
 
     // 1. initialize
     let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -76,7 +80,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 4);
+    assert_eq!(tools.len(), 5);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -113,18 +117,26 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert!(parsed_json["symbols"].is_array());
     assert!(parsed_json["markdown"].is_string());
 
-    // 7. nonexistent_tool error
+    // 7. generate_blueprint
     let resp7: serde_json::Value = serde_json::from_str(lines[6]).unwrap();
     assert_eq!(resp7["id"], 7);
-    assert_eq!(resp7["result"]["isError"], true);
-    let err_text = resp7["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+    assert_eq!(resp7["result"]["isError"], false);
+    let bp_text = resp7["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(bp_text.contains("Feature Blueprint: token estimation"));
+    assert!(bp_text.contains("estimate_tokens"));
 
-    // 8. unknown_method error
+    // 8. nonexistent_tool error
     let resp8: serde_json::Value = serde_json::from_str(lines[7]).unwrap();
     assert_eq!(resp8["id"], 8);
-    assert_eq!(resp8["error"]["code"], -32601);
-    assert!(resp8["error"]["message"]
+    assert_eq!(resp8["result"]["isError"], true);
+    let err_text = resp8["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+
+    // 9. unknown_method error
+    let resp9: serde_json::Value = serde_json::from_str(lines[8]).unwrap();
+    assert_eq!(resp9["id"], 9);
+    assert_eq!(resp9["error"]["code"], -32601);
+    assert!(resp9["error"]["message"]
         .as_str()
         .unwrap()
         .contains("Unknown method"));

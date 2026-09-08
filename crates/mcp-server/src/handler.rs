@@ -207,6 +207,28 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "generate_blueprint".to_string(),
+                description: "Generate a structured feature blueprint (FEATURE_BLUEPRINT.md) with inferred seed anchors, target files, and recommended token budgets for a given task description.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "task": {
+                            "type": "string",
+                            "description": "Task or feature description to scaffold (e.g. 'Add user session authentication')"
+                        },
+                        "budget": {
+                            "type": "integer",
+                            "description": "Recommended token budget for context slicing (default: 3000)"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["task"]
+                }),
+            },
         ]
     }
 
@@ -217,6 +239,7 @@ impl McpHandler {
             "query_graph_stats" => self.tool_query_graph_stats(arguments),
             "inspect_symbol" => self.tool_inspect_symbol(arguments),
             "clean_cache" => self.tool_clean_cache(arguments),
+            "generate_blueprint" => self.tool_generate_blueprint(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -597,5 +620,99 @@ impl McpHandler {
                 cache_dir.display()
             ))
         }
+    }
+
+    fn tool_generate_blueprint(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let task = match args.get("task").and_then(|t| t.as_str()) {
+            Some(t) => t,
+            None => return ToolCallResult::error("Missing required parameter 'task'"),
+        };
+
+        let budget = args.get("budget").and_then(|b| b.as_u64()).unwrap_or(3000) as usize;
+        let target_path = self.resolve_path(&args);
+
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let top_seeds = IntentResolver::resolve_query(&repo.symbols, task, 6);
+
+        let mut seed_files = Vec::new();
+        let mut seen_files = std::collections::HashSet::new();
+        let mut symbol_targets = Vec::new();
+
+        for (sym_id, confidence) in &top_seeds {
+            if let Some(sym) = repo.symbols.iter().find(|s| s.id == *sym_id) {
+                let file_str = sym.file_path.display().to_string();
+                if seen_files.insert(file_str.clone()) {
+                    seed_files.push(file_str);
+                }
+                symbol_targets.push((sym.clone(), *confidence));
+            }
+        }
+
+        let mut doc = String::new();
+        doc.push_str(&format!("# Feature Blueprint: {}\n\n", task));
+        doc.push_str("> **Purpose:** High-density, low-token specification for AI agent harnesses to execute this task without exploratory whole-file dumping.\n\n");
+        doc.push_str("---\n\n");
+
+        doc.push_str("## 1. Objective & Scope\n");
+        doc.push_str(&format!("- **Task:** {}\n", task));
+        doc.push_str("- **Target Subsystems:**\n");
+        if seed_files.is_empty() {
+            doc.push_str("  - *(No existing files matched; new module creation)*\n");
+        } else {
+            for f in &seed_files {
+                doc.push_str(&format!("  - `{}`\n", f));
+            }
+        }
+        doc.push_str("- **Expected Outcome:** Functional implementation passing all unit and integration tests with zero compiler or linter warnings.\n\n");
+
+        doc.push_str("---\n\n");
+        doc.push_str("## 2. Seed Anchors (for RepoTrim Context Slicing)\n");
+        doc.push_str("RepoTrim uses these anchors to compute Forward-Push Personalized PageRank and pack the optimal dependency skeleton:\n\n");
+
+        doc.push_str("### Key Symbol Targets\n");
+        if symbol_targets.is_empty() {
+            doc.push_str("- *(No direct symbol matches found; use `query` for broad context)*\n");
+        } else {
+            for (sym, conf) in &symbol_targets {
+                doc.push_str(&format!(
+                    "- `{}` ({:?}) - `{}:L{}` | Inferred relevance: {:.0}%\n",
+                    sym.name,
+                    sym.kind,
+                    sym.file_path.display(),
+                    sym.span.start_row + 1,
+                    conf * 100.0
+                ));
+            }
+        }
+
+        doc.push_str("\n### Recommended RepoTrim Invocation\n");
+        doc.push_str("Execute before reading any full files to load the complete caller/callee context skeleton:\n\n");
+        doc.push_str(&format!(
+            "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {{\n    \"query\": \"{}\",\n    \"budget\": {}\n  }}\n}}\n```\n\n",
+            task, budget
+        ));
+
+        doc.push_str("---\n\n");
+        doc.push_str("## 3. Technical Constraints & Invariants\n");
+        doc.push_str("- **Context Economy:** Follow the 3-Tier Context Funnel (Blueprint -> RepoTrim Skeleton -> Target File only).\n");
+        doc.push_str("- **LOD Interpretation:** Do not attempt to re-implement or fix sliced code marked with `pass` or `// ... [sliced] ...`.\n");
+        doc.push_str("- **Code Quality:** Zero clippy warnings (`cargo clippy --workspace --all-targets -- -D warnings`).\n");
+        doc.push_str("- **Git Commit Style:** Atomic commits, imperative summary under 50 characters, 72-char body wrap, no co-author tags.\n\n");
+
+        doc.push_str("---\n\n");
+        doc.push_str("## 4. Acceptance Criteria & Test Plan\n");
+        doc.push_str("- [ ] Implementation fulfills the core objective without regressions.\n");
+        doc.push_str("- [ ] Unit tests added verifying positive and edge cases.\n");
+        doc.push_str("- [ ] Workspace tests pass: `cargo test --workspace --all-targets`\n");
+        doc.push_str(
+            "- [ ] Linter checks clean: `cargo clippy --workspace --all-targets -- -D warnings`\n",
+        );
+        doc.push_str("- [ ] Code formatted cleanly: `cargo fmt --all -- --check`\n");
+
+        ToolCallResult::success(doc)
     }
 }

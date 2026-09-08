@@ -201,3 +201,28 @@ fn test_cli_select_missing_args_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("At least one seed source must be provided"));
 }
+
+#[test]
+fn test_cli_blueprint() {
+    let temp_file =
+        std::env::temp_dir().join(format!("repotrim_bp_test_{}.md", std::process::id()));
+    let _ = std::fs::remove_file(&temp_file);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["blueprint", "estimate tokens with fast BPE", "--path"])
+        .arg(repo_root())
+        .args(["--output", temp_file.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute repotrim blueprint");
+
+    assert!(output.status.success());
+    assert!(temp_file.exists());
+
+    let content = std::fs::read_to_string(&temp_file).expect("Read blueprint file");
+    assert!(content.contains("# Feature Blueprint: estimate tokens with fast BPE"));
+    assert!(content.contains("Key Symbol Targets"));
+    assert!(content.contains("estimate_tokens"));
+    assert!(content.contains("trim_context"));
+
+    let _ = std::fs::remove_file(&temp_file);
+}
