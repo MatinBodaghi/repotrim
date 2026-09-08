@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod celf;
 pub mod csr;
+pub mod diff;
 pub mod error;
 pub mod formatter;
 pub mod graph;
@@ -18,6 +19,7 @@ pub use cache::{
 };
 pub use celf::{CelfConfig, CelfOptimizer};
 pub use csr::CsrMatrix;
+pub use diff::DiffResolver;
 pub use error::EngineError;
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};

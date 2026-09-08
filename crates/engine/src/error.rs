@@ -11,4 +11,6 @@ pub enum EngineError {
     Utf8Error(#[from] std::str::Utf8Error),
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Git error: {0}")]
+    GitError(String),
 }
