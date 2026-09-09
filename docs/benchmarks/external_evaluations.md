@@ -115,3 +115,12 @@ When integrated into AI agent workflows (via Antigravity, Claude Code, or Cursor
 1. **Elimination of Token Truncation:** Agents never run out of context budget mid-generation because RepoTrim enforces strict mathematical knapsack constraints.
 2. **Elimination of Import/Type Hallucinations:** By traversing type dependency edges ($E_{\text{Type}}$), RepoTrim automatically includes referenced interfaces (e.g. `UserProfileProps`, `TokenResponse`, `LoginRequest`), preventing compile errors on the first LLM pass.
 3. **Sub-Millisecond Loop Latency:** Running in $<1\text{ ms}$, `repotrim` or `trim_context` can be invoked iteratively before every tool call without noticeable developer delay.
+
+---
+
+## 7. References
+
+1. Reid Andersen, Fan Chung, Kevin Lang. *"Local Graph Partitioning using PageRank Vectors"*. In *Foundations of Computer Science (FOCS)*, 2006. [DOI: 10.1109/FOCS.2006.44](https://doi.org/10.1109/FOCS.2006.44).
+2. Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)*, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
+3. Fabian Yamaguchi, Nico Golde, Daniel Arp, Konrad Rieck. *"Modeling and Discovering Vulnerabilities with Code Property Graphs"*. In *IEEE Symposium on Security and Privacy (S&P)*, 2014. [DOI: 10.1109/SP.2014.44](https://doi.org/10.1109/SP.2014.44).
+4. Paul Gauthier. *"Aider: AI pair programming in your terminal"*, 2023. [github.com/paul-gauthier/aider](https://github.com/paul-gauthier/aider).

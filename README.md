@@ -322,6 +322,23 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
+## References & Academic Citations
+
+RepoTrim's mathematical architecture builds on foundational algorithms and literature in graph theory, submodular optimization, and program analysis:
+
+1. **Personalized PageRank Local Diffusion (ACL Forward-Push):**
+   - Reid Andersen, Fan Chung, Kevin Lang. *"Local Graph Partitioning using PageRank Vectors"*. In *Foundations of Computer Science (FOCS)*, 2006. [DOI: 10.1109/FOCS.2006.44](https://doi.org/10.1109/FOCS.2006.44).
+2. **Submodular Knapsack Optimization (CELF):**
+   - Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)*, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
+3. **Code Property Graph (CPG):**
+   - Fabian Yamaguchi, Nico Golde, Daniel Arp, Konrad Rieck. *"Modeling and Discovering Vulnerabilities with Code Property Graphs"*. In *IEEE Symposium on Security and Privacy (S&P)*, 2014. [DOI: 10.1109/SP.2014.44](https://doi.org/10.1109/SP.2014.44).
+4. **Incremental Abstract Syntax Tree Parsing (Tree-sitter):**
+   - Max Brunsfeld et al. *"Tree-sitter: An incremental parsing system for programming tools"*. [tree-sitter.github.io](https://tree-sitter.github.io).
+5. **Fast Content-Addressed Tree Hashing (BLAKE3):**
+   - Jack O'Connor, Jean-Philippe Aumasson, Samuel Neves, Zooko Wilcox-O'Hearn. *"BLAKE3: One function, fast everywhere"*, 2020. [github.com/BLAKE3-team/BLAKE3-specs](https://github.com/BLAKE3-team/BLAKE3-specs).
+6. **Model Context Protocol (MCP):**
+   - Anthropic. *"Model Context Protocol Specification"*, 2024. [modelcontextprotocol.io](https://modelcontextprotocol.io).
+
 ---
 
 ## License

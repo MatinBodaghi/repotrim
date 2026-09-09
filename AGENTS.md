@@ -33,3 +33,9 @@ All commit messages in this repository must strictly adhere to the following sty
 - Keep commits logical, modular, and self-contained.
 - Every commit must compile cleanly, have zero clippy warnings (`cargo clippy --workspace --all-targets -- -D warnings`), and pass all unit/integration tests.
 
+## Research Attribution & Academic Citations
+- Whenever algorithms, heuristics, data structures, or paradigms from external academic papers or technical articles are used, they must be explicitly cited and referenced in:
+  - In-code docstrings (referencing the author, paper title, year, and algorithm name/formula).
+  - `README.md` under `## References & Academic Citations`.
+  - Benchmark and evaluation documentation in `docs/benchmarks/`.
+

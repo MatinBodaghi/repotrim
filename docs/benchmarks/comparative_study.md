@@ -92,3 +92,12 @@ Evaluated across three representative architectural components in the RepoTrim c
 ## 5. Conclusion
 
 The empirical findings confirm that RepoTrim's combination of Personalized PageRank, multiplex AST edge weighting, and submodular knapsack selection offers an optimal trade-off for AI coding assistants: maximizing semantic dependency retention while strictly bounding token consumption.
+
+---
+
+## 6. References
+
+1. Reid Andersen, Fan Chung, Kevin Lang. *"Local Graph Partitioning using PageRank Vectors"*. In *Foundations of Computer Science (FOCS)*, 2006. [DOI: 10.1109/FOCS.2006.44](https://doi.org/10.1109/FOCS.2006.44).
+2. Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)*, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
+3. Fabian Yamaguchi, Nico Golde, Daniel Arp, Konrad Rieck. *"Modeling and Discovering Vulnerabilities with Code Property Graphs"*. In *IEEE Symposium on Security and Privacy (S&P)*, 2014. [DOI: 10.1109/SP.2014.44](https://doi.org/10.1109/SP.2014.44).
+4. Paul Gauthier. *"Aider: AI pair programming in your terminal"*, 2023. [github.com/paul-gauthier/aider](https://github.com/paul-gauthier/aider).
