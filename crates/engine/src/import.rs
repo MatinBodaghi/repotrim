@@ -88,6 +88,7 @@ pub fn resolve_module_path(
             resolve_python_module(source_dir, module_specifier, known_files)
         }
         SupportedLanguage::Rust => resolve_rust_module(source_file, module_specifier, known_files),
+        SupportedLanguage::Go => resolve_go_module(source_dir, module_specifier, known_files),
     }
 }
 
@@ -260,6 +261,38 @@ fn resolve_rust_module(
     None
 }
 
+/// Resolves a Go package or relative import specifier against workspace files.
+fn resolve_go_module(
+    source_dir: &Path,
+    specifier: &str,
+    known_files: &HashSet<PathBuf>,
+) -> Option<PathBuf> {
+    // Relative imports: `./pkg` or `../pkg`
+    if specifier.starts_with('.') {
+        let candidate_dir = normalize_path(&source_dir.join(specifier));
+        for file in known_files {
+            if file.starts_with(&candidate_dir) && file.extension().is_some_and(|e| e == "go") {
+                return Some(file.clone());
+            }
+        }
+        return None;
+    }
+
+    // Absolute / module package imports: e.g. "myproject/pkg/auth" or "pkg/auth"
+    let specifier_path = Path::new(specifier);
+    for file in known_files {
+        if let Some(parent) = file.parent() {
+            if (parent.ends_with(specifier_path) || specifier_path.ends_with(parent))
+                && file.extension().is_some_and(|e| e == "go")
+            {
+                return Some(file.clone());
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +346,29 @@ mod tests {
 
         let resolved_pkg = resolve_module_path(source, "app.db", &known, SupportedLanguage::Python);
         assert_eq!(resolved_pkg, Some(PathBuf::from("app/db/__init__.py")));
+    }
+
+    #[test]
+    fn test_resolve_go_module() {
+        let mut known = HashSet::new();
+        known.insert(PathBuf::from("pkg/auth/auth.go"));
+        known.insert(PathBuf::from("pkg/models/user.go"));
+        known.insert(PathBuf::from("internal/db/postgres.go"));
+
+        let source = Path::new("cmd/server/main.go");
+
+        // Relative import
+        let resolved_rel =
+            resolve_module_path(source, "../../pkg/auth", &known, SupportedLanguage::Go);
+        assert_eq!(resolved_rel, Some(PathBuf::from("pkg/auth/auth.go")));
+
+        // Package / module import matching workspace directory suffix
+        let resolved_pkg = resolve_module_path(
+            source,
+            "myproject/pkg/models",
+            &known,
+            SupportedLanguage::Go,
+        );
+        assert_eq!(resolved_pkg, Some(PathBuf::from("pkg/models/user.go")));
     }
 }

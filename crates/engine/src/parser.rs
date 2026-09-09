@@ -13,6 +13,8 @@ const RUST_QUERY_SOURCE: &str = include_str!("../queries/rust.scm");
 const PYTHON_QUERY_SOURCE: &str = include_str!("../queries/python.scm");
 /// Embedded declarative Tree-sitter queries for TypeScript symbol and reference extraction.
 const TYPESCRIPT_QUERY_SOURCE: &str = include_str!("../queries/typescript.scm");
+/// Embedded declarative Tree-sitter queries for Go symbol and reference extraction.
+const GO_QUERY_SOURCE: &str = include_str!("../queries/go.scm");
 
 /// Programming languages supported for AST symbol and reference extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,6 +23,7 @@ pub enum SupportedLanguage {
     Python,
     TypeScript,
     Tsx,
+    Go,
 }
 
 impl SupportedLanguage {
@@ -33,6 +36,7 @@ impl SupportedLanguage {
             "ts" => Some(SupportedLanguage::TypeScript),
             "tsx" => Some(SupportedLanguage::Tsx),
             "js" | "jsx" | "mjs" | "cjs" => Some(SupportedLanguage::Tsx),
+            "go" => Some(SupportedLanguage::Go),
             _ => None,
         }
     }
@@ -49,6 +53,7 @@ pub struct AstExtractor {
     python: LanguageBundle,
     typescript: LanguageBundle,
     tsx: LanguageBundle,
+    go: LanguageBundle,
 }
 
 /// Type alias for raw parsed file output containing extracted symbols, edges, and imports.
@@ -69,6 +74,9 @@ impl AstExtractor {
         let tsx_lang: Language = tree_sitter_typescript::LANGUAGE_TSX.into();
         let tsx_query = Query::new(&tsx_lang, TYPESCRIPT_QUERY_SOURCE)?;
 
+        let go_lang: Language = tree_sitter_go::LANGUAGE.into();
+        let go_query = Query::new(&go_lang, GO_QUERY_SOURCE)?;
+
         Ok(Self {
             rust: LanguageBundle {
                 language: rust_lang,
@@ -85,6 +93,10 @@ impl AstExtractor {
             tsx: LanguageBundle {
                 language: tsx_lang,
                 query: tsx_query,
+            },
+            go: LanguageBundle {
+                language: go_lang,
+                query: go_query,
             },
         })
     }
@@ -118,6 +130,7 @@ impl AstExtractor {
             SupportedLanguage::Python => &self.python,
             SupportedLanguage::TypeScript => &self.typescript,
             SupportedLanguage::Tsx => &self.tsx,
+            SupportedLanguage::Go => &self.go,
         };
 
         let mut parser = Parser::new();
@@ -189,6 +202,13 @@ impl AstExtractor {
                                 SymbolKind::Function
                             }
                         }
+                        SupportedLanguage::Go => {
+                            if node.kind() == "method_declaration" {
+                                SymbolKind::Method
+                            } else {
+                                SymbolKind::Function
+                            }
+                        }
                     };
 
                     let span = TextSpan::new(
@@ -253,6 +273,15 @@ impl AstExtractor {
                                 edges.push(ReferenceEdge {
                                     source: id,
                                     target_ident: enclosing_class,
+                                    kind: EdgeKind::AstParent,
+                                });
+                            }
+                        }
+                        SupportedLanguage::Go => {
+                            if let Some(receiver_type) = find_go_receiver_type(node, source) {
+                                edges.push(ReferenceEdge {
+                                    source: id,
+                                    target_ident: receiver_type,
                                     kind: EdgeKind::AstParent,
                                 });
                             }
@@ -529,6 +558,9 @@ impl AstExtractor {
             }
             SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
                 extract_typescript_imports(root_node, source, path, &mut imports);
+            }
+            SupportedLanguage::Go => {
+                extract_go_imports(root_node, source, path, &mut imports);
             }
         }
 
@@ -1153,6 +1185,86 @@ fn extract_typescript_imports(
     }
 }
 
+/// Extracts the receiver type name for a Go method declaration (e.g. `Server` from `func (s *Server) Start()`).
+fn find_go_receiver_type(node: Node, source: &[u8]) -> Option<String> {
+    let receiver = node.child_by_field_name("receiver")?;
+    find_first_descendant_by_kind(receiver, "type_identifier", source)
+}
+
+fn find_first_descendant_by_kind(node: Node, kind: &str, source: &[u8]) -> Option<String> {
+    if node.kind() == kind {
+        return node.utf8_text(source).ok().map(|s| s.to_string());
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = find_first_descendant_by_kind(child, kind, source) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Extracts Go import declarations into structured FileImport items.
+fn extract_go_imports(root: Node, source: &[u8], file_path: &Path, imports: &mut Vec<FileImport>) {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() == "import_declaration" {
+            extract_go_import_specs(child, source, file_path, imports);
+        }
+    }
+}
+
+fn extract_go_import_specs(
+    node: Node,
+    source: &[u8],
+    file_path: &Path,
+    imports: &mut Vec<FileImport>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "import_spec" {
+            let path_node = child.child_by_field_name("path");
+            let name_node = child.child_by_field_name("name");
+
+            if let Some(p_node) = path_node {
+                if let Ok(raw_path) = p_node.utf8_text(source) {
+                    let module_specifier = raw_path.trim_matches('"').to_string();
+                    let alias = name_node
+                        .and_then(|n| n.utf8_text(source).ok())
+                        .map(|s| s.trim().to_string());
+
+                    if let Some(alias_name) = alias {
+                        if alias_name == "." {
+                            imports.push(FileImport::wildcard(file_path, &module_specifier, "*"));
+                        } else if alias_name != "_" {
+                            imports.push(FileImport::new(
+                                file_path,
+                                &module_specifier,
+                                alias_name.clone(),
+                                alias_name,
+                            ));
+                        }
+                    } else {
+                        let default_name = module_specifier
+                            .split('/')
+                            .next_back()
+                            .unwrap_or(&module_specifier)
+                            .to_string();
+                        imports.push(FileImport::new(
+                            file_path,
+                            &module_specifier,
+                            default_name.clone(),
+                            default_name,
+                        ));
+                    }
+                }
+            }
+        } else if child.kind() == "import_spec_list" {
+            extract_go_import_specs(child, source, file_path, imports);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1274,5 +1386,70 @@ export function Component() {
             .iter()
             .any(|i| i.module_specifier == "../utils/helper" && i.imported_name == "helper"));
         assert!(imports.iter().any(|i| i.module_specifier == "./styles.css"));
+    }
+
+    #[test]
+    fn test_extract_go_functions_and_structs() {
+        let extractor = AstExtractor::new().expect("Failed to initialize AstExtractor");
+
+        let source = r#"
+package main
+
+import (
+    "fmt"
+    "net/http"
+    gin "github.com/gin-gonic/gin"
+)
+
+// Server represents an HTTP service.
+type Server struct {
+    host string
+    port int
+}
+
+// Start launches the server listener.
+func (s *Server) Start() error {
+    fmt.Println("Starting server")
+    gin.New()
+    return nil
+}
+
+// HealthCheck performs system health diagnostics.
+func HealthCheck() string {
+    return "OK"
+}
+"#;
+        let mut next_id = 0;
+        let (symbols, edges, imports) = extractor
+            .parse_file_with_imports(Path::new("server.go"), source.as_bytes(), &mut next_id)
+            .expect("Failed to parse Go source");
+
+        assert_eq!(symbols.len(), 3);
+        let names: Vec<_> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Server"));
+        assert!(names.contains(&"Start"));
+        assert!(names.contains(&"HealthCheck"));
+
+        // Verify Server is Struct and Start is Method with AstParent edge to Server
+        let server_sym = symbols.iter().find(|s| s.name == "Server").unwrap();
+        assert_eq!(server_sym.kind, SymbolKind::Struct);
+
+        let start_sym = symbols.iter().find(|s| s.name == "Start").unwrap();
+        assert_eq!(start_sym.kind, SymbolKind::Method);
+        assert!(edges.iter().any(|e| e.source == start_sym.id
+            && e.target_ident == "Server"
+            && e.kind == EdgeKind::AstParent));
+
+        // Verify imports
+        assert_eq!(imports.len(), 3);
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "fmt" && i.local_name == "fmt"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "net/http" && i.local_name == "http"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "github.com/gin-gonic/gin" && i.local_name == "gin"));
     }
 }
