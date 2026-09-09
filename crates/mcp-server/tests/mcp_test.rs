@@ -143,3 +143,75 @@ fn test_mcp_full_lifecycle_and_tools() {
         .unwrap()
         .contains("Unknown method"));
 }
+
+#[test]
+fn test_mcp_trim_context_auto_budget() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. notifications/initialized
+            r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#,
+            "\n",
+            // 3. tools/call: trim_context auto markdown
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":"auto","model":"claude","path":"{}"}}}}}}"#,
+            "\n",
+            // 4. tools/call: trim_context auto json
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":"auto","model":"deepseek","format":"json","path":"{}"}}}}}}"#,
+            "\n",
+            // 5. tools/call: generate_blueprint auto
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"generate_blueprint","arguments":{{"task":"submodular optimizer","budget":"auto","model":"ollama","path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 4);
+
+    // 1. initialize
+    let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(resp1["id"], 1);
+
+    // 2. trim_context auto markdown
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md_text.contains("Auto-budget tuned to"));
+    assert!(md_text.contains("via Knee-Curve"));
+    assert!(md_text.contains("ContextSelector"));
+
+    // 3. trim_context auto json
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert!(parsed_json.get("auto_budget").is_some());
+    let auto_budget = &parsed_json["auto_budget"];
+    assert_eq!(auto_budget["model"], "deepseek-v3");
+    assert!(auto_budget["knee_tokens"].as_u64().unwrap() > 0);
+
+    // 4. generate_blueprint auto
+    let resp4: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(resp4["id"], 4);
+    assert_eq!(resp4["result"]["isError"], false);
+    let bp_text = resp4["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(bp_text.contains("\"budget\": \"auto\""));
+    assert!(bp_text.contains("\"model\": \"ollama\""));
+}

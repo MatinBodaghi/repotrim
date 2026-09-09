@@ -281,3 +281,84 @@ fn test_cli_architecture() {
     let stdout_str = String::from_utf8_lossy(&stdout_output.stdout);
     assert!(stdout_str.contains("# Repository Architecture & Subsystem Specification"));
 }
+
+#[test]
+fn test_cli_select_auto_budget_markdown() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "ContextSelector",
+            "--budget",
+            "auto",
+            "--model",
+            "claude",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select --budget auto");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Auto-budget tuned to"));
+    assert!(stderr.contains("via Knee-Curve"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ContextSelector"));
+}
+
+#[test]
+fn test_cli_select_auto_budget_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "ContextSelector",
+            "--budget",
+            "auto",
+            "--model",
+            "gpt-4o",
+            "--format",
+            "json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select --budget auto with json");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    assert!(parsed.get("budget").is_some());
+    assert!(parsed.get("auto_budget").is_some());
+    let auto_budget = &parsed["auto_budget"];
+    assert_eq!(auto_budget["model"], "gpt-4o");
+    assert!(auto_budget["knee_tokens"].as_u64().unwrap() > 0);
+    assert!(auto_budget["knee_utility_ratio"].as_f64().unwrap() >= 0.0);
+}
+
+#[test]
+fn test_cli_blueprint_with_auto_budget() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "blueprint",
+            "add submodular scoring",
+            "--budget",
+            "auto",
+            "--model",
+            "deepseek",
+            "--output",
+            "-",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim blueprint with auto budget");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--budget auto"));
+    assert!(stdout.contains("--model deepseek"));
+    assert!(stdout.contains("\"budget\": \"auto\""));
+    assert!(stdout.contains("\"model\": \"deepseek\""));
+}

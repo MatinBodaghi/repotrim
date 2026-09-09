@@ -1,6 +1,6 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
-use repotrim_engine::{ContextSelector, DiffResolver, IntentResolver, SymbolId};
+use repotrim_engine::{ContextSelector, DiffResolver, IntentResolver, ModelProfile, SymbolId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -30,9 +30,13 @@ pub struct SelectArgs {
     #[arg(long = "from-diff")]
     pub from_diff: bool,
 
-    /// Maximum token budget for selected context
-    #[arg(short = 'b', long = "budget", default_value_t = 1000)]
-    pub budget: usize,
+    /// Maximum token budget for selected context, or 'auto' for Knee-Curve tuning
+    #[arg(short = 'b', long = "budget", default_value = "1000")]
+    pub budget: String,
+
+    /// Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')
+    #[arg(short = 'm', long = "model")]
+    pub model: Option<String>,
 
     /// Target codebase directory to scan
     #[arg(short = 'p', long = "path", default_value = ".")]
@@ -237,6 +241,30 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
 
+    let is_auto = args.budget.eq_ignore_ascii_case("auto");
+    let model_profile = if is_auto {
+        Some(ModelProfile::parse(
+            args.model.as_deref().unwrap_or("claude"),
+        ))
+    } else {
+        None
+    };
+
+    let explicit_budget: Option<usize> = if is_auto {
+        None
+    } else {
+        match args.budget.parse::<usize>() {
+            Ok(b) => Some(b),
+            Err(_) => {
+                return Err(format!(
+                    "Invalid budget '{}': must be a positive integer or 'auto'",
+                    args.budget
+                )
+                .into());
+            }
+        }
+    };
+
     eprintln!(
         "{} Building multiplex graph & running CELF submodular knapsack...",
         "⚙".cyan().bold()
@@ -246,29 +274,66 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
     let selector = ContextSelector::default();
 
     let select_start = Instant::now();
-    let (selected_symbols, markdown) = selector.select_and_format_context_weighted(
-        &graph,
-        &seed_pairs,
-        args.budget,
-        &repo.file_sources,
-    );
+    let (selected_symbols, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
+        let (selected, md, report) = selector.select_and_format_context_auto_weighted(
+            &graph,
+            &seed_pairs,
+            *model,
+            &repo.file_sources,
+        );
+        (selected, md, Some(report))
+    } else {
+        let budget = explicit_budget.unwrap();
+        let (selected, md) = selector.select_and_format_context_weighted(
+            &graph,
+            &seed_pairs,
+            budget,
+            &repo.file_sources,
+        );
+        (selected, md, None)
+    };
     let select_duration = select_start.elapsed();
 
     let total_tokens_used: usize = selected_symbols.iter().map(|s| s.token_cost).sum();
-    eprintln!(
-        "{} Selected {} symbols (~{} tokens / {} budget) in {:?}",
-        "✓".green().bold(),
-        selected_symbols.len().to_string().bold(),
-        total_tokens_used.to_string().bold(),
-        args.budget,
-        select_duration
-    );
+
+    if let Some(ref report) = auto_report_opt {
+        eprintln!(
+            "{} Auto-budget tuned to {} tokens via Knee-Curve (knee utility: {:.1}%, ceiling: {})",
+            "⚡".yellow().bold(),
+            report.knee_tokens.to_string().bold(),
+            report.knee_utility_ratio * 100.0,
+            report.optimal_budget
+        );
+        eprintln!(
+            "{} Selected {} symbols (~{} tokens / {} auto-budget [{}]) in {:?}",
+            "✓".green().bold(),
+            selected_symbols.len().to_string().bold(),
+            total_tokens_used.to_string().bold(),
+            report.knee_tokens,
+            report.model_name,
+            select_duration
+        );
+    } else {
+        eprintln!(
+            "{} Selected {} symbols (~{} tokens / {} budget) in {:?}",
+            "✓".green().bold(),
+            selected_symbols.len().to_string().bold(),
+            total_tokens_used.to_string().bold(),
+            explicit_budget.unwrap(),
+            select_duration
+        );
+    }
 
     let output_content = match args.format {
         OutputFormat::Markdown => markdown,
         OutputFormat::Json => {
-            let json_obj = serde_json::json!({
-                "budget": args.budget,
+            let budget_val = if let Some(ref report) = auto_report_opt {
+                serde_json::json!(report.knee_tokens)
+            } else {
+                serde_json::json!(explicit_budget.unwrap())
+            };
+            let mut json_obj = serde_json::json!({
+                "budget": budget_val,
                 "symbols_count": selected_symbols.len(),
                 "tokens_used": total_tokens_used,
                 "symbols": selected_symbols.iter().map(|s| {
@@ -285,6 +350,16 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
                 }).collect::<Vec<_>>(),
                 "markdown": markdown,
             });
+            if let Some(ref report) = auto_report_opt {
+                json_obj["auto_budget"] = serde_json::json!({
+                    "model": report.model_name,
+                    "optimal_budget": report.optimal_budget,
+                    "knee_tokens": report.knee_tokens,
+                    "knee_utility_ratio": report.knee_utility_ratio,
+                    "candidate_count": report.candidate_count,
+                    "selected_count": report.selected_count,
+                });
+            }
             serde_json::to_string_pretty(&json_obj)?
         }
     };

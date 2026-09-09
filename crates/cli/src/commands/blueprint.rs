@@ -17,9 +17,13 @@ pub struct BlueprintArgs {
     #[arg(short = 'p', long = "path", default_value = ".")]
     pub path: PathBuf,
 
-    /// Recommended token budget for context slicing
-    #[arg(short = 'b', long = "budget", default_value_t = 3000)]
-    pub budget: usize,
+    /// Recommended token budget for context slicing, or 'auto' for Knee-Curve tuning
+    #[arg(short = 'b', long = "budget", default_value = "3000")]
+    pub budget: String,
+
+    /// Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')
+    #[arg(short = 'm', long = "model")]
+    pub model: Option<String>,
 
     /// Destination file to write blueprint (defaults to 'FEATURE_BLUEPRINT.md', or '-' for stdout)
     #[arg(short = 'o', long = "output", default_value = "FEATURE_BLUEPRINT.md")]
@@ -58,8 +62,13 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let blueprint_content =
-        generate_blueprint_text(&args.task, &seed_files, &symbol_targets, args.budget);
+    let blueprint_content = generate_blueprint_text(
+        &args.task,
+        &seed_files,
+        &symbol_targets,
+        &args.budget,
+        args.model.as_deref(),
+    );
 
     if args.output == "-" {
         println!("{}", blueprint_content);
@@ -87,7 +96,8 @@ pub fn generate_blueprint_text(
     task: &str,
     seed_files: &[String],
     symbol_targets: &[(repotrim_engine::SymbolNode, f32)],
-    budget: usize,
+    budget: &str,
+    model: Option<&str>,
 ) -> String {
     let mut doc = String::new();
 
@@ -135,20 +145,38 @@ pub fn generate_blueprint_text(
         .map(|(s, _)| s.name.as_str())
         .unwrap_or("");
 
+    let model_flag = model.map(|m| format!(" --model {}", m)).unwrap_or_default();
+
     let cli_cmd = if !primary_seed_name.is_empty() {
         format!(
-            "repotrim select --seed {} --budget {}\n# OR\nrepotrim select --query \"{}\" --budget {}",
-            primary_seed_name, budget, task, budget
+            "repotrim select --seed {} --budget {}{}\n# OR\nrepotrim select --query \"{}\" --budget {}{}",
+            primary_seed_name, budget, model_flag, task, budget, model_flag
         )
     } else {
-        format!("repotrim select --query \"{}\" --budget {}", task, budget)
+        format!(
+            "repotrim select --query \"{}\" --budget {}{}",
+            task, budget, model_flag
+        )
     };
 
     doc.push_str(&format!("```bash\n{}\n```\n\n", cli_cmd));
     doc.push_str("Or via MCP tool:\n");
+
+    let mcp_budget_val = if let Ok(b) = budget.parse::<usize>() {
+        serde_json::json!(b)
+    } else {
+        serde_json::json!(budget)
+    };
+    let mut mcp_args = serde_json::json!({
+        "query": task,
+        "budget": mcp_budget_val
+    });
+    if let Some(m) = model {
+        mcp_args["model"] = serde_json::json!(m);
+    }
     doc.push_str(&format!(
-        "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {{\n    \"query\": \"{}\",\n    \"budget\": {}\n  }}\n}}\n```\n\n",
-        task, budget
+        "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {}\n}}\n```\n\n",
+        serde_json::to_string_pretty(&mcp_args).unwrap_or_default()
     ));
 
     doc.push_str("---\n\n");

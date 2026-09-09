@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    ArchitectureReport, ContextSelector, DiffResolver, IntentResolver, LoadedRepository, PprSolver,
-    RepositoryWatcher, SymbolId, SymbolKind,
+    ArchitectureReport, ContextSelector, DiffResolver, IntentResolver, LoadedRepository,
+    ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
 };
 
 use crate::protocol::{
@@ -153,8 +153,11 @@ impl McpHandler {
                             "description": "Optional flag to automatically infer seeds from current uncommitted git changes"
                         },
                         "budget": {
-                            "type": "integer",
-                            "description": "Maximum token budget for selected context (default: 1000)"
+                            "description": "Maximum token budget for selected context, or 'auto' for Knee-Curve tuning (default: 1000)"
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')"
                         },
                         "path": {
                             "type": "string",
@@ -223,8 +226,11 @@ impl McpHandler {
                             "description": "Task or feature description to scaffold (e.g. 'Add user session authentication')"
                         },
                         "budget": {
-                            "type": "integer",
-                            "description": "Recommended token budget for context slicing (default: 3000)"
+                            "description": "Recommended token budget for context slicing, or 'auto' for Knee-Curve tuning (default: 3000)"
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')"
                         },
                         "path": {
                             "type": "string",
@@ -327,7 +333,24 @@ impl McpHandler {
             );
         }
 
-        let budget = args.get("budget").and_then(|b| b.as_u64()).unwrap_or(1000) as usize;
+        let is_auto = match args.get("budget") {
+            Some(serde_json::Value::String(s)) => s.eq_ignore_ascii_case("auto"),
+            _ => false,
+        };
+
+        let model_str = args.get("model").and_then(|m| m.as_str());
+        let model_profile = if is_auto {
+            Some(ModelProfile::parse(model_str.unwrap_or("claude")))
+        } else {
+            None
+        };
+
+        let explicit_budget: usize = match args.get("budget") {
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(1000) as usize,
+            Some(serde_json::Value::String(s)) => s.parse::<usize>().unwrap_or(1000),
+            _ => 1000,
+        };
+
         let format_str = args
             .get("format")
             .and_then(|f| f.as_str())
@@ -394,18 +417,34 @@ impl McpHandler {
         let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
         let graph = repo.build_graph();
         let selector = ContextSelector::default();
-        let (selected, markdown) = selector.select_and_format_context_weighted(
-            &graph,
-            &seed_pairs,
-            budget,
-            &repo.file_sources,
-        );
+        let (selected, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
+            let (sel, md, rep) = selector.select_and_format_context_auto_weighted(
+                &graph,
+                &seed_pairs,
+                *model,
+                &repo.file_sources,
+            );
+            (sel, md, Some(rep))
+        } else {
+            let (sel, md) = selector.select_and_format_context_weighted(
+                &graph,
+                &seed_pairs,
+                explicit_budget,
+                &repo.file_sources,
+            );
+            (sel, md, None)
+        };
 
         let total_tokens: usize = selected.iter().map(|s| s.token_cost).sum();
 
         if format_str == "json" {
-            let json_val = serde_json::json!({
-                "budget": budget,
+            let budget_val = if let Some(ref rep) = auto_report_opt {
+                serde_json::json!(rep.knee_tokens)
+            } else {
+                serde_json::json!(explicit_budget)
+            };
+            let mut json_val = serde_json::json!({
+                "budget": budget_val,
                 "tokens_used": total_tokens,
                 "symbols_count": selected.len(),
                 "symbols": selected.iter().map(|s| {
@@ -421,9 +460,25 @@ impl McpHandler {
                 }).collect::<Vec<_>>(),
                 "markdown": markdown,
             });
+            if let Some(ref rep) = auto_report_opt {
+                json_val["auto_budget"] = serde_json::json!({
+                    "model": rep.model_name,
+                    "optimal_budget": rep.optimal_budget,
+                    "knee_tokens": rep.knee_tokens,
+                    "knee_utility_ratio": rep.knee_utility_ratio,
+                    "candidate_count": rep.candidate_count,
+                    "selected_count": rep.selected_count,
+                });
+            }
             ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
         } else {
             let mut prefix = String::new();
+            if let Some(ref rep) = auto_report_opt {
+                prefix.push_str(&format!(
+                    "<!-- Auto-budget tuned to {} tokens via Knee-Curve (knee utility: {:.1}%, ceiling: {}, model: {}) -->\n\n",
+                    rep.knee_tokens, rep.knee_utility_ratio * 100.0, rep.optimal_budget, rep.model_name
+                ));
+            }
             if !missing_seeds.is_empty() {
                 prefix.push_str(&format!(
                     "<!-- Warning: Unresolved explicit seeds: {} -->\n\n",
@@ -659,7 +714,18 @@ impl McpHandler {
             None => return ToolCallResult::error("Missing required parameter 'task'"),
         };
 
-        let budget = args.get("budget").and_then(|b| b.as_u64()).unwrap_or(3000) as usize;
+        let budget_val = match args.get("budget") {
+            Some(serde_json::Value::Number(n)) => serde_json::json!(n.as_u64().unwrap_or(3000)),
+            Some(serde_json::Value::String(s)) => {
+                if let Ok(n) = s.parse::<usize>() {
+                    serde_json::json!(n)
+                } else {
+                    serde_json::json!(s)
+                }
+            }
+            _ => serde_json::json!(3000),
+        };
+        let model_str = args.get("model").and_then(|m| m.as_str());
         let target_path = self.resolve_path(&args);
 
         let repo = match self.get_or_load_repo(&target_path) {
@@ -722,9 +788,16 @@ impl McpHandler {
 
         doc.push_str("\n### Recommended RepoTrim Invocation\n");
         doc.push_str("Execute before reading any full files to load the complete caller/callee context skeleton:\n\n");
+        let mut invocation_args = serde_json::json!({
+            "query": task,
+            "budget": budget_val
+        });
+        if let Some(m) = model_str {
+            invocation_args["model"] = serde_json::json!(m);
+        }
         doc.push_str(&format!(
-            "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {{\n    \"query\": \"{}\",\n    \"budget\": {}\n  }}\n}}\n```\n\n",
-            task, budget
+            "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {}\n}}\n```\n\n",
+            serde_json::to_string_pretty(&invocation_args).unwrap_or_default()
         ));
 
         doc.push_str("---\n\n");
