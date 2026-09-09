@@ -28,7 +28,13 @@ enum InternalMsg {
 
 /// Inspects whether a given path is located within an ignored directory (e.g. .git, target).
 pub fn is_ignored_path(path: &Path, root: &Path) -> bool {
-    let rel_path = path.strip_prefix(root).unwrap_or(path);
+    let rel_path = if let Ok(p) = path.strip_prefix(root) {
+        p
+    } else if let Ok(c_root) = std::fs::canonicalize(root) {
+        path.strip_prefix(&c_root).unwrap_or(path)
+    } else {
+        path
+    };
     for comp in rel_path.components() {
         if let std::path::Component::Normal(c) = comp {
             let s = c.to_string_lossy();
@@ -178,6 +184,7 @@ fn run_watcher_loop(
     debounce: Duration,
 ) {
     let mut pending_paths = HashSet::new();
+    let canonical_root = std::fs::canonicalize(&root_path).ok();
 
     'outer: loop {
         if pending_paths.is_empty() {
@@ -219,7 +226,12 @@ fn run_watcher_loop(
                         };
 
                         for path in pending_paths.drain() {
-                            let rel_path = path.strip_prefix(&root_path).unwrap_or(&path);
+                            let rel_opt = path.strip_prefix(&root_path).ok().or_else(|| {
+                                canonical_root
+                                    .as_ref()
+                                    .and_then(|cr| path.strip_prefix(cr).ok())
+                            });
+                            let rel_path = rel_opt.unwrap_or(&path);
                             let is_deleted = !path.exists();
                             let changed = if is_deleted {
                                 repo_lock.remove_file(rel_path).unwrap_or(false)
@@ -229,14 +241,15 @@ fn run_watcher_loop(
 
                             if changed {
                                 any_changed = true;
+                                let event_path = rel_opt
+                                    .map(|p| p.to_path_buf())
+                                    .unwrap_or_else(|| rel_path.to_path_buf());
                                 if is_deleted {
-                                    file_events.push(WatcherEvent::FileRemoved {
-                                        path: rel_path.to_path_buf(),
-                                    });
+                                    file_events
+                                        .push(WatcherEvent::FileRemoved { path: event_path });
                                 } else {
-                                    file_events.push(WatcherEvent::FilePatched {
-                                        path: rel_path.to_path_buf(),
-                                    });
+                                    file_events
+                                        .push(WatcherEvent::FilePatched { path: event_path });
                                 }
                             }
                         }

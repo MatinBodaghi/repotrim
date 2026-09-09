@@ -48,6 +48,8 @@ fn test_live_repository_watcher_synchronization() {
     let temp_dir = std::env::temp_dir().join(format!("repotrim_watch_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(temp_dir.join("src")).unwrap();
+    #[cfg(not(windows))]
+    let temp_dir = fs::canonicalize(&temp_dir).unwrap_or(temp_dir);
 
     let file_rs = temp_dir.join("src/lib.rs");
     fs::write(
@@ -84,9 +86,9 @@ fn test_live_repository_watcher_synchronization() {
     )
     .unwrap();
 
-    // Wait for debounced watcher event (up to 3 seconds)
+    // Wait for debounced watcher event (up to 10 seconds for CI runner jitter)
     let mut patched = false;
-    let timeout = Duration::from_secs(3);
+    let timeout = Duration::from_secs(10);
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
         if let Ok(WatcherEvent::GraphUpdated { num_symbols: 2, .. }) =

@@ -62,6 +62,9 @@ impl LoadedRepository {
             root.as_ref().to_path_buf()
         };
 
+        #[cfg(not(windows))]
+        let root_path = fs::canonicalize(&root_path).unwrap_or(root_path);
+
         let cache_dir = root_path.join(".repotrim");
         let cache_file = cache_dir.join("cache.bin");
 
@@ -212,19 +215,37 @@ impl LoadedRepository {
         )
     }
 
+    /// Converts an absolute or relative path to a repository-relative path,
+    /// resolving symlinks and canonical paths (e.g. macOS /var -> /private/var).
+    pub fn to_relative_path(&self, path: &Path) -> Option<PathBuf> {
+        if !path.is_absolute() {
+            return Some(path.to_path_buf());
+        }
+        if let Ok(p) = path.strip_prefix(&self.root_path) {
+            return Some(p.to_path_buf());
+        }
+        if let Ok(canonical_root) = fs::canonicalize(&self.root_path) {
+            if let Ok(p) = path.strip_prefix(&canonical_root) {
+                return Some(p.to_path_buf());
+            }
+            if let Ok(canonical_path) = fs::canonicalize(path) {
+                if let Ok(p) = canonical_path.strip_prefix(&canonical_root) {
+                    return Some(p.to_path_buf());
+                }
+            }
+        }
+        None
+    }
+
     /// Incrementally parses or updates a single file without rescanning the whole repository.
     ///
     /// Returns `Ok(true)` if the file was modified and symbols were re-indexed;
     /// `Ok(false)` if the file is ignored, unchanged, or not a supported language.
     pub fn patch_file<P: AsRef<Path>>(&mut self, path: P) -> Result<bool, EngineError> {
         let path = path.as_ref();
-        let rel_path = if path.is_absolute() {
-            match path.strip_prefix(&self.root_path) {
-                Ok(p) => p.to_path_buf(),
-                Err(_) => return Ok(false),
-            }
-        } else {
-            path.to_path_buf()
+        let rel_path = match self.to_relative_path(path) {
+            Some(p) => p,
+            None => return Ok(false),
         };
 
         // Check ignored directories in path components
@@ -299,13 +320,9 @@ impl LoadedRepository {
     /// Returns `Ok(true)` if the file was tracked and removed; `Ok(false)` otherwise.
     pub fn remove_file<P: AsRef<Path>>(&mut self, path: P) -> Result<bool, EngineError> {
         let path = path.as_ref();
-        let rel_path = if path.is_absolute() {
-            match path.strip_prefix(&self.root_path) {
-                Ok(p) => p.to_path_buf(),
-                Err(_) => return Ok(false),
-            }
-        } else {
-            path.to_path_buf()
+        let rel_path = match self.to_relative_path(path) {
+            Some(p) => p,
+            None => return Ok(false),
         };
 
         self.file_sources.remove(&rel_path);
