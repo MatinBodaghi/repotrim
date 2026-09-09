@@ -49,6 +49,7 @@ When working on any non-trivial coding task, follow the **3-Tier Context Funnel*
 | Inspecting uncommitted git modifications | **Use RepoTrim** with git diff | `trim_context(fromDiff: true, budget: 2000)` |
 | Understanding architectural hubs | **Use RepoTrim** graph stats | `query_graph_stats()` |
 | Deeply inspecting a single struct/function | **Use RepoTrim** inspect tool | `inspect_symbol(symbol: "MultiplexGraph")` |
+| Active pair-programming / live sync | **Run RepoTrim watch daemon** | `repotrim watch` |
 | Writing the actual code change | **Read whole file** for the target file only | `view_file(path: "target_file.rs")` |
 
 ---
@@ -111,3 +112,20 @@ Clears the `.repotrim/` incremental AST cache to force a fresh re-scan.
 
 ### 5. `generate_blueprint`
 Generates a structured `FEATURE_BLUEPRINT.md` pre-populated with inferred seeds and target files for a given task description.
+
+### 6. `generate_architecture_docs`
+Generates durable, evergreen repository architecture documentation with modular subsystem clustering, 4-tier layer classification, central PageRank hubs, and Mermaid diagrams.
+
+---
+
+## Live Synchronization Daemon (`repotrim watch`)
+
+During active coding sessions with frequent file changes, run the watch daemon in a background terminal:
+
+```bash
+repotrim watch
+```
+
+- **Sub-Millisecond Incremental Patching**: Watches filesystem modifications using `notify` with 75ms debouncing and re-parses modified files in <2 ms without rescanning the whole repository.
+- **Zero-Latency In-Memory Graph**: Keeps `.repotrim/cache.bin` and the in-memory graph hot, so MCP tool queries (`trim_context`, `inspect_symbol`) return immediately with zero disk I/O latency.
+

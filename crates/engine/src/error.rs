@@ -13,4 +13,12 @@ pub enum EngineError {
     IoError(#[from] std::io::Error),
     #[error("Git error: {0}")]
     GitError(String),
+    #[error("Watcher error: {0}")]
+    WatcherError(String),
+}
+
+impl From<notify::Error> for EngineError {
+    fn from(err: notify::Error) -> Self {
+        EngineError::WatcherError(err.to_string())
+    }
 }

@@ -15,6 +15,7 @@ pub mod resolver;
 pub mod selector;
 pub mod symbol;
 pub mod tokens;
+pub mod watcher;
 
 pub use architecture::{
     ArchitecturalHub, ArchitecturalLayer, ArchitectureReport, PublicApiSymbol, SubsystemCommunity,
@@ -37,6 +38,7 @@ pub use resolver::ScopedResolver;
 pub use selector::ContextSelector;
 pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::estimate_tokens;
+pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
 
 #[cfg(test)]
 mod tests {

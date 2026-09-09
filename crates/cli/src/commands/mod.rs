@@ -5,3 +5,4 @@ pub mod inspect;
 pub mod mcp;
 pub mod select;
 pub mod stats;
+pub mod watch;

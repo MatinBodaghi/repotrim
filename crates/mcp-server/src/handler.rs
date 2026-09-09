@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
     ArchitectureReport, ContextSelector, DiffResolver, IntentResolver, LoadedRepository, PprSolver,
-    SymbolId, SymbolKind,
+    RepositoryWatcher, SymbolId, SymbolKind,
 };
 
 use crate::protocol::{
@@ -12,10 +13,14 @@ use crate::protocol::{
     MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND,
 };
 
-/// Handles incoming MCP requests and manages workspace repository caching.
+/// Handles incoming MCP requests and manages workspace repository caching with live watcher sync.
 pub struct McpHandler {
     default_root: PathBuf,
-    cached_repo: Option<(PathBuf, LoadedRepository)>,
+    cached_repo: Option<(
+        PathBuf,
+        Arc<RwLock<LoadedRepository>>,
+        Option<RepositoryWatcher>,
+    )>,
 }
 
 impl Default for McpHandler {
@@ -270,10 +275,13 @@ impl McpHandler {
             .unwrap_or_else(|| self.default_root.clone())
     }
 
-    /// Retrieves or loads the repository with incremental caching.
-    fn get_or_load_repo(&mut self, target_path: &Path) -> Result<&mut LoadedRepository, String> {
+    /// Retrieves or loads the repository with incremental caching and live watcher synchronization.
+    fn get_or_load_repo(
+        &mut self,
+        target_path: &Path,
+    ) -> Result<RwLockWriteGuard<'_, LoadedRepository>, String> {
         let needs_reload = match &self.cached_repo {
-            Some((cached_path, _)) => cached_path != target_path,
+            Some((cached_path, _, _)) => cached_path != target_path,
             None => true,
         };
 
@@ -285,10 +293,15 @@ impl McpHandler {
                     e
                 )
             })?;
-            self.cached_repo = Some((target_path.to_path_buf(), loaded));
+            let repo_arc = Arc::new(RwLock::new(loaded));
+            let watcher = RepositoryWatcher::start(Arc::clone(&repo_arc), None, None).ok();
+            self.cached_repo = Some((target_path.to_path_buf(), repo_arc, watcher));
         }
 
-        Ok(&mut self.cached_repo.as_mut().unwrap().1)
+        let (_, repo_arc, _) = self.cached_repo.as_ref().unwrap();
+        repo_arc
+            .write()
+            .map_err(|_| "Repository lock poisoned".to_string())
     }
 
     fn tool_trim_context(&mut self, args: serde_json::Value) -> ToolCallResult {
@@ -321,7 +334,7 @@ impl McpHandler {
             .unwrap_or("markdown");
         let target_path = self.resolve_path(&args);
 
-        let repo = match self.get_or_load_repo(&target_path) {
+        let mut repo = match self.get_or_load_repo(&target_path) {
             Ok(r) => r,
             Err(e) => return ToolCallResult::error(e),
         };

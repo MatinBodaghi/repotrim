@@ -32,6 +32,8 @@ enum Commands {
     Clean(commands::clean::CleanArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
+    /// Watch codebase for file changes and incrementally maintain the in-memory graph
+    Watch(commands::watch::WatchArgs),
 }
 
 fn main() {
@@ -45,6 +47,7 @@ fn main() {
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
+        Commands::Watch(args) => commands::watch::execute(args),
     };
 
     if let Err(e) = result {

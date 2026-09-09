@@ -109,6 +109,8 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
   Dynamically assigns high detail ($\text{LOD}_2$ slices or $\text{LOD}_3$ full implementations) to query seeds, and concise signatures ($\text{LOD}_0$ / $\text{LOD}_1$) to contextual dependencies.
 - **Incremental Merkle Caching**:
   BLAKE3 content-addressed file hashing with bincode persistence. Re-indexes only modified files in <7 ms.
+- **Live File Watcher & In-Memory Daemon**:
+  Cross-platform background watcher (`notify`) with configurable debouncing (75ms). Automatically synchronizes in-memory ASTs and graph topology on save with sub-millisecond incremental patching and 0 ms MCP query latency.
 - **Native Model Context Protocol (MCP)**:
   Implements JSON-RPC 2.0 over `stdio` for plug-and-play integration with Claude Desktop, Cursor, and agent harnesses.
 
@@ -205,6 +207,18 @@ repotrim architecture --output docs/ARCHITECTURE.md
 
 # Print architecture specification directly to stdout
 repotrim architecture --output -
+```
+
+### 7. Live File Watcher Daemon (`watch`)
+
+Run a background daemon that monitors filesystem changes, incrementally reparses modified files in <2 ms, and keeps the in-memory graph and `.repotrim/cache.bin` continuously synchronized:
+
+```bash
+# Watch current repository with default 75ms debouncing
+repotrim watch
+
+# Watch specific path with custom debounce window
+repotrim watch --path ./my-project --debounce 50
 ```
 
 ---

@@ -20,6 +20,20 @@ fn test_cli_help() {
     assert!(stdout.contains("inspect"));
     assert!(stdout.contains("clean"));
     assert!(stdout.contains("mcp"));
+    assert!(stdout.contains("watch"));
+}
+
+#[test]
+fn test_cli_watch_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["watch", "--help"])
+        .output()
+        .expect("Failed to execute repotrim watch --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--debounce"));
+    assert!(stdout.contains("--path"));
 }
 
 #[test]

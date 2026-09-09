@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Directories ignored by default during repository scanning.
-const IGNORED_DIRS: &[&str] = &[
+/// Directories ignored by default during repository scanning and watching.
+pub const IGNORED_DIRS: &[&str] = &[
     ".git",
     "target",
     "node_modules",
@@ -39,6 +39,7 @@ pub struct LoadedRepository {
     pub imports: Vec<FileImport>,
     pub total_bytes: usize,
     pub cache_report: CacheReport,
+    pub cache: RepositoryCache,
 }
 
 impl LoadedRepository {
@@ -173,6 +174,7 @@ impl LoadedRepository {
             imports,
             total_bytes,
             cache_report,
+            cache,
         })
     }
 
@@ -208,6 +210,122 @@ impl LoadedRepository {
             &self.imports,
             LayerWeights::default(),
         )
+    }
+
+    /// Incrementally parses or updates a single file without rescanning the whole repository.
+    ///
+    /// Returns `Ok(true)` if the file was modified and symbols were re-indexed;
+    /// `Ok(false)` if the file is ignored, unchanged, or not a supported language.
+    pub fn patch_file<P: AsRef<Path>>(&mut self, path: P) -> Result<bool, EngineError> {
+        let path = path.as_ref();
+        let rel_path = if path.is_absolute() {
+            match path.strip_prefix(&self.root_path) {
+                Ok(p) => p.to_path_buf(),
+                Err(_) => return Ok(false),
+            }
+        } else {
+            path.to_path_buf()
+        };
+
+        // Check ignored directories in path components
+        for comp in rel_path.components() {
+            if let std::path::Component::Normal(c) = comp {
+                if IGNORED_DIRS.contains(&c.to_string_lossy().as_ref()) {
+                    return Ok(false);
+                }
+            }
+        }
+
+        let abs_path = self.root_path.join(&rel_path);
+        if !abs_path.exists() {
+            return self.remove_file(&rel_path);
+        }
+
+        if SupportedLanguage::from_path(&rel_path).is_none() {
+            return Ok(false);
+        }
+
+        let metadata = fs::metadata(&abs_path).map_err(EngineError::IoError)?;
+        if metadata.is_dir() {
+            return Ok(false);
+        }
+
+        let mtime = get_mtime_nanos(&metadata);
+        let content_bytes = fs::read(&abs_path).map_err(EngineError::IoError)?;
+        let content_hash = compute_blake3_hash(&content_bytes);
+
+        // If cached entry has the exact same content hash, no parse needed
+        if let Some(entry) = self.cache.entries.get(&rel_path) {
+            if entry.blake3_hash == content_hash {
+                return Ok(false);
+            }
+        }
+
+        let content_str = String::from_utf8_lossy(&content_bytes).to_string();
+        let extractor = AstExtractor::new()?;
+        let mut dummy_id = 0u32;
+        let (file_symbols, file_edges, file_imports) =
+            extractor.parse_file_with_imports(&rel_path, &content_bytes, &mut dummy_id)?;
+
+        self.file_sources.insert(rel_path.clone(), content_str);
+        let entry = FileCacheEntry {
+            relative_path: rel_path,
+            blake3_hash: content_hash,
+            mtime_nanos: mtime,
+            symbols: file_symbols,
+            edges: file_edges,
+            imports: file_imports,
+            source_bytes: content_bytes.len(),
+        };
+        self.cache.insert(entry);
+
+        let mut ordered_paths: Vec<PathBuf> = self.cache.entries.keys().cloned().collect();
+        ordered_paths.sort();
+        let (symbols, edges, imports) =
+            self.cache.compile_symbols_edges_and_imports(&ordered_paths);
+        self.symbols = symbols;
+        self.edges = edges;
+        self.imports = imports;
+        self.total_bytes = self.cache.entries.values().map(|e| e.source_bytes).sum();
+
+        let cache_file = self.root_path.join(".repotrim").join("cache.bin");
+        let _ = self.cache.save_to_file(&cache_file);
+
+        Ok(true)
+    }
+
+    /// Incrementally removes a file from the in-memory cache and re-indexes symbols.
+    ///
+    /// Returns `Ok(true)` if the file was tracked and removed; `Ok(false)` otherwise.
+    pub fn remove_file<P: AsRef<Path>>(&mut self, path: P) -> Result<bool, EngineError> {
+        let path = path.as_ref();
+        let rel_path = if path.is_absolute() {
+            match path.strip_prefix(&self.root_path) {
+                Ok(p) => p.to_path_buf(),
+                Err(_) => return Ok(false),
+            }
+        } else {
+            path.to_path_buf()
+        };
+
+        self.file_sources.remove(&rel_path);
+        if self.cache.entries.remove(&rel_path).is_some() {
+            let mut ordered_paths: Vec<PathBuf> = self.cache.entries.keys().cloned().collect();
+            ordered_paths.sort();
+            let (symbols, edges, imports) =
+                self.cache.compile_symbols_edges_and_imports(&ordered_paths);
+            self.symbols = symbols;
+            self.edges = edges;
+            self.imports = imports;
+            self.total_bytes = self.cache.entries.values().map(|e| e.source_bytes).sum();
+
+            let cache_file = self.root_path.join(".repotrim").join("cache.bin");
+            let _ = self.cache.save_to_file(&cache_file);
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
@@ -283,6 +401,67 @@ mod tests {
             .load_all_sources()
             .expect("Failed to load sources");
         assert_eq!(repo_warm.file_sources.len(), 1);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_incremental_patch_and_remove() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("repotrim_patch_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(temp_dir.join("src")).unwrap();
+
+        let file1 = temp_dir.join("src/main.rs");
+        fs::write(&file1, "pub fn foo() {}\n").unwrap();
+
+        let mut repo = LoadedRepository::load(&temp_dir).expect("Failed to load repo");
+        assert_eq!(repo.symbols.len(), 1);
+        assert_eq!(repo.symbols[0].name, "foo");
+
+        // Touch without content change -> Ok(false)
+        let touched = repo.patch_file(Path::new("src/main.rs")).unwrap();
+        assert!(!touched);
+        assert_eq!(repo.symbols.len(), 1);
+
+        // Edit file to add a new function -> Ok(true)
+        fs::write(&file1, "pub fn foo() {}\npub fn bar() {}\n").unwrap();
+        let patched = repo.patch_file(Path::new("src/main.rs")).unwrap();
+        assert!(patched);
+        assert_eq!(repo.symbols.len(), 2);
+        let names: Vec<_> = repo.symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"foo"));
+        assert!(names.contains(&"bar"));
+
+        // Add a new file -> Ok(true)
+        let file2 = temp_dir.join("src/util.rs");
+        fs::write(&file2, "pub fn helper() {}\n").unwrap();
+        let added = repo.patch_file(Path::new("src/util.rs")).unwrap();
+        assert!(added);
+        assert_eq!(repo.symbols.len(), 3);
+
+        // Ignored file / directory -> Ok(false)
+        let ignored_file = temp_dir.join("target/debug/foo.rs");
+        fs::create_dir_all(temp_dir.join("target/debug")).unwrap();
+        fs::write(&ignored_file, "pub fn ignore_me() {}\n").unwrap();
+        let ignored = repo.patch_file(Path::new("target/debug/foo.rs")).unwrap();
+        assert!(!ignored);
+
+        // Unsupported extension -> Ok(false)
+        let txt_file = temp_dir.join("src/notes.txt");
+        fs::write(&txt_file, "just notes\n").unwrap();
+        let skipped = repo.patch_file(Path::new("src/notes.txt")).unwrap();
+        assert!(!skipped);
+
+        // Remove file on disk and call patch_file (auto-delegates to remove_file) -> Ok(true)
+        fs::remove_file(&file2).unwrap();
+        let removed = repo.patch_file(Path::new("src/util.rs")).unwrap();
+        assert!(removed);
+        assert_eq!(repo.symbols.len(), 2);
+
+        // Explicit remove on already removed file -> Ok(false)
+        let removed_again = repo.remove_file(Path::new("src/util.rs")).unwrap();
+        assert!(!removed_again);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
