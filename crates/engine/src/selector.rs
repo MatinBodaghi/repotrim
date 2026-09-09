@@ -4,8 +4,27 @@ use std::path::PathBuf;
 use crate::celf::{CelfConfig, CelfOptimizer};
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
+use crate::knee::KneedleDetector;
+use crate::model::ModelProfile;
 use crate::ppr::{PprConfig, PprSolver};
 use crate::symbol::{SymbolId, SymbolNode};
+
+/// Diagnostic report produced when auto-budgeting context selection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutoBudgetReport {
+    /// Name of the target model profile used.
+    pub model_name: String,
+    /// Automatically computed optimal budget threshold in tokens.
+    pub optimal_budget: usize,
+    /// Exact token cost at the Kneedle knee point.
+    pub knee_tokens: usize,
+    /// Ratio of cumulative utility captured at the knee point relative to total evaluated graph utility.
+    pub knee_utility_ratio: f32,
+    /// Total number of candidate symbols considered up to the profile ceiling.
+    pub candidate_count: usize,
+    /// Final number of symbols selected at the knee point.
+    pub selected_count: usize,
+}
 
 /// End-to-end context selection pipeline.
 ///
@@ -80,6 +99,127 @@ impl ContextSelector {
         selected_symbols
     }
 
+    /// Automatically tunes the token budget using the Kneedle algorithm and
+    /// selects the optimal context tailored to the target `ModelProfile`.
+    pub fn select_context_auto(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        profile: ModelProfile,
+    ) -> (Vec<SymbolNode>, AutoBudgetReport) {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_context_auto_weighted(graph, &seeds, profile)
+    }
+
+    /// Automatically tunes the token budget using the Kneedle algorithm and
+    /// selects the optimal context tailored to the target `ModelProfile` with weighted seeds.
+    pub fn select_context_auto_weighted(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        profile: ModelProfile,
+    ) -> (Vec<SymbolNode>, AutoBudgetReport) {
+        if graph.is_empty() || weighted_seeds.is_empty() {
+            return (
+                Vec::new(),
+                AutoBudgetReport {
+                    model_name: profile.name.to_string(),
+                    optimal_budget: 0,
+                    knee_tokens: 0,
+                    knee_utility_ratio: 0.0,
+                    candidate_count: 0,
+                    selected_count: 0,
+                },
+            );
+        }
+
+        // 1. Compute local PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+
+        // 2. Anchor boost
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        // 3. Optimize with trace up to profile ceiling
+        let (all_selected, trace) =
+            self.celf
+                .optimize_with_trace(graph, &ppr_scores, profile.max_budget);
+
+        if trace.is_empty() {
+            return (
+                Vec::new(),
+                AutoBudgetReport {
+                    model_name: profile.name.to_string(),
+                    optimal_budget: 0,
+                    knee_tokens: 0,
+                    knee_utility_ratio: 0.0,
+                    candidate_count: 0,
+                    selected_count: 0,
+                },
+            );
+        }
+
+        // 4. Extract points (cumulative_tokens, cumulative_utility)
+        let points: Vec<(usize, f32)> = trace
+            .iter()
+            .map(|s| (s.cumulative_tokens, s.cumulative_utility))
+            .collect();
+
+        // 5. Run KneedleDetector with profile sensitivity
+        let detector = KneedleDetector::with_params(profile.sensitivity, 0.35);
+        let knee = detector.find_knee(&points);
+
+        let (knee_tokens, knee_ratio, knee_idx) = match knee {
+            Some(k) => (k.token_cost, k.utility_ratio, k.index),
+            None => {
+                let last = trace.last().unwrap();
+                (last.cumulative_tokens, 1.0, trace.len().saturating_sub(1))
+            }
+        };
+
+        // Clamp the optimal budget between [min_budget, max_budget]
+        let optimal_budget = knee_tokens.clamp(profile.min_budget, profile.max_budget);
+
+        // Retain symbols up to the optimal budget
+        let mut selected_ids: Vec<SymbolId> = trace
+            .iter()
+            .take_while(|s| s.cumulative_tokens <= optimal_budget)
+            .map(|s| s.symbol_id)
+            .collect();
+
+        if selected_ids.is_empty() && !all_selected.is_empty() {
+            selected_ids = trace
+                .iter()
+                .take(knee_idx + 1)
+                .map(|s| s.symbol_id)
+                .collect();
+        }
+
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        let report = AutoBudgetReport {
+            model_name: profile.name.to_string(),
+            optimal_budget,
+            knee_tokens,
+            knee_utility_ratio: knee_ratio,
+            candidate_count: all_selected.len(),
+            selected_count: selected_symbols.len(),
+        };
+
+        (selected_symbols, report)
+    }
+
     /// End-to-end pipeline: selects mathematically optimal symbols and formats them
     /// into structured Markdown context with dynamic Level-of-Detail (LOD).
     pub fn select_and_format_context(
@@ -142,6 +282,53 @@ impl ContextSelector {
         let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
 
         (selected_symbols, markdown)
+    }
+
+    /// End-to-end pipeline with auto-budgeting: selects optimal symbols and formats
+    /// them into structured Markdown context with dynamic Level-of-Detail (LOD).
+    pub fn select_and_format_context_auto(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        profile: ModelProfile,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, AutoBudgetReport) {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_and_format_context_auto_weighted(graph, &seeds, profile, file_sources)
+    }
+
+    /// End-to-end pipeline with auto-budgeting and weighted seeds: selects optimal symbols
+    /// and formats them into structured Markdown context with dynamic Level-of-Detail (LOD).
+    pub fn select_and_format_context_auto_weighted(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        profile: ModelProfile,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, AutoBudgetReport) {
+        let (selected_symbols, report) =
+            self.select_context_auto_weighted(graph, weighted_seeds, profile);
+
+        if selected_symbols.is_empty() {
+            return (Vec::new(), String::new(), report);
+        }
+
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let lod_map = ContextFormatter::assign_lod(
+            &selected_symbols,
+            &ppr_scores,
+            &seed_id_list,
+            report.optimal_budget,
+            file_sources,
+        );
+        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+
+        (selected_symbols, markdown, report)
     }
 }
 
@@ -284,5 +471,64 @@ mod tests {
         // heavy_seed (weight 10.0) should be prioritized.
         assert_eq!(selected.len(), 2);
         assert!(selected.iter().any(|s| s.name == "heavy_seed"));
+    }
+
+    #[test]
+    fn test_context_selector_auto_budgeting() {
+        let s0 = make_test_symbol(0, "entry", "src/entry.rs", 0, 100);
+        let s1 = make_test_symbol(1, "service", "src/service.rs", 10, 150);
+        let s2 = make_test_symbol(2, "db", "src/db.rs", 20, 200);
+        let s3 = make_test_symbol(3, "cache", "src/cache.rs", 30, 250);
+        let s4 = make_test_symbol(4, "metrics", "src/metrics.rs", 40, 300);
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "service".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "db".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "cache".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(2),
+                target_ident: "metrics".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph =
+            MultiplexGraph::build(vec![s0, s1, s2, s3, s4], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let profile = ModelProfile::local_ollama();
+        let (selected, report) = selector.select_context_auto(&graph, &[SymbolId(0)], profile);
+
+        assert!(!selected.is_empty());
+        assert_eq!(report.model_name, "local-ollama");
+        assert!(report.optimal_budget >= profile.min_budget);
+        assert!(report.optimal_budget <= profile.max_budget);
+        assert!(report.knee_utility_ratio > 0.0);
+        assert_eq!(report.selected_count, selected.len());
+
+        let mut sources = HashMap::new();
+        sources.insert(PathBuf::from("src/entry.rs"), "fn entry() {}".to_string());
+        sources.insert(
+            PathBuf::from("src/service.rs"),
+            "fn service() {}".to_string(),
+        );
+
+        let (syms, md, rep) =
+            selector.select_and_format_context_auto(&graph, &[SymbolId(0)], profile, &sources);
+        assert!(!syms.is_empty());
+        assert!(!md.is_empty());
+        assert_eq!(rep.optimal_budget, report.optimal_budget);
     }
 }
