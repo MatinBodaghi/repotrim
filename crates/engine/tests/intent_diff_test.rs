@@ -63,6 +63,12 @@ fn test_intent_resolver_bm25_and_fuzzy() {
     let results3 = IntentResolver::resolve_query(&symbols, "CsrMatrx", 2);
     assert!(!results3.is_empty());
     assert_eq!(results3[0].0, SymbolId(2));
+
+    // 4. Zero literal overlap semantic query: "user login security"
+    // "login" and "security" map to Auth cluster; authenticate_user has "authenticate", "auth", "token"
+    let results4 = IntentResolver::resolve_query(&symbols, "login security credentials", 1);
+    assert!(!results4.is_empty(), "Expected semantic hybrid resolution");
+    assert_eq!(results4[0].0, SymbolId(1));
 }
 
 #[test]

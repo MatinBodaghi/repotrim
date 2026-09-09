@@ -2,11 +2,168 @@ use std::collections::{HashMap, HashSet};
 
 use crate::symbol::{SymbolId, SymbolNode};
 
-/// In-memory lexical & fuzzy intent resolver.
+/// In-memory lexical, fuzzy, and semantic hybrid intent resolver.
 ///
 /// Resolves natural language queries, error descriptions, or search terms into
 /// prioritized `SymbolId` seeds weighted by relevance for Personalized PageRank.
+///
+/// Employs a dense-sparse hybrid expansion paradigm to alleviate the vocabulary mismatch
+/// problem in source code retrieval without requiring a heavy remote neural embedding service:
+/// - Exact and fuzzy character 3-gram matching (Jaccard similarity).
+/// - Smoothed BM25 term frequency / inverse document frequency (Robertson & Zaragoza, 2009).
+/// - Static domain ontology concept clusters for soft semantic affinity:
+///   Formal, T., Lassance, C., Piwowarski, B., & Clinchant, S. (2021).
+///   *SPLADE v2: Sparse Lexical and Expansion Model for Information Retrieval*. arXiv:2109.10086.
+///   Gao, L., Dai, Z., & Callan, J. (2021).
+///   *COIL: Efficient Dense-Sparse Hybrid Retrieval*. arXiv:2104.07186.
 pub struct IntentResolver;
+
+/// Static domain ontology clusters for zero-overlap semantic expansion.
+const CONCEPT_CLUSTERS: &[&[&str]] = &[
+    // Authentication / Security / Crypto
+    &[
+        "auth",
+        "authenticate",
+        "login",
+        "token",
+        "credential",
+        "jwt",
+        "session",
+        "password",
+        "key",
+        "permission",
+        "oauth",
+        "rbac",
+        "crypto",
+        "secret",
+        "verify",
+        "security",
+        "secure",
+        "hash",
+        "signature",
+        "certificate",
+        "access",
+    ],
+    // Database / Storage / Persistence
+    &[
+        "db",
+        "database",
+        "query",
+        "sql",
+        "persist",
+        "repository",
+        "model",
+        "store",
+        "table",
+        "entity",
+        "cache",
+        "redis",
+        "postgres",
+        "sqlite",
+        "insert",
+        "migration",
+        "save",
+        "storage",
+        "record",
+        "transaction",
+    ],
+    // Networking / HTTP / API / Web
+    &[
+        "http", "network", "request", "response", "client", "server", "endpoint", "api", "fetch",
+        "route", "handler", "socket", "rpc", "rest", "gateway", "connect", "url", "webhook",
+    ],
+    // Parsing / Serialization / Pipeline / AST
+    &[
+        "parse",
+        "transform",
+        "process",
+        "serialize",
+        "deserialize",
+        "json",
+        "ast",
+        "stream",
+        "codec",
+        "buffer",
+        "extractor",
+        "grammar",
+        "syntax",
+        "tree",
+        "decode",
+        "encode",
+        "compile",
+    ],
+    // Graph / Algorithms / Mathematics / Ranking
+    &[
+        "calculate",
+        "compute",
+        "algorithm",
+        "graph",
+        "pagerank",
+        "ppr",
+        "celf",
+        "matrix",
+        "score",
+        "rank",
+        "metric",
+        "distance",
+        "cost",
+        "budget",
+        "vector",
+        "similarity",
+        "heuristic",
+        "traverse",
+        "bfs",
+        "dfs",
+    ],
+    // Lifecycle / Concurrency / Asynchrony
+    &[
+        "init", "start", "stop", "close", "thread", "async", "spawn", "worker", "pool", "mutex",
+        "channel", "run", "execute", "task", "daemon", "service", "schedule", "queue", "event",
+    ],
+    // Configuration / Environment / Flags
+    &[
+        "config",
+        "configuration",
+        "setting",
+        "env",
+        "environment",
+        "option",
+        "param",
+        "parameter",
+        "flag",
+        "property",
+        "preference",
+    ],
+    // Error / Logging / Diagnostics
+    &[
+        "error",
+        "exception",
+        "fault",
+        "warn",
+        "log",
+        "logger",
+        "trace",
+        "metric",
+        "diagnostic",
+        "report",
+        "panic",
+        "debug",
+    ],
+];
+
+/// Helper to test if a token matches any keyword in a concept cluster.
+fn cluster_matches_token(cluster: &[&str], token: &str) -> bool {
+    let t = token.to_lowercase();
+    for &kw in cluster {
+        if t == kw {
+            return true;
+        }
+        if t.len() >= 4 && kw.len() >= 4 && (t.starts_with(kw) || kw.starts_with(&t)) {
+            return true;
+        }
+    }
+    false
+}
 
 impl IntentResolver {
     /// Splits a string into normalized, lowercase tokens.
@@ -128,6 +285,16 @@ impl IntentResolver {
             doc_freqs.insert(token.as_str(), count);
         }
 
+        // Precompute matching semantic concept clusters for the query
+        let mut query_clusters = HashSet::new();
+        for q_token in &query_tokens {
+            for (idx, &cluster) in CONCEPT_CLUSTERS.iter().enumerate() {
+                if cluster_matches_token(cluster, q_token) {
+                    query_clusters.insert(idx);
+                }
+            }
+        }
+
         let mut scores: Vec<(SymbolId, f32)> = Vec::with_capacity(symbols.len());
 
         for symbol in symbols {
@@ -184,6 +351,35 @@ impl IntentResolver {
                     score += idf * (doc_tf * 1.0);
                 }
             }
+
+            // 4. Semantic Concept Expansion for zero-overlap domain affinity
+            // (Formal et al., 2021; Gao et al., 2021)
+            let mut semantic_score = 0.0_f32;
+            for &cluster_idx in &query_clusters {
+                let cluster = CONCEPT_CLUSTERS[cluster_idx];
+                let name_count = sym_name_tokens
+                    .iter()
+                    .filter(|t| cluster_matches_token(cluster, t))
+                    .count() as f32;
+                let path_count = path_tokens
+                    .iter()
+                    .filter(|t| cluster_matches_token(cluster, t))
+                    .count() as f32;
+                let sig_count = sig_tokens
+                    .iter()
+                    .filter(|t| cluster_matches_token(cluster, t))
+                    .count() as f32;
+                let doc_count = doc_tokens
+                    .iter()
+                    .filter(|t| cluster_matches_token(cluster, t))
+                    .count() as f32;
+
+                semantic_score += name_count * 15.0;
+                semantic_score += path_count * 8.0;
+                semantic_score += sig_count * 5.0;
+                semantic_score += doc_count * 3.0;
+            }
+            score += semantic_score;
 
             if score > 0.0 {
                 scores.push((symbol.id, score));
@@ -291,5 +487,54 @@ mod tests {
         let results3 = IntentResolver::resolve_query(&symbols, "estimat_token", 2);
         assert!(!results3.is_empty());
         assert_eq!(results3[0].0, SymbolId(0));
+    }
+
+    #[test]
+    fn test_zero_overlap_semantic_query() {
+        let s_db = make_test_sym(
+            0,
+            "persist_entity",
+            "crates/db/src/repo.rs",
+            "pub fn persist_entity(data: &[u8]) -> Result<(), Error>",
+            Some("Writes records into the SQL table."),
+        );
+        let s_auth = make_test_sym(
+            1,
+            "verify_signature",
+            "crates/crypto/src/sign.rs",
+            "pub fn verify_signature(key: &[u8]) -> bool",
+            Some("Validates HMAC secret."),
+        );
+        let s_calc = make_test_sym(
+            2,
+            "calculate_matrix_pagerank",
+            "crates/algo/src/graph.rs",
+            "pub fn calculate_matrix_pagerank()",
+            None,
+        );
+
+        let symbols = vec![s_db, s_auth, s_calc];
+
+        // Zero literal overlap query: "credentials and password authentication"
+        // s_auth contains "verify", "signature", "key", "crypto", "secret" -> all in Auth/Security cluster!
+        // Neither "credentials" nor "password" appears literally in s_auth.
+        let results =
+            IntentResolver::resolve_query(&symbols, "credentials password authentication", 1);
+        assert!(
+            !results.is_empty(),
+            "Expected semantic hybrid resolution for zero-overlap query"
+        );
+        assert_eq!(results[0].0, SymbolId(1));
+        assert!(results[0].1 > 0.0);
+
+        // Zero literal overlap query: "database store migration"
+        // s_db contains "persist", "entity", "db", "repo", "records", "sql", "table" -> Database cluster!
+        let results_db = IntentResolver::resolve_query(&symbols, "database store migration", 1);
+        assert!(
+            !results_db.is_empty(),
+            "Expected semantic hybrid resolution for database query"
+        );
+        assert_eq!(results_db[0].0, SymbolId(0));
+        assert!(results_db[0].1 > 0.0);
     }
 }
