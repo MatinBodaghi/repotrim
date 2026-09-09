@@ -226,3 +226,44 @@ fn test_cli_blueprint() {
 
     let _ = std::fs::remove_file(&temp_file);
 }
+
+#[test]
+fn test_cli_architecture() {
+    let temp_file =
+        std::env::temp_dir().join(format!("repotrim_arch_test_{}.md", std::process::id()));
+    let _ = std::fs::remove_file(&temp_file);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["architecture", "--path"])
+        .arg(repo_root())
+        .args(["--output", temp_file.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute repotrim architecture");
+
+    assert!(output.status.success());
+    assert!(temp_file.exists());
+
+    let content = std::fs::read_to_string(&temp_file).expect("Read architecture file");
+    assert!(content.contains("# Repository Architecture & Subsystem Specification"));
+    assert!(content.contains("## 1. Executive Summary & Graph Modularity"));
+    assert!(content.contains("## 2. Architectural Dependency Graph"));
+    assert!(content.contains("```mermaid\nflowchart TD"));
+    assert!(content.contains("## 3. Subsystem Community Catalog"));
+    assert!(content.contains("## 4. Architectural Layers & Responsibilities"));
+    assert!(content.contains("## 5. Central Architectural Hubs"));
+    assert!(content.contains("## 6. Public API & Key Interface Catalog"));
+
+    let _ = std::fs::remove_file(&temp_file);
+
+    // Also test stdout output with `--output -`
+    let stdout_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["architecture", "--path"])
+        .arg(repo_root())
+        .args(["--output", "-"])
+        .output()
+        .expect("Failed to execute repotrim architecture to stdout");
+
+    assert!(stdout_output.status.success());
+    let stdout_str = String::from_utf8_lossy(&stdout_output.stdout);
+    assert!(stdout_str.contains("# Repository Architecture & Subsystem Specification"));
+}

@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod cache;
 pub mod celf;
 pub mod csr;
@@ -15,6 +16,9 @@ pub mod selector;
 pub mod symbol;
 pub mod tokens;
 
+pub use architecture::{
+    ArchitecturalHub, ArchitecturalLayer, ArchitectureReport, PublicApiSymbol, SubsystemCommunity,
+};
 pub use cache::{
     compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };

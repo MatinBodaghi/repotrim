@@ -22,6 +22,8 @@ enum Commands {
     Select(commands::select::SelectArgs),
     /// Generate a structured feature blueprint with inferred seed anchors for agent harnesses
     Blueprint(commands::blueprint::BlueprintArgs),
+    /// Generate evergreen repository architectural specification and Mermaid diagrams
+    Architecture(commands::architecture::ArchitectureArgs),
     /// Display repository graph statistics and central architectural hubs
     Stats(commands::stats::StatsArgs),
     /// Deeply inspect a symbol's graph dependencies and callers
@@ -38,6 +40,7 @@ fn main() {
     let result = match cli.command {
         Commands::Select(args) => commands::select::execute(args),
         Commands::Blueprint(args) => commands::blueprint::execute(args),
+        Commands::Architecture(args) => commands::architecture::execute(args),
         Commands::Stats(args) => commands::stats::execute(args),
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),

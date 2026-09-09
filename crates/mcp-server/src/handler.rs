@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use repotrim_engine::{
-    ContextSelector, DiffResolver, IntentResolver, LoadedRepository, PprSolver, SymbolId,
-    SymbolKind,
+    ArchitectureReport, ContextSelector, DiffResolver, IntentResolver, LoadedRepository, PprSolver,
+    SymbolId, SymbolKind,
 };
 
 use crate::protocol::{
@@ -229,6 +229,23 @@ impl McpHandler {
                     "required": ["task"]
                 }),
             },
+            ToolDefinition {
+                name: "generate_architecture_docs".to_string(),
+                description: "Generate comprehensive, durable repository architecture documentation (ARCHITECTURE.md) including subsystem topology, architectural layers, central hubs, Mermaid diagrams, and public API inventories.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        },
+                        "output": {
+                            "type": "string",
+                            "description": "Optional destination file path to write generated documentation to (e.g. 'docs/ARCHITECTURE.md')"
+                        }
+                    }
+                }),
+            },
         ]
     }
 
@@ -240,6 +257,7 @@ impl McpHandler {
             "inspect_symbol" => self.tool_inspect_symbol(arguments),
             "clean_cache" => self.tool_clean_cache(arguments),
             "generate_blueprint" => self.tool_generate_blueprint(arguments),
+            "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -714,5 +732,34 @@ impl McpHandler {
         doc.push_str("- [ ] Code formatted cleanly: `cargo fmt --all -- --check`\n");
 
         ToolCallResult::success(doc)
+    }
+
+    fn tool_generate_architecture_docs(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let target_path = self.resolve_path(&args);
+
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let graph = repo.build_graph();
+        let report = ArchitectureReport::analyze(&graph, &repo.root_path);
+        let markdown = report.to_markdown();
+
+        if let Some(output_file) = args.get("output").and_then(|o| o.as_str()) {
+            let out_path = target_path.join(output_file);
+            if let Some(parent) = out_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Err(e) = fs::write(&out_path, &markdown) {
+                return ToolCallResult::error(format!(
+                    "Failed to write architecture specification to '{}': {}",
+                    out_path.display(),
+                    e
+                ));
+            }
+        }
+
+        ToolCallResult::success(markdown)
     }
 }

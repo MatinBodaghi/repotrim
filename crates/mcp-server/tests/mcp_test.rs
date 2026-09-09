@@ -37,14 +37,17 @@ fn test_mcp_full_lifecycle_and_tools() {
             // 8. tools/call: generate_blueprint
             r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{{"name":"generate_blueprint","arguments":{{"task":"token estimation","path":"{}"}}}}}}"#,
             "\n",
-            // 9. tools/call: unknown tool error handling
-            r#"{{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            // 9. tools/call: generate_architecture_docs
+            r#"{{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{{"name":"generate_architecture_docs","arguments":{{"path":"{}"}}}}}}"#,
             "\n",
-            // 10. unknown method error handling
-            r#"{{"jsonrpc":"2.0","id":9,"method":"unknown_method"}}"#,
+            // 10. tools/call: unknown tool error handling
+            r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            "\n",
+            // 11. unknown method error handling
+            r#"{{"jsonrpc":"2.0","id":10,"method":"unknown_method"}}"#,
             "\n"
         ),
-        root_str, root_str, root_str, root_str, root_str
+        root_str, root_str, root_str, root_str, root_str, root_str
     );
 
     let reader = Cursor::new(input.as_bytes());
@@ -58,17 +61,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
     let lines: Vec<&str> = output_str.trim().split('\n').collect();
 
-    // Responses expected:
-    // id:1 (initialize)
-    // id:2 (tools/list)
-    // id:3 (query_graph_stats)
-    // id:4 (inspect_symbol)
-    // id:5 (trim_context markdown)
-    // id:6 (trim_context json)
-    // id:7 (generate_blueprint)
-    // id:8 (nonexistent_tool error)
-    // id:9 (unknown_method error)
-    assert_eq!(lines.len(), 9);
+    assert_eq!(lines.len(), 10);
 
     // 1. initialize
     let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -80,7 +73,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 6);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -125,18 +118,27 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert!(bp_text.contains("Feature Blueprint: token estimation"));
     assert!(bp_text.contains("estimate_tokens"));
 
-    // 8. nonexistent_tool error
+    // 8. generate_architecture_docs
     let resp8: serde_json::Value = serde_json::from_str(lines[7]).unwrap();
     assert_eq!(resp8["id"], 8);
-    assert_eq!(resp8["result"]["isError"], true);
-    let err_text = resp8["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+    assert_eq!(resp8["result"]["isError"], false);
+    let arch_text = resp8["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(arch_text.contains("# Repository Architecture & Subsystem Specification"));
+    assert!(arch_text.contains("```mermaid\nflowchart TD"));
+    assert!(arch_text.contains("## 3. Subsystem Community Catalog"));
 
-    // 9. unknown_method error
+    // 9. nonexistent_tool error
     let resp9: serde_json::Value = serde_json::from_str(lines[8]).unwrap();
     assert_eq!(resp9["id"], 9);
-    assert_eq!(resp9["error"]["code"], -32601);
-    assert!(resp9["error"]["message"]
+    assert_eq!(resp9["result"]["isError"], true);
+    let err_text = resp9["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+
+    // 10. unknown_method error
+    let resp10: serde_json::Value = serde_json::from_str(lines[9]).unwrap();
+    assert_eq!(resp10["id"], 10);
+    assert_eq!(resp10["error"]["code"], -32601);
+    assert!(resp10["error"]["message"]
         .as_str()
         .unwrap()
         .contains("Unknown method"));

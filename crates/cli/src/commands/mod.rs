@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod blueprint;
 pub mod clean;
 pub mod inspect;

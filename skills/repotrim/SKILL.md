@@ -43,6 +43,7 @@ When working on any non-trivial coding task, follow the **3-Tier Context Funnel*
 
 | Scenario | What to Do | Tool Call / Command |
 |---|---|---|
+| Repository onboarding / Architectural orientation | **Use RepoTrim** architecture tool | `generate_architecture_docs()` or `repotrim architecture` |
 | Exploring an unfamiliar codebase | **Use RepoTrim** with natural language query | `trim_context(query: "auth token expiration", budget: 3000)` |
 | Checking signatures of dependencies | **Use RepoTrim** with symbol seed | `trim_context(seeds: ["ContextSelector", "PprSolver"], budget: 1500)` |
 | Inspecting uncommitted git modifications | **Use RepoTrim** with git diff | `trim_context(fromDiff: true, budget: 2000)` |

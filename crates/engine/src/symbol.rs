@@ -13,7 +13,7 @@ impl fmt::Display for SymbolId {
 }
 
 /// The category or syntactic kind of a symbol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SymbolKind {
     Function,
     Method,

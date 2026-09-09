@@ -195,6 +195,18 @@ Purge incremental `.repotrim/` cache directory:
 repotrim clean
 ```
 
+### 6. Architectural Specification & Diagrams (`architecture`)
+
+Generate durable, evergreen repository architecture documentation with automated subsystem clustering, 4-tier layering, central hubs, and Mermaid diagrams:
+
+```bash
+# Generate architecture specification to docs/ARCHITECTURE.md
+repotrim architecture --output docs/ARCHITECTURE.md
+
+# Print architecture specification directly to stdout
+repotrim architecture --output -
+```
+
 ---
 
 ## Model Context Protocol (MCP) Integration
@@ -253,6 +265,7 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 | :--- | :--- | :--- |
 | **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget: number`, `format?: string` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference |
 | **`generate_blueprint`** | `task: string`, `budget?: number`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors |
+| **`generate_architecture_docs`** | `path?: string`, `output?: string` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
 | **`query_graph_stats`** | `path?: string` | Retrieves syntax breakdown, edge density, and top PageRank hubs |
 | **`inspect_symbol`** | `symbol: string`, `path?: string` | Deeply inspects definitions, token costs, dependencies, and callers |
 | **`clean_cache`** | `path?: string` | Clears on-disk cache and resets in-memory daemon state |
@@ -344,6 +357,11 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
    - Jack O'Connor, Jean-Philippe Aumasson, Samuel Neves, Zooko Wilcox-O'Hearn. *"BLAKE3: One function, fast everywhere"*, 2020. [github.com/BLAKE3-team/BLAKE3-specs](https://github.com/BLAKE3-team/BLAKE3-specs).
 6. **Model Context Protocol (MCP):**
    - Anthropic. *"Model Context Protocol Specification"*, 2024. [modelcontextprotocol.io](https://modelcontextprotocol.io).
+7. **Graph Modularity & Community Detection:**
+   - Mark E. J. Newman, Michelle Girvan. *"Finding and evaluating community structure in networks"*. In *Physical Review E*, 69(2), 026113, 2004. [DOI: 10.1103/PhysRevE.69.026113](https://doi.org/10.1103/PhysRevE.69.026113).
+   - Vincent D. Blondel, Jean-Loup Guillaume, Renaud Lambiotte, Etienne Lefebvre. *"Fast unfolding of communities in large networks"*. In *Journal of Statistical Mechanics: Theory and Experiment*, P10008, 2008. [DOI: 10.1088/1742-5468/2008/10/P10008](https://doi.org/10.1088/1742-5468/2008/10/P10008).
+8. **Software Architecture Reconstruction:**
+   - Stéphane Ducasse, Damien Pollet. *"Software Architecture Reconstruction: A Process-Oriented Taxonomy"*. In *IEEE Transactions on Software Engineering*, 35(4), 573–591, 2009. [DOI: 10.1109/TSE.2009.19](https://doi.org/10.1109/TSE.2009.19).
 
 ---
 
