@@ -58,6 +58,10 @@ When working on any non-trivial coding task, follow the **3-Tier Context Funnel*
 
 When invoking `trim_context`, set the `budget` parameter dynamically based on task scope:
 
+- **Auto-Budgeting (`budget: "auto"`)**:
+  - Automatically identifies the optimal token budget by applying the Kneedle algorithm (Satopää et al., 2011) to the CELF knapsack cumulative marginal utility curve.
+  - Halts context extraction precisely at the knee point where additional code symbols provide diminishing returns.
+  - Can be paired with `model: "claude" | "gpt-4o" | "deepseek" | "ollama"` to tune sensitivity and token bounds to the specific LLM architecture.
 - **1,000 tokens (Quick Verification)**:
   - Verifying function signatures, parameter types, or return types.
   - Checking interface / trait contracts.
@@ -97,7 +101,8 @@ Extracts mathematically optimal prompt context across Rust, Python, TypeScript/J
   - `query` *(optional string)*: Natural language intent (e.g. `"JWT verification expiration"`). Leverages dense-sparse semantic hybrid retrieval to resolve zero-overlap conceptual queries (e.g. "credentials password storage") to relevant implementations.
   - `seeds` *(optional array of strings)*: Explicit symbol names (e.g. `["ContextSelector"]`).
   - `fromDiff` *(optional boolean)*: If `true`, infers seeds from uncommitted git changes.
-  - `budget` *(optional integer, default: 1000)*: Maximum token budget.
+  - `budget` *(optional integer or `"auto"`, default: 1000)*: Maximum token budget, or `"auto"` to activate Kneedle auto-budgeting.
+  - `model` *(optional string)*: Target model profile for auto-budgeting (`"claude"`, `"gpt-4o"`, `"deepseek"`, `"ollama"`).
   - `path` *(optional string, default: ".")*: Target repository directory.
   - `format` *(optional string: `"markdown"` or `"json"`)*: Output format.
 

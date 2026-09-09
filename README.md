@@ -150,6 +150,12 @@ Extract the mathematically optimal context skeleton within a token budget:
 # Trim context seeded around a key symbol within a 500-token budget
 repotrim select --seed ContextSelector --budget 500
 
+# Mathematically optimal auto-budgeting via Knee-Curve (diminishing returns threshold)
+repotrim select --seed ContextSelector --budget auto
+
+# Auto-budget targeted for specific LLM architecture profile
+repotrim select --query "jwt token verification" --budget auto --model gpt-4o
+
 # Natural language intent query (automatic BM25 / trigram seed discovery)
 repotrim select --query "jwt token verification" --budget 1500
 
@@ -279,8 +285,8 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget: number`, `format?: string` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference |
-| **`generate_blueprint`** | `task: string`, `budget?: number`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `format?: string` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting |
+| **`generate_blueprint`** | `task: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors and target files |
 | **`generate_architecture_docs`** | `path?: string`, `output?: string` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
 | **`query_graph_stats`** | `path?: string` | Retrieves syntax breakdown, edge density, and top PageRank hubs |
 | **`inspect_symbol`** | `symbol: string`, `path?: string` | Deeply inspects definitions, token costs, dependencies, and callers |
@@ -381,6 +387,8 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 9. **Dense-Sparse Hybrid Retrieval & Lexical Expansion:**
    - Thibault Formal, Carlos Lassance, Benjamin Piwowarski, Stéphane Clinchant. *"SPLADE v2: Sparse Lexical and Expansion Model for Information Retrieval"*, 2021. [arXiv:2109.10086](https://arxiv.org/abs/2109.10086).
    - Luan Gao, Zhuyun Dai, Jamie Callan. *"COIL: Efficient Dense-Sparse Hybrid Retrieval"*. In *ACM SIGIR Conference on Research and Development in Information Retrieval*, 2021. [arXiv:2104.07186](https://arxiv.org/abs/2104.07186).
+10. **Knee Point Detection in Discrete Curvature (Kneedle):**
+    - Ville Satopää, Jeannie Albrecht, David Irwin, Barath Raghavan. *"Finding a 'Kneedle' in a Haystack: Detecting Knee Points in System Behavior"*. In *31st International Conference on Distributed Computing Systems Workshops (ICDCSW)*, 2011, pp. 166–171. [DOI: 10.1109/ICDCSW.2011.20](https://doi.org/10.1109/ICDCSW.2011.20).
 
 ---
 

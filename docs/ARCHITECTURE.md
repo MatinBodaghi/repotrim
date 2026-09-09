@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **308** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **988** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.229** | Moderate cohesion with cross-module coupling |
+| **Total AST Symbols** | **375** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **1283** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.192** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -21,16 +21,16 @@ The following diagram illustrates the directed dependency flow between architect
 ```mermaid
 flowchart TD
     subgraph Presentation["Layer 1: Presentation & Entrypoints"]
-        subsys_crates_mcp_server["crates-mcp-server (44 syms)"]
-        subsys_crates_cli["crates-cli (30 syms)"]
+        subsys_crates_mcp_server["crates-mcp-server (45 syms)"]
+        subsys_crates_cli["crates-cli (36 syms)"]
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (234 syms)"]
+        subsys_crates_engine["crates-engine (294 syms)"]
     end
 
-    subsys_crates_mcp_server -->|"35 refs"| subsys_crates_engine
-    subsys_crates_cli -->|"56 refs"| subsys_crates_engine
+    subsys_crates_mcp_server -->|"44 refs"| subsys_crates_engine
+    subsys_crates_cli -->|"73 refs"| subsys_crates_engine
     subsys_crates_cli -->|"2 refs"| subsys_crates_mcp_server
     subsys_crates_engine -->|"1 refs"| subsys_crates_mcp_server
 ```
@@ -41,9 +41,9 @@ flowchart TD
 
 | Subsystem | Layer | Root Directory | Symbols | Tokens | Coupling (Out $\to$ In) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 44 | 1035 | crates-engine (35) |
-| **crates-cli** | `Presentation` | `crates/cli` | 30 | 1537 | crates-engine (56), crates-mcp-server (2) |
-| **crates-engine** | `Domain` | `crates/engine` | 234 | 6750 | crates-mcp-server (1) |
+| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 45 | 1074 | crates-engine (44) |
+| **crates-cli** | `Presentation` | `crates/cli` | 36 | 1884 | crates-engine (73), crates-mcp-server (2) |
+| **crates-engine** | `Domain` | `crates/engine` | 294 | 8756 | crates-mcp-server (1) |
 
 ---
 
@@ -53,19 +53,19 @@ flowchart TD
 
 *Ingress entrypoints, CLI commands, MCP protocol dispatchers, and UI components.*
 
-- **`crates-mcp-server`** (at `crates/mcp-server`): 44 symbols (1035 tokens).
-  - Depends on: `crates-engine` (35 refs)
+- **`crates-mcp-server`** (at `crates/mcp-server`): 45 symbols (1074 tokens).
+  - Depends on: `crates-engine` (44 refs)
   - Consumed by: `crates-cli` (2 callers), `crates-engine` (1 callers)
-- **`crates-cli`** (at `crates/cli`): 30 symbols (1537 tokens).
-  - Depends on: `crates-engine` (56 refs), `crates-mcp-server` (2 refs)
+- **`crates-cli`** (at `crates/cli`): 36 symbols (1884 tokens).
+  - Depends on: `crates-engine` (73 refs), `crates-mcp-server` (2 refs)
 
 ### Layer 2: Domain & Business Logic
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 234 symbols (6750 tokens).
+- **`crates-engine`** (at `crates/engine`): 294 symbols (8756 tokens).
   - Depends on: `crates-mcp-server` (1 refs)
-  - Consumed by: `crates-cli` (56 callers), `crates-mcp-server` (35 callers)
+  - Consumed by: `crates-cli` (73 callers), `crates-mcp-server` (44 callers)
 
 ---
 
@@ -75,21 +75,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 58 | 1 | 0.05471 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 44 | 1 | 0.01357 | `crates/engine/src/cache.rs` |
-| **`is_empty`** | `Method` | `Domain` | 34 | 1 | 0.00933 | `crates/engine/src/graph.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 33 | 2 | 0.00684 | `crates/engine/src/cache.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 31 | 3 | 0.00865 | `crates/engine/src/symbol.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 24 | 16 | 0.01898 | `crates/engine/src/graph.rs` |
-| **`build`** | `Method` | `Domain` | 18 | 5 | 0.00231 | `crates/engine/src/graph.rs` |
-| **`McpHandler`** | `Struct` | `Presentation` | 15 | 15 | 0.00743 | `crates/mcp-server/src/handler.rs` |
-| **`parse_file`** | `Method` | `Domain` | 15 | 5 | 0.00239 | `crates/engine/src/parser.rs` |
-| **`new`** | `Method` | `Domain` | 13 | 1 | 0.02212 | `crates/engine/src/symbol.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 15 | 4 | 0.00131 | `crates/engine/src/loader.rs` |
-| **`default`** | `Method` | `Infrastructure` | 14 | 2 | 0.00337 | `crates/engine/src/cache.rs` |
-| **`symbol`** | `Method` | `Core` | 14 | 3 | 0.00209 | `crates/engine/src/graph.rs` |
-| **`symbols`** | `Method` | `Core` | 13 | 2 | 0.00206 | `crates/engine/src/graph.rs` |
-| **`FileImport`** | `Struct` | `Domain` | 11 | 2 | 0.01963 | `crates/engine/src/import.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 66 | 1 | 0.04817 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 59 | 1 | 0.01443 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 42 | 1 | 0.04418 | `crates/engine/src/error.rs` |
+| **`is_empty`** | `Method` | `Domain` | 38 | 1 | 0.00801 | `crates/engine/src/graph.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 38 | 2 | 0.00646 | `crates/engine/src/cache.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 35 | 3 | 0.00760 | `crates/engine/src/symbol.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 34 | 16 | 0.01735 | `crates/engine/src/graph.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 21 | 4 | 0.00144 | `crates/engine/src/loader.rs` |
+| **`build`** | `Method` | `Domain` | 20 | 5 | 0.00202 | `crates/engine/src/graph.rs` |
+| **`EngineError`** | `Enum` | `Core` | 16 | 1 | 0.04167 | `crates/engine/src/error.rs` |
+| **`default`** | `Method` | `Infrastructure` | 17 | 2 | 0.00357 | `crates/engine/src/cache.rs` |
+| **`McpHandler`** | `Struct` | `Presentation` | 15 | 16 | 0.00531 | `crates/mcp-server/src/handler.rs` |
+| **`parse_file`** | `Method` | `Domain` | 15 | 5 | 0.00200 | `crates/engine/src/parser.rs` |
+| **`symbol`** | `Method` | `Core` | 15 | 3 | 0.00182 | `crates/engine/src/graph.rs` |
+| **`FileImport`** | `Struct` | `Domain` | 13 | 2 | 0.01838 | `crates/engine/src/import.rs` |
 
 ---
 
@@ -134,6 +134,11 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>>
 pub fn execute(args: StatsArgs) -> Result<(), Box<dyn std::error::Error>>
 ```
 
+- **`execute`** (`Function` in `crates/cli/src/commands/watch.rs`):
+```text
+pub fn execute(args: WatchArgs) -> Result<(), Box<dyn std::error::Error>>
+```
+
 - **`generate_blueprint_text`** (`Function` in `crates/cli/src/commands/blueprint.rs`):
 > Formats a complete, high-density Markdown feature blueprint.
 ```text
@@ -141,7 +146,8 @@ pub fn generate_blueprint_text(
     task: &str,
     seed_files: &[String],
     symbol_targets: &[(repotrim_engine::SymbolNode, f32)],
-    budget: usize,
+    budget: &str,
+    model: Option<&str>,
 ) -> String
 ```
 
@@ -172,9 +178,13 @@ pub struct BlueprintArgs {
     #[arg(short = 'p', long = "path", default_value = ".")]
     pub path: PathBuf,
 
-    /// Recommended token budget for context slicing
-    #[arg(short = 'b', long = "budget", default_value_t = 3000)]
-    pub budget: usize,
+    /// Recommended token budget for context slicing, or 'auto' for Knee-Curve tuning
+    #[arg(short = 'b', long = "budget", default_value = "3000")]
+    pub budget: String,
+
+    /// Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')
+    #[arg(short = 'm', long = "model")]
+    pub model: Option<String>,
 
     /// Destination file to write blueprint (defaults to 'FEATURE_BLUEPRINT.md', or '-' for stdout)
     #[arg(short = 'o', long = "output", default_value = "FEATURE_BLUEPRINT.md")]
@@ -244,9 +254,13 @@ pub struct SelectArgs {
     #[arg(long = "from-diff")]
     pub from_diff: bool,
 
-    /// Maximum token budget for selected context
-    #[arg(short = 'b', long = "budget", default_value_t = 1000)]
-    pub budget: usize,
+    /// Maximum token budget for selected context, or 'auto' for Knee-Curve tuning
+    #[arg(short = 'b', long = "budget", default_value = "1000")]
+    pub budget: String,
+
+    /// Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')
+    #[arg(short = 'm', long = "model")]
+    pub model: Option<String>,
 
     /// Target codebase directory to scan
     #[arg(short = 'p', long = "path", default_value = ".")]
@@ -279,6 +293,19 @@ pub struct StatsArgs {
 }
 ```
 
+- **`WatchArgs`** (`Struct` in `crates/cli/src/commands/watch.rs`):
+```text
+pub struct WatchArgs {
+    /// Target codebase directory to watch
+    #[arg(short = 'p', long = "path", default_value = ".")]
+    pub path: PathBuf,
+
+    /// Debounce delay in milliseconds before rebuilding the in-memory graph
+    #[arg(short = 'd', long = "debounce", default_value = "75")]
+    pub debounce: u64,
+}
+```
+
 - **`Commands`** (`Enum` in `crates/cli/src/main.rs`):
 ```text
 enum Commands {
@@ -296,6 +323,8 @@ enum Commands {
     Clean(commands::clean::CleanArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
+    /// Watch codebase for file changes and incrementally maintain the in-memory graph
+    Watch(commands::watch::WatchArgs),
 }
 ```
 
@@ -331,6 +360,12 @@ pub fn estimate_tokens(text: &str) -> usize
 > Extracts file modification time as nanoseconds since UNIX epoch.
 ```text
 pub fn get_mtime_nanos(metadata: &fs::Metadata) -> u128
+```
+
+- **`is_ignored_path`** (`Function` in `crates/engine/src/watcher.rs`):
+> Inspects whether a given path is located within an ignored directory (e.g. .git, target).
+```text
+pub fn is_ignored_path(path: &Path, root: &Path) -> bool
 ```
 
 - **`normalize_path`** (`Function` in `crates/engine/src/import.rs`):
@@ -376,32 +411,6 @@ pub fn build(
         raw_edges: &[ReferenceEdge],
         weights: LayerWeights,
     ) -> Self
-```
-
-- **`build_graph`** (`Method` in `crates/engine/src/loader.rs`):
-> Constructs the in-memory MultiplexGraph using default layer weights.
-```text
-pub fn build_graph(&self) -> MultiplexGraph
-```
-
-- **`build_with_imports`** (`Method` in `crates/engine/src/graph.rs`):
-> Constructs a `MultiplexGraph` from extracted symbols, raw reference edges, explicit AST imports,
-```text
-pub fn build_with_imports(
-        symbols: Vec<SymbolNode>,
-        raw_edges: &[ReferenceEdge],
-        imports: &[FileImport],
-        weights: LayerWeights,
-    ) -> Self
-```
-
-- **`compile_symbols_and_edges`** (`Method` in `crates/engine/src/cache.rs`):
-> Compiles all cached symbols and edges across the specified file order,
-```text
-pub fn compile_symbols_and_edges(
-        &self,
-        ordered_paths: &[PathBuf],
-    ) -> (Vec<SymbolNode>, Vec<ReferenceEdge>)
 ```
 
 ---
