@@ -3,6 +3,7 @@ use std::path::Path;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
 
 use crate::error::EngineError;
+use crate::import::FileImport;
 use crate::symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 use crate::tokens::estimate_tokens;
 
@@ -50,6 +51,9 @@ pub struct AstExtractor {
     tsx: LanguageBundle,
 }
 
+/// Type alias for raw parsed file output containing extracted symbols, edges, and imports.
+pub type FileParseOutput = (Vec<SymbolNode>, Vec<ReferenceEdge>, Vec<FileImport>);
+
 impl AstExtractor {
     /// Creates a new `AstExtractor` compiling the embedded queries for all supported languages.
     pub fn new() -> Result<Self, EngineError> {
@@ -93,9 +97,20 @@ impl AstExtractor {
         source: &[u8],
         next_id: &mut u32,
     ) -> Result<(Vec<SymbolNode>, Vec<ReferenceEdge>), EngineError> {
+        let (symbols, edges, _) = self.parse_file_with_imports(path, source, next_id)?;
+        Ok((symbols, edges))
+    }
+
+    /// Parses a file's source bytes, extracting symbols, reference edges, and explicit import statements.
+    pub fn parse_file_with_imports(
+        &self,
+        path: &Path,
+        source: &[u8],
+        next_id: &mut u32,
+    ) -> Result<FileParseOutput, EngineError> {
         let lang = match SupportedLanguage::from_path(path) {
             Some(l) => l,
-            None => return Ok((Vec::new(), Vec::new())),
+            None => return Ok((Vec::new(), Vec::new(), Vec::new())),
         };
 
         let bundle = match lang {
@@ -503,7 +518,21 @@ impl AstExtractor {
             }
         }
 
-        Ok((symbols, edges))
+        // Pass 3: Extract explicit import statements
+        let mut imports = Vec::new();
+        match lang {
+            SupportedLanguage::Rust => {
+                extract_rust_imports(root_node, source, path, &mut imports);
+            }
+            SupportedLanguage::Python => {
+                extract_python_imports(root_node, source, path, &mut imports);
+            }
+            SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
+                extract_typescript_imports(root_node, source, path, &mut imports);
+            }
+        }
+
+        Ok((symbols, edges, imports))
     }
 }
 
@@ -703,5 +732,547 @@ fn extract_type_name(node: Node, source: &[u8]) -> Option<String> {
             extract_type_name(inner, source)
         }
         _ => None,
+    }
+}
+
+/// Extracts all Rust `use` statements from the AST into structured `FileImport` items.
+fn extract_rust_imports(
+    root: Node,
+    source: &[u8],
+    file_path: &Path,
+    imports: &mut Vec<FileImport>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "use_declaration" {
+            extract_rust_use_tree(node, source, "", file_path, imports);
+        } else {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+fn extract_rust_use_tree(
+    node: Node,
+    source: &[u8],
+    current_prefix: &str,
+    file_path: &Path,
+    imports: &mut Vec<FileImport>,
+) {
+    match node.kind() {
+        "use_declaration" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "use"
+                    && child.kind() != ";"
+                    && child.kind() != "visibility_modifier"
+                {
+                    extract_rust_use_tree(child, source, "", file_path, imports);
+                }
+            }
+        }
+        "scoped_use_list" => {
+            let path_str = if let Some(path_node) = node.child_by_field_name("path") {
+                path_node.utf8_text(source).unwrap_or("")
+            } else {
+                ""
+            };
+            let prefix = if current_prefix.is_empty() {
+                path_str.to_string()
+            } else if path_str.is_empty() {
+                current_prefix.to_string()
+            } else {
+                format!("{}::{}", current_prefix, path_str)
+            };
+
+            if let Some(list_node) = node.child_by_field_name("list") {
+                extract_rust_use_tree(list_node, source, &prefix, file_path, imports);
+            }
+        }
+        "use_list" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "{" && child.kind() != "}" && child.kind() != "," {
+                    extract_rust_use_tree(child, source, current_prefix, file_path, imports);
+                }
+            }
+        }
+        "scoped_identifier" => {
+            if let (Some(path_node), Some(name_node)) = (
+                node.child_by_field_name("path"),
+                node.child_by_field_name("name"),
+            ) {
+                let p = path_node.utf8_text(source).unwrap_or("");
+                let full_prefix = if current_prefix.is_empty() {
+                    p.to_string()
+                } else {
+                    format!("{}::{}", current_prefix, p)
+                };
+                let imported = name_node.utf8_text(source).unwrap_or("");
+                if !imported.is_empty() {
+                    imports.push(FileImport::new(file_path, &full_prefix, imported, imported));
+                }
+            }
+        }
+        "use_as_clause" => {
+            if let (Some(path_node), Some(alias_node)) = (
+                node.child_by_field_name("path"),
+                node.child_by_field_name("alias"),
+            ) {
+                let alias = alias_node.utf8_text(source).unwrap_or("");
+                if path_node.kind() == "scoped_identifier" {
+                    if let (Some(inner_path), Some(name_node)) = (
+                        path_node.child_by_field_name("path"),
+                        path_node.child_by_field_name("name"),
+                    ) {
+                        let p = inner_path.utf8_text(source).unwrap_or("");
+                        let full_prefix = if current_prefix.is_empty() {
+                            p.to_string()
+                        } else {
+                            format!("{}::{}", current_prefix, p)
+                        };
+                        let imported = name_node.utf8_text(source).unwrap_or("");
+                        imports.push(FileImport::new(file_path, &full_prefix, imported, alias));
+                    }
+                } else {
+                    let imported = path_node.utf8_text(source).unwrap_or("");
+                    imports.push(FileImport::new(file_path, current_prefix, imported, alias));
+                }
+            }
+        }
+        "use_wildcard" => {
+            let path_str = if let Some(path_node) = node.child_by_field_name("path") {
+                path_node.utf8_text(source).unwrap_or("")
+            } else if let Some(child) = node.child(0) {
+                if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
+                    child.utf8_text(source).unwrap_or("")
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
+            let full_prefix = if current_prefix.is_empty() {
+                path_str.to_string()
+            } else if path_str.is_empty() {
+                current_prefix.to_string()
+            } else {
+                format!("{}::{}", current_prefix, path_str)
+            };
+            imports.push(FileImport::wildcard(file_path, &full_prefix, "*"));
+        }
+        "identifier" | "type_identifier" => {
+            let ident = node.utf8_text(source).unwrap_or("");
+            if !ident.is_empty() && ident != "self" {
+                imports.push(FileImport::new(file_path, current_prefix, ident, ident));
+            } else if ident == "self" && !current_prefix.is_empty() {
+                let last_part = current_prefix.rsplit("::").next().unwrap_or(current_prefix);
+                imports.push(FileImport::new(
+                    file_path,
+                    current_prefix,
+                    "self",
+                    last_part,
+                ));
+            }
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                extract_rust_use_tree(child, source, current_prefix, file_path, imports);
+            }
+        }
+    }
+}
+
+/// Extracts all Python import statements (`import ...`, `from ... import ...`) from the AST.
+fn extract_python_imports(
+    root: Node,
+    source: &[u8],
+    file_path: &Path,
+    imports: &mut Vec<FileImport>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            "import_statement" => {
+                let mut inner_cursor = node.walk();
+                for child in node.children(&mut inner_cursor) {
+                    match child.kind() {
+                        "dotted_name" => {
+                            if let Ok(name) = child.utf8_text(source) {
+                                let name = name.trim();
+                                if !name.is_empty() {
+                                    let local_name = name.split('.').next().unwrap_or(name);
+                                    imports
+                                        .push(FileImport::new(file_path, name, name, local_name));
+                                    if local_name != name {
+                                        imports.push(FileImport::new(file_path, name, name, name));
+                                    }
+                                }
+                            }
+                        }
+                        "aliased_import" => {
+                            if let (Some(name_node), Some(alias_node)) = (
+                                child.child_by_field_name("name"),
+                                child.child_by_field_name("alias"),
+                            ) {
+                                if let (Ok(name), Ok(alias)) =
+                                    (name_node.utf8_text(source), alias_node.utf8_text(source))
+                                {
+                                    let name = name.trim();
+                                    let alias = alias.trim();
+                                    if !name.is_empty() && !alias.is_empty() {
+                                        imports.push(FileImport::new(file_path, name, name, alias));
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "import_from_statement" => {
+                let module_spec = if let Some(mod_node) = node.child_by_field_name("module_name") {
+                    mod_node.utf8_text(source).unwrap_or("").trim().to_string()
+                } else {
+                    let node_text = node.utf8_text(source).unwrap_or("");
+                    if let Some(from_idx) = node_text.find("from ") {
+                        if let Some(import_idx) = node_text[from_idx + 5..].find("import") {
+                            node_text[from_idx + 5..from_idx + 5 + import_idx]
+                                .trim()
+                                .to_string()
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                };
+
+                let mut passed_import = false;
+                let mut inner_cursor = node.walk();
+                for child in node.children(&mut inner_cursor) {
+                    if child.kind() == "import" {
+                        passed_import = true;
+                        continue;
+                    }
+                    if !passed_import {
+                        continue;
+                    }
+                    extract_python_import_targets(child, source, file_path, &module_spec, imports);
+                }
+            }
+            _ => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+}
+
+fn extract_python_import_targets(
+    node: Node,
+    source: &[u8],
+    file_path: &Path,
+    module_spec: &str,
+    imports: &mut Vec<FileImport>,
+) {
+    match node.kind() {
+        "dotted_name" | "identifier" => {
+            if let Ok(name) = node.utf8_text(source) {
+                let name = name.trim();
+                if !name.is_empty() {
+                    imports.push(FileImport::new(file_path, module_spec, name, name));
+                }
+            }
+        }
+        "aliased_import" => {
+            if let (Some(name_node), Some(alias_node)) = (
+                node.child_by_field_name("name"),
+                node.child_by_field_name("alias"),
+            ) {
+                if let (Ok(name), Ok(alias)) =
+                    (name_node.utf8_text(source), alias_node.utf8_text(source))
+                {
+                    let name = name.trim();
+                    let alias = alias.trim();
+                    if !name.is_empty() && !alias.is_empty() {
+                        imports.push(FileImport::new(file_path, module_spec, name, alias));
+                    }
+                }
+            }
+        }
+        "wildcard_import" | "*" => {
+            imports.push(FileImport::wildcard(file_path, module_spec, "*"));
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() != "(" && child.kind() != ")" && child.kind() != "," {
+                    extract_python_import_targets(child, source, file_path, module_spec, imports);
+                }
+            }
+        }
+    }
+}
+
+/// Extracts all TypeScript / JavaScript import statements from the AST.
+fn extract_typescript_imports(
+    root: Node,
+    source: &[u8],
+    file_path: &Path,
+    imports: &mut Vec<FileImport>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "import_statement" {
+            let source_node = node.child_by_field_name("source");
+            let raw_source = if let Some(sn) = source_node {
+                sn.utf8_text(source).unwrap_or("")
+            } else {
+                ""
+            };
+            let module_spec = raw_source
+                .trim()
+                .trim_matches(|c| c == '\'' || c == '"')
+                .to_string();
+            if module_spec.is_empty() {
+                continue;
+            }
+
+            let import_clause = node
+                .child_by_field_name("import_clause")
+                .or_else(|| find_child_by_kinds(node, &["import_clause"]));
+
+            if let Some(clause) = import_clause {
+                let mut clause_cursor = clause.walk();
+                for child in clause.children(&mut clause_cursor) {
+                    match child.kind() {
+                        "identifier" => {
+                            if let Ok(ident) = child.utf8_text(source) {
+                                let ident = ident.trim();
+                                if !ident.is_empty() && ident != "type" {
+                                    imports.push(FileImport::new(
+                                        file_path,
+                                        &module_spec,
+                                        "default",
+                                        ident,
+                                    ));
+                                }
+                            }
+                        }
+                        "named_imports" => {
+                            let mut named_cursor = child.walk();
+                            for spec in child.children(&mut named_cursor) {
+                                if spec.kind() == "import_specifier" {
+                                    let name_node = spec.child_by_field_name("name");
+                                    let alias_node = spec.child_by_field_name("alias");
+
+                                    let (name, alias) = match (name_node, alias_node) {
+                                        (Some(n), Some(a)) => (
+                                            n.utf8_text(source).unwrap_or(""),
+                                            a.utf8_text(source).unwrap_or(""),
+                                        ),
+                                        (Some(n), None) => {
+                                            let n_text = n.utf8_text(source).unwrap_or("");
+                                            (n_text, n_text)
+                                        }
+                                        (None, _) => {
+                                            let mut ids = Vec::new();
+                                            let mut id_cursor = spec.walk();
+                                            for id_child in spec.children(&mut id_cursor) {
+                                                if id_child.kind() == "identifier"
+                                                    || id_child.kind() == "type_identifier"
+                                                {
+                                                    if let Ok(t) = id_child.utf8_text(source) {
+                                                        if t != "type" && t != "as" {
+                                                            ids.push(t);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if ids.len() >= 2 {
+                                                (ids[0], ids[1])
+                                            } else if ids.len() == 1 {
+                                                (ids[0], ids[0])
+                                            } else {
+                                                ("", "")
+                                            }
+                                        }
+                                    };
+
+                                    let name = name.trim();
+                                    let alias = alias.trim();
+                                    if !name.is_empty() && !alias.is_empty() {
+                                        imports.push(FileImport::new(
+                                            file_path,
+                                            &module_spec,
+                                            name,
+                                            alias,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        "namespace_import" => {
+                            let alias = if let Some(alias_node) = child.child_by_field_name("alias")
+                            {
+                                alias_node.utf8_text(source).unwrap_or("").trim()
+                            } else {
+                                let mut id_name = "";
+                                let mut ns_cursor = child.walk();
+                                for ns_child in child.children(&mut ns_cursor) {
+                                    if ns_child.kind() == "identifier" {
+                                        id_name = ns_child.utf8_text(source).unwrap_or("").trim();
+                                    }
+                                }
+                                id_name
+                            };
+
+                            if !alias.is_empty() {
+                                imports.push(FileImport::wildcard(file_path, &module_spec, alias));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                imports.push(FileImport::new(file_path, &module_spec, "*", "*"));
+            }
+        } else {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_extract_rust_imports() {
+        let parser = AstExtractor::new().expect("Failed to create AstExtractor");
+        let source = r#"
+            use crate::engine::parser::CodeParser;
+            use crate::models::{Symbol, Edge as ReferenceEdge, *};
+            use std::collections::HashMap;
+
+            fn foo() {
+                let x = 1;
+            }
+        "#;
+        let mut next_id = 1;
+        let (_, _, imports) = parser
+            .parse_file_with_imports(
+                &PathBuf::from("src/test.rs"),
+                source.as_bytes(),
+                &mut next_id,
+            )
+            .expect("Failed to parse");
+
+        assert!(imports
+            .iter()
+            .any(|i| i.imported_name == "CodeParser" && i.local_name == "CodeParser"));
+        assert!(imports
+            .iter()
+            .any(|i| i.imported_name == "Symbol" && i.local_name == "Symbol"));
+        assert!(imports
+            .iter()
+            .any(|i| i.imported_name == "Edge" && i.local_name == "ReferenceEdge"));
+        assert!(imports
+            .iter()
+            .any(|i| i.is_wildcard && i.module_specifier == "crate::models"));
+        assert!(imports.iter().any(|i| i.imported_name == "HashMap"));
+    }
+
+    #[test]
+    fn test_extract_python_imports() {
+        let parser = AstExtractor::new().expect("Failed to create AstExtractor");
+        let source = r#"
+import os
+import sys as system
+from models.user import User as AppUser, Role
+from ..services import auth
+from math import *
+
+def main():
+    pass
+"#;
+        let mut next_id = 1;
+        let (_, _, imports) = parser
+            .parse_file_with_imports(
+                &PathBuf::from("app/main.py"),
+                source.as_bytes(),
+                &mut next_id,
+            )
+            .expect("Failed to parse");
+
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "os" && i.local_name == "os"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "sys" && i.local_name == "system"));
+        assert!(imports.iter().any(|i| i.module_specifier == "models.user"
+            && i.imported_name == "User"
+            && i.local_name == "AppUser"));
+        assert!(imports.iter().any(|i| i.module_specifier == "models.user"
+            && i.imported_name == "Role"
+            && i.local_name == "Role"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "..services" && i.imported_name == "auth"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "math" && i.is_wildcard));
+    }
+
+    #[test]
+    fn test_extract_typescript_imports() {
+        let parser = AstExtractor::new().expect("Failed to create AstExtractor");
+        let source = r#"
+import React, { useState, useEffect as useFx } from 'react';
+import * as Path from 'path';
+import { helper } from '../utils/helper';
+import './styles.css';
+
+export function Component() {
+    return null;
+}
+"#;
+        let mut next_id = 1;
+        let (_, _, imports) = parser
+            .parse_file_with_imports(
+                &PathBuf::from("src/Component.tsx"),
+                source.as_bytes(),
+                &mut next_id,
+            )
+            .expect("Failed to parse");
+
+        assert!(imports.iter().any(|i| i.module_specifier == "react"
+            && i.imported_name == "default"
+            && i.local_name == "React"));
+        assert!(imports.iter().any(|i| i.module_specifier == "react"
+            && i.imported_name == "useState"
+            && i.local_name == "useState"));
+        assert!(imports.iter().any(|i| i.module_specifier == "react"
+            && i.imported_name == "useEffect"
+            && i.local_name == "useFx"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "path" && i.is_wildcard && i.local_name == "Path"));
+        assert!(imports
+            .iter()
+            .any(|i| i.module_specifier == "../utils/helper" && i.imported_name == "helper"));
+        assert!(imports.iter().any(|i| i.module_specifier == "./styles.css"));
     }
 }

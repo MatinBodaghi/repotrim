@@ -1,6 +1,6 @@
 use crate::{
-    compute_blake3_hash, get_mtime_nanos, AstExtractor, EngineError, FileCacheEntry, LayerWeights,
-    MultiplexGraph, ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
+    compute_blake3_hash, get_mtime_nanos, AstExtractor, EngineError, FileCacheEntry, FileImport,
+    LayerWeights, MultiplexGraph, ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -36,6 +36,7 @@ pub struct LoadedRepository {
     pub file_sources: HashMap<PathBuf, String>,
     pub symbols: Vec<SymbolNode>,
     pub edges: Vec<ReferenceEdge>,
+    pub imports: Vec<FileImport>,
     pub total_bytes: usize,
     pub cache_report: CacheReport,
 }
@@ -122,8 +123,8 @@ impl LoadedRepository {
                     let extractor = extractor_opt.as_ref().unwrap();
 
                     let mut dummy_id = 0u32;
-                    let (file_symbols, file_edges) =
-                        extractor.parse_file(rel_path, &content_bytes, &mut dummy_id)?;
+                    let (file_symbols, file_edges, file_imports) = extractor
+                        .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
 
                     let entry = FileCacheEntry {
                         relative_path: rel_path.clone(),
@@ -131,6 +132,7 @@ impl LoadedRepository {
                         mtime_nanos: mtime,
                         symbols: file_symbols,
                         edges: file_edges,
+                        imports: file_imports,
                         source_bytes: content_bytes.len(),
                     };
                     cache.insert(entry);
@@ -147,7 +149,7 @@ impl LoadedRepository {
         }
 
         let ordered_paths: Vec<PathBuf> = source_files.into_iter().map(|(_, rel)| rel).collect();
-        let (symbols, edges) = cache.compile_symbols_and_edges(&ordered_paths);
+        let (symbols, edges, imports) = cache.compile_symbols_edges_and_imports(&ordered_paths);
 
         let total_files = ordered_paths.len();
         let hit_ratio = if total_files > 0 {
@@ -168,6 +170,7 @@ impl LoadedRepository {
             file_sources,
             symbols,
             edges,
+            imports,
             total_bytes,
             cache_report,
         })
@@ -199,7 +202,12 @@ impl LoadedRepository {
 
     /// Constructs the in-memory MultiplexGraph using default layer weights.
     pub fn build_graph(&self) -> MultiplexGraph {
-        MultiplexGraph::build(self.symbols.clone(), &self.edges, LayerWeights::default())
+        MultiplexGraph::build_with_imports(
+            self.symbols.clone(),
+            &self.edges,
+            &self.imports,
+            LayerWeights::default(),
+        )
     }
 }
 

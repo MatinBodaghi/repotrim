@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::csr::CsrMatrix;
+use crate::import::FileImport;
 use crate::resolver::ScopedResolver;
 use crate::symbol::{EdgeKind, ReferenceEdge, SymbolId, SymbolNode};
 
@@ -68,10 +69,24 @@ impl MultiplexGraph {
         raw_edges: &[ReferenceEdge],
         weights: LayerWeights,
     ) -> Self {
-        let num_nodes = symbols.len();
-        let resolver = ScopedResolver::new(&symbols);
+        Self::build_with_imports(symbols, raw_edges, &[], weights)
+    }
 
-        let mut directed_edges: Vec<(u32, u32, f32)> = Vec::with_capacity(raw_edges.len());
+    /// Constructs a `MultiplexGraph` from extracted symbols, raw reference edges, explicit AST imports,
+    /// and layer weights.
+    ///
+    /// Resolves identifier strings to target `SymbolId`s using import-aware deterministic scoping.
+    pub fn build_with_imports(
+        symbols: Vec<SymbolNode>,
+        raw_edges: &[ReferenceEdge],
+        imports: &[FileImport],
+        weights: LayerWeights,
+    ) -> Self {
+        let num_nodes = symbols.len();
+        let resolver = ScopedResolver::with_imports(&symbols, imports);
+
+        let mut directed_edges: Vec<(u32, u32, f32)> =
+            Vec::with_capacity(raw_edges.len() + imports.len());
 
         for edge in raw_edges {
             let src_idx = edge.source.0 as usize;

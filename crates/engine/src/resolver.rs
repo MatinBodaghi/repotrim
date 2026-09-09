@@ -1,16 +1,22 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::import::{resolve_module_path, FileImport};
+use crate::parser::SupportedLanguage;
 use crate::symbol::{SymbolId, SymbolNode};
 
-/// Bayesian scoped identifier resolver.
+/// Bayesian scoped identifier resolver with deterministic import-scoped resolution.
 ///
 /// Resolves raw string callee and type identifiers (e.g. `"sqrt"`, `"Point"`) to concrete
 /// target `SymbolId`s across repository files without requiring a heavy compiler daemon.
 ///
-/// Disambiguates identifier collisions using a spatial lexical distance prior:
-/// candidate symbols located in the same file or parent module receive higher likelihood
-/// than distant or external symbols.
+/// Resolution priority:
+/// 1. Direct AST imports (`FileImport`) binding local names to exact cross-file targets (confidence 1.0).
+/// 2. Receiver namespace / member access (`ns.member` or `ns::member`) (confidence 1.0).
+/// 3. Local file definitions (confidence 1.0).
+/// 4. Wildcard imports (`use ...::*`, `from ... import *`) (confidence 0.90).
+/// 5. Receiver method disambiguation for imported modules (confidence 0.95).
+/// 6. Bayesian spatial distance heuristic disambiguation (confidence 0.30 .. 0.85).
 #[derive(Debug, Clone)]
 pub struct ScopedResolver {
     /// Maps symbol names to all known candidate `SymbolId`s across the workspace.
@@ -19,15 +25,29 @@ pub struct ScopedResolver {
     path_name_to_id: HashMap<(PathBuf, String), SymbolId>,
     /// Dense symbol lookup table by `SymbolId`.
     id_to_symbol: HashMap<SymbolId, SymbolNode>,
+    /// Explicit import bindings: `(source_file, local_identifier) -> target SymbolId`.
+    explicit_bindings: HashMap<(PathBuf, String), SymbolId>,
+    /// Wildcard imported files per source file: `source_file -> Vec<target_file>`.
+    wildcard_files: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Namespace imports: `(source_file, namespace_alias) -> target_file`.
+    namespace_imports: HashMap<(PathBuf, String), PathBuf>,
+    /// Set of all target files imported by a given source file.
+    imported_files_per_file: HashMap<PathBuf, HashSet<PathBuf>>,
 }
 
 impl ScopedResolver {
-    /// Constructs a new `ScopedResolver` by indexing the extracted symbol declarations.
+    /// Constructs a `ScopedResolver` without import statements, falling back entirely to spatial heuristics.
     pub fn new(symbols: &[SymbolNode]) -> Self {
+        Self::with_imports(symbols, &[])
+    }
+
+    /// Constructs a `ScopedResolver` indexing symbols and pre-resolving explicit AST imports.
+    pub fn with_imports(symbols: &[SymbolNode], imports: &[FileImport]) -> Self {
         let mut name_to_ids: HashMap<String, Vec<SymbolId>> = HashMap::with_capacity(symbols.len());
         let mut path_name_to_id: HashMap<(PathBuf, String), SymbolId> =
             HashMap::with_capacity(symbols.len());
         let mut id_to_symbol: HashMap<SymbolId, SymbolNode> = HashMap::with_capacity(symbols.len());
+        let mut known_files = HashSet::new();
 
         for sym in symbols {
             name_to_ids
@@ -37,12 +57,80 @@ impl ScopedResolver {
 
             path_name_to_id.insert((sym.file_path.clone(), sym.name.clone()), sym.id);
             id_to_symbol.insert(sym.id, sym.clone());
+            known_files.insert(sym.file_path.clone());
+        }
+
+        let mut explicit_bindings = HashMap::new();
+        let mut wildcard_files = HashMap::new();
+        let mut namespace_imports = HashMap::new();
+        let mut imported_files_per_file = HashMap::new();
+
+        for import in imports {
+            let source_file = &import.file_path;
+            let lang = match SupportedLanguage::from_path(source_file) {
+                Some(l) => l,
+                None => continue,
+            };
+
+            if let Some(target_file) =
+                resolve_module_path(source_file, &import.module_specifier, &known_files, lang)
+            {
+                imported_files_per_file
+                    .entry(source_file.clone())
+                    .or_insert_with(HashSet::new)
+                    .insert(target_file.clone());
+
+                if import.is_wildcard {
+                    if import.local_name == "*" {
+                        wildcard_files
+                            .entry(source_file.clone())
+                            .or_insert_with(Vec::new)
+                            .push(target_file.clone());
+                    } else {
+                        namespace_imports.insert(
+                            (source_file.clone(), import.local_name.clone()),
+                            target_file.clone(),
+                        );
+                    }
+                } else if import.imported_name == "default" {
+                    let stem = target_file
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    let target_id = path_name_to_id
+                        .get(&(target_file.clone(), "default".to_string()))
+                        .or_else(|| {
+                            path_name_to_id.get(&(target_file.clone(), import.local_name.clone()))
+                        })
+                        .or_else(|| path_name_to_id.get(&(target_file.clone(), stem.to_string())))
+                        .copied();
+
+                    if let Some(id) = target_id {
+                        explicit_bindings
+                            .insert((source_file.clone(), import.local_name.clone()), id);
+                    }
+                } else if let Some(&target_id) =
+                    path_name_to_id.get(&(target_file.clone(), import.imported_name.clone()))
+                {
+                    explicit_bindings
+                        .insert((source_file.clone(), import.local_name.clone()), target_id);
+                } else {
+                    namespace_imports.insert(
+                        (source_file.clone(), import.local_name.clone()),
+                        target_file.clone(),
+                    );
+                }
+            }
         }
 
         Self {
             name_to_ids,
             path_name_to_id,
             id_to_symbol,
+            explicit_bindings,
+            wildcard_files,
+            namespace_imports,
+            imported_files_per_file,
         }
     }
 
@@ -56,15 +144,63 @@ impl ScopedResolver {
 
     /// Resolves a reference identifier originating from `source_node` to the most likely target `SymbolId`.
     ///
-    /// Returns the target `SymbolId` and a Bayesian confidence score in `(0.0, 1.0]`.
+    /// Returns the target `SymbolId` and a confidence score in `(0.0, 1.0]`.
     /// If no candidate matches the identifier in the indexed workspace, returns `None`.
     pub fn resolve(&self, source_node: &SymbolNode, target_ident: &str) -> Option<(SymbolId, f32)> {
+        // Priority 1: Exact explicit import binding (confidence 1.0)
+        if let Some(&target_id) = self
+            .explicit_bindings
+            .get(&(source_node.file_path.clone(), target_ident.to_string()))
+        {
+            return Some((target_id, 1.0));
+        }
+
+        // Priority 2: Namespace access `ns.func` or `ns::func` (confidence 1.0)
+        let split_res = target_ident
+            .split_once('.')
+            .or_else(|| target_ident.split_once("::"));
+        if let Some((ns, member)) = split_res {
+            if let Some(target_file) = self
+                .namespace_imports
+                .get(&(source_node.file_path.clone(), ns.to_string()))
+            {
+                if let Some(&target_id) = self
+                    .path_name_to_id
+                    .get(&(target_file.clone(), member.to_string()))
+                {
+                    return Some((target_id, 1.0));
+                }
+            }
+        }
+
+        // Priority 3: Local definition in the same file (confidence 1.0)
+        if let Some(&local_id) = self
+            .path_name_to_id
+            .get(&(source_node.file_path.clone(), target_ident.to_string()))
+        {
+            return Some((local_id, 1.0));
+        }
+
         // Normalize scoped paths like `math::sqrt` to extract base identifier and optional module hint
         let (module_hint, base_ident) = if let Some(idx) = target_ident.rfind("::") {
             (Some(&target_ident[..idx]), &target_ident[idx + 2..])
+        } else if let Some(idx) = target_ident.rfind('.') {
+            (Some(&target_ident[..idx]), &target_ident[idx + 1..])
         } else {
             (None, target_ident)
         };
+
+        // Priority 4: Wildcard imports (confidence 0.90)
+        if let Some(wildcards) = self.wildcard_files.get(&source_node.file_path) {
+            for wf in wildcards {
+                if let Some(&target_id) = self
+                    .path_name_to_id
+                    .get(&(wf.clone(), base_ident.to_string()))
+                {
+                    return Some((target_id, 0.90));
+                }
+            }
+        }
 
         let candidate_ids = self.name_to_ids.get(base_ident)?;
         if candidate_ids.is_empty() {
@@ -80,9 +216,26 @@ impl ScopedResolver {
             }
         }
 
-        // Multiple candidates: disambiguate using Bayesian spatial prior
+        // Priority 5: Disambiguate candidates using imported modules
+        if let Some(imported_files) = self.imported_files_per_file.get(&source_node.file_path) {
+            let mut imported_candidates = Vec::new();
+            for &cand_id in candidate_ids {
+                if let Some(cand_node) = self.id_to_symbol.get(&cand_id) {
+                    if imported_files.contains(&cand_node.file_path) {
+                        imported_candidates.push(cand_id);
+                    }
+                }
+            }
+            if imported_candidates.len() == 1 {
+                return Some((imported_candidates[0], 0.95));
+            }
+        }
+
+        // Priority 6: Multiple candidates - disambiguate using Bayesian spatial prior
         let mut best_candidate: Option<SymbolId> = None;
         let mut highest_score = -1.0_f32;
+
+        let imported_files_opt = self.imported_files_per_file.get(&source_node.file_path);
 
         for &cand_id in candidate_ids {
             if let Some(cand_node) = self.id_to_symbol.get(&cand_id) {
@@ -93,6 +246,13 @@ impl ScopedResolver {
                     let path_str = cand_node.file_path.to_string_lossy();
                     if path_str.contains(hint) {
                         score = (score + 0.3).min(1.0);
+                    }
+                }
+
+                // Boost score if candidate's file is in imported files
+                if let Some(imported_files) = imported_files_opt {
+                    if imported_files.contains(&cand_node.file_path) {
+                        score = (score + 0.4).min(1.0);
                     }
                 }
 

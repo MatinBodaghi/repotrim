@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::error::EngineError;
+use crate::import::FileImport;
 use crate::symbol::{ReferenceEdge, SymbolId, SymbolNode};
 
 /// Current cache schema version. Incremented whenever the binary structure changes.
-pub const CACHE_VERSION: u32 = 1;
+pub const CACHE_VERSION: u32 = 2;
 
 /// Extracted AST symbol and edge metadata cached per individual source file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +19,7 @@ pub struct FileCacheEntry {
     pub mtime_nanos: u128,
     pub symbols: Vec<SymbolNode>,
     pub edges: Vec<ReferenceEdge>,
+    pub imports: Vec<FileImport>,
     pub source_bytes: usize,
 }
 
@@ -27,6 +29,9 @@ pub struct RepositoryCache {
     pub version: u32,
     pub entries: HashMap<PathBuf, FileCacheEntry>,
 }
+
+/// Type alias for compiled repository symbols, reference edges, and AST imports.
+pub type CompiledRepositoryData = (Vec<SymbolNode>, Vec<ReferenceEdge>, Vec<FileImport>);
 
 impl Default for RepositoryCache {
     fn default() -> Self {
@@ -122,8 +127,19 @@ impl RepositoryCache {
         &self,
         ordered_paths: &[PathBuf],
     ) -> (Vec<SymbolNode>, Vec<ReferenceEdge>) {
+        let (symbols, edges, _) = self.compile_symbols_edges_and_imports(ordered_paths);
+        (symbols, edges)
+    }
+
+    /// Compiles all cached symbols, edges, and imports across the specified file order,
+    /// re-indexing symbols with dense contiguous SymbolIds `0..N`.
+    pub fn compile_symbols_edges_and_imports(
+        &self,
+        ordered_paths: &[PathBuf],
+    ) -> CompiledRepositoryData {
         let mut compiled_symbols = Vec::new();
         let mut compiled_edges = Vec::new();
+        let mut compiled_imports = Vec::new();
         let mut current_id = 0u32;
 
         for path in ordered_paths {
@@ -147,10 +163,12 @@ impl RepositoryCache {
                         compiled_edges.push(remapped_edge);
                     }
                 }
+
+                compiled_imports.extend(entry.imports.clone());
             }
         }
 
-        (compiled_symbols, compiled_edges)
+        (compiled_symbols, compiled_edges, compiled_imports)
     }
 }
 
@@ -208,6 +226,7 @@ mod tests {
             mtime_nanos: 123456789,
             symbols: vec![sym_a],
             edges: vec![edge_a],
+            imports: vec![],
             source_bytes: 50,
         });
 
@@ -257,6 +276,7 @@ mod tests {
             mtime_nanos: 100,
             symbols: vec![sym_a1, sym_a2],
             edges: vec![edge_a],
+            imports: vec![],
             source_bytes: 100,
         });
 
@@ -266,6 +286,7 @@ mod tests {
             mtime_nanos: 200,
             symbols: vec![sym_b1],
             edges: vec![edge_b],
+            imports: vec![],
             source_bytes: 100,
         });
 
