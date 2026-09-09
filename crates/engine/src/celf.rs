@@ -57,6 +57,21 @@ impl Ord for CelfItem {
     }
 }
 
+/// Diagnostic trace step recorded during CELF submodular knapsack optimization.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CelfTraceStep {
+    /// Identifier of the accepted symbol.
+    pub symbol_id: SymbolId,
+    /// Token cost of the symbol.
+    pub symbol_cost: usize,
+    /// Cumulative token cost after including this symbol.
+    pub cumulative_tokens: usize,
+    /// Marginal utility gain provided by this symbol.
+    pub marginal_gain: f32,
+    /// Cumulative utility score after including this symbol.
+    pub cumulative_utility: f32,
+}
+
 /// Cost-Effective Lazy Forward (CELF) submodular knapsack optimizer.
 ///
 /// Selects an optimal subset of code symbols $S \subseteq V$ maximizing information coverage
@@ -86,15 +101,30 @@ impl CelfOptimizer {
         ppr_scores: &HashMap<SymbolId, f32>,
         budget: usize,
     ) -> Vec<SymbolId> {
+        self.optimize_with_trace(graph, ppr_scores, budget).0
+    }
+
+    /// Selects the optimal subset of symbols and records the cumulative utility trajectory.
+    ///
+    /// Returns a tuple containing the ordered list of selected `SymbolId`s and
+    /// the discrete `CelfTraceStep` trajectory used for knee-point detection.
+    pub fn optimize_with_trace(
+        &self,
+        graph: &MultiplexGraph,
+        ppr_scores: &HashMap<SymbolId, f32>,
+        budget: usize,
+    ) -> (Vec<SymbolId>, Vec<CelfTraceStep>) {
         if budget == 0 || graph.is_empty() {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
 
         let mut selected_set: HashSet<SymbolId> = HashSet::new();
         let mut selected_list: Vec<SymbolId> = Vec::new();
+        let mut trace: Vec<CelfTraceStep> = Vec::new();
         let mut covered_nodes: HashSet<SymbolId> = HashSet::new();
         let mut file_token_costs: HashMap<PathBuf, usize> = HashMap::new();
         let mut current_tokens: usize = 0;
+        let mut cumulative_utility: f32 = 0.0;
         let mut current_iteration: usize = 0;
 
         let mut heap: BinaryHeap<CelfItem> = BinaryHeap::new();
@@ -143,9 +173,20 @@ impl CelfOptimizer {
             // If this element was evaluated in the current iteration, it is guaranteed
             // by submodularity to have the maximum marginal gain per token.
             if top.last_iteration == current_iteration {
+                let marginal_gain = (top.marginal_gain_per_token * (cost as f32)).max(0.0);
+                cumulative_utility += marginal_gain;
+
                 selected_set.insert(top.symbol_id);
                 selected_list.push(top.symbol_id);
                 current_tokens += cost;
+
+                trace.push(CelfTraceStep {
+                    symbol_id: top.symbol_id,
+                    symbol_cost: cost,
+                    cumulative_tokens: current_tokens,
+                    marginal_gain,
+                    cumulative_utility,
+                });
 
                 // Update covered nodes (self + immediate neighbors)
                 covered_nodes.insert(top.symbol_id);
@@ -179,7 +220,7 @@ impl CelfOptimizer {
             }
         }
 
-        selected_list
+        (selected_list, trace)
     }
 
     /// Evaluates the marginal gain $\Delta(v \mid S)$ of adding symbol `id` to the current set $S$.
@@ -313,5 +354,35 @@ mod tests {
         let optimizer = CelfOptimizer::default();
         let selected = optimizer.optimize(&graph, &HashMap::new(), 0);
         assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn test_celf_optimize_with_trace() {
+        let s0 = make_test_node(0, "f0", "a.rs", 20);
+        let s1 = make_test_node(1, "f1", "a.rs", 30);
+        let s2 = make_test_node(2, "f2", "b.rs", 40);
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &[], LayerWeights::default());
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(0), 0.5);
+        ppr_scores.insert(SymbolId(1), 0.3);
+        ppr_scores.insert(SymbolId(2), 0.15);
+
+        let optimizer = CelfOptimizer::default();
+        let (selected, trace) = optimizer.optimize_with_trace(&graph, &ppr_scores, 100);
+
+        assert_eq!(selected.len(), trace.len());
+        assert!(!trace.is_empty());
+
+        let mut prev_tokens = 0;
+        let mut prev_util = 0.0;
+
+        for step in &trace {
+            assert!(step.cumulative_tokens > prev_tokens);
+            assert!(step.cumulative_tokens <= 100);
+            assert!(step.cumulative_utility >= prev_util);
+            prev_tokens = step.cumulative_tokens;
+            prev_util = step.cumulative_utility;
+        }
     }
 }

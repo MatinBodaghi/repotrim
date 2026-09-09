@@ -8,6 +8,7 @@ pub mod formatter;
 pub mod graph;
 pub mod import;
 pub mod intent;
+pub mod knee;
 pub mod loader;
 pub mod parser;
 pub mod ppr;
@@ -23,7 +24,7 @@ pub use architecture::{
 pub use cache::{
     compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };
-pub use celf::{CelfConfig, CelfOptimizer};
+pub use celf::{CelfConfig, CelfOptimizer, CelfTraceStep};
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;
@@ -31,6 +32,7 @@ pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use import::{normalize_path, resolve_module_path, FileImport};
 pub use intent::IntentResolver;
+pub use knee::{KneePoint, KneedleDetector};
 pub use loader::{CacheReport, LoadedRepository};
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use ppr::{PprConfig, PprSolver};
