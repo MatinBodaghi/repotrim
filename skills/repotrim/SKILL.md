@@ -92,9 +92,9 @@ RepoTrim formats code into 4 discrete Levels of Detail to pack maximum informati
 When connected to `repotrim-mcp`, the following tools are available:
 
 ### 1. `trim_context`
-Extracts mathematically optimal prompt context.
+Extracts mathematically optimal prompt context across Rust, Python, TypeScript/JavaScript, and Go codebases.
 - **Parameters**:
-  - `query` *(optional string)*: Natural language intent (e.g. `"JWT verification expiration"`).
+  - `query` *(optional string)*: Natural language intent (e.g. `"JWT verification expiration"`). Leverages dense-sparse semantic hybrid retrieval to resolve zero-overlap conceptual queries (e.g. "credentials password storage") to relevant implementations.
   - `seeds` *(optional array of strings)*: Explicit symbol names (e.g. `["ContextSelector"]`).
   - `fromDiff` *(optional boolean)*: If `true`, infers seeds from uncommitted git changes.
   - `budget` *(optional integer, default: 1000)*: Maximum token budget.

@@ -21,10 +21,10 @@
 Built specifically for AI coding assistants and autonomous harnesses (**Claude Code**, **Cursor**, **Windsurf**, **Antigravity**, **OpenCode**, **SWE-bench** runners), RepoTrim extracts the mathematically optimal context skeleton within strict token budgets—maximizing dependency awareness while preventing context bloat and "lost-in-the-middle" LLM reasoning degradation.
 
 ```text
-┌─────────────────────────────────┐       Tree-sitter AST       ┌─────────────────────────────────┐
-│ Codebase (Rust, Python, TS/JS)  │ ─────────────────────────>  │  Multiplex Code Property Graph  │
-└─────────────────────────────────┘                             │  (AST, Call, Type, Import)      │
-                                                                └─────────────────────────────────┘
+┌──────────────────────────────────────┐       Tree-sitter AST       ┌─────────────────────────────────┐
+│ Codebase (Rust, Python, TS/JS, Go)   │ ─────────────────────────>  │  Multiplex Code Property Graph  │
+└──────────────────────────────────────┘                             │  (AST, Call, Type, Import)      │
+                                                                     └─────────────────────────────────┘
                                                                                  │
 ┌─────────────────────────────────┐   Personalized PageRank (PPR)                ▼
 │ Query / Seed Symbols            │ ─────────────────────────>  ┌─────────────────────────────────┐
@@ -90,7 +90,9 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
 ## Key Features
 
 - **Multi-Language Polyglot Support**:
-  Native Tree-sitter AST parsing and symbol extraction for **Rust** (`.rs`), **Python** (`.py`), and **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) into a unified cross-language multiplex code graph.
+  Native Tree-sitter AST parsing and symbol extraction for **Rust** (`.rs`), **Python** (`.py`), **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), and **Go** (`.go`) into a unified cross-language multiplex code graph.
+- **Semantic Hybrid Intent Retrieval (Dense-Sparse Expansion)**:
+  Zero-word-overlap semantic concept ontology expansion combining smoothed BM25, character 3-gram fuzzy similarity, and domain concept clusters (Formal et al., 2021; Gao et al., 2021). Accurately resolves conceptual queries (e.g. "credentials password authentication") to relevant implementations without requiring heavy remote embedding daemons.
 - **Multiplex Code Property Graph ($\mathcal{M} = (V, \{E_k\}, \mathbf{W})$)**:
   Extracts granular syntax entities (functions, methods, structs, classes, interfaces, traits, modules) indexed by compact 32-bit `SymbolId`s with layered tensor weights:
   - $E_{\text{AST}}$: Lexical containment (module $\to$ struct/class $\to$ method).
@@ -322,13 +324,13 @@ repotrim/
 └── crates/
     ├── engine/                 # repotrim-engine: AST parsing, CSR, PPR, CELF, Cache
     │   ├── Cargo.toml
-    │   ├── queries/            # Declarative Tree-sitter query files (Rust, Python, TS)
+    │   ├── queries/            # Declarative Tree-sitter query files (Rust, Python, TS, Go)
     │   └── src/
     │       ├── lib.rs
     │       ├── cache.rs        # Incremental BLAKE3 Merkle cache and bincode persistence
     │       ├── diff.rs         # Unified git diff parser and symbol mapping
     │       ├── error.rs        # Engine error types
-    │       ├── intent.rs       # BM25 + trigram natural language query resolver
+    │       ├── intent.rs       # BM25 + trigram + semantic hybrid query resolver
     │       ├── parser.rs       # Polyglot Tree-sitter AST symbol extractor
     │       ├── selector.rs     # CELF knapsack context selector
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
@@ -376,6 +378,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
    - Vincent D. Blondel, Jean-Loup Guillaume, Renaud Lambiotte, Etienne Lefebvre. *"Fast unfolding of communities in large networks"*. In *Journal of Statistical Mechanics: Theory and Experiment*, P10008, 2008. [DOI: 10.1088/1742-5468/2008/10/P10008](https://doi.org/10.1088/1742-5468/2008/10/P10008).
 8. **Software Architecture Reconstruction:**
    - Stéphane Ducasse, Damien Pollet. *"Software Architecture Reconstruction: A Process-Oriented Taxonomy"*. In *IEEE Transactions on Software Engineering*, 35(4), 573–591, 2009. [DOI: 10.1109/TSE.2009.19](https://doi.org/10.1109/TSE.2009.19).
+9. **Dense-Sparse Hybrid Retrieval & Lexical Expansion:**
+   - Thibault Formal, Carlos Lassance, Benjamin Piwowarski, Stéphane Clinchant. *"SPLADE v2: Sparse Lexical and Expansion Model for Information Retrieval"*, 2021. [arXiv:2109.10086](https://arxiv.org/abs/2109.10086).
+   - Luan Gao, Zhuyun Dai, Jamie Callan. *"COIL: Efficient Dense-Sparse Hybrid Retrieval"*. In *ACM SIGIR Conference on Research and Development in Information Retrieval*, 2021. [arXiv:2104.07186](https://arxiv.org/abs/2104.07186).
 
 ---
 
