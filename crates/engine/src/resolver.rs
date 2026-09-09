@@ -170,6 +170,19 @@ impl ScopedResolver {
                 {
                     return Some((target_id, 1.0));
                 }
+
+                // Check sibling files in the same package directory (e.g. Go multi-file packages)
+                if let Some(target_parent) = target_file.parent() {
+                    if let Some(candidate_ids) = self.name_to_ids.get(member) {
+                        for &cand_id in candidate_ids {
+                            if let Some(cand_node) = self.id_to_symbol.get(&cand_id) {
+                                if cand_node.file_path.parent() == Some(target_parent) {
+                                    return Some((cand_id, 1.0));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -179,6 +192,24 @@ impl ScopedResolver {
             .get(&(source_node.file_path.clone(), target_ident.to_string()))
         {
             return Some((local_id, 1.0));
+        }
+
+        // Priority 3.5: Intra-package sibling definition in the same directory for Go (confidence 1.0)
+        if source_node.file_path.extension().and_then(|s| s.to_str()) == Some("go") {
+            if let Some(source_parent) = source_node.file_path.parent() {
+                if let Some(candidate_ids) = self.name_to_ids.get(target_ident) {
+                    for &cand_id in candidate_ids {
+                        if let Some(cand_node) = self.id_to_symbol.get(&cand_id) {
+                            if cand_node.file_path.parent() == Some(source_parent)
+                                && cand_node.file_path.extension().and_then(|s| s.to_str())
+                                    == Some("go")
+                            {
+                                return Some((cand_id, 1.0));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Normalize scoped paths like `math::sqrt` to extract base identifier and optional module hint
@@ -378,5 +409,49 @@ mod tests {
 
         let result = resolver.resolve(&n1, "non_existent_function");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_go_package_and_intra_package_resolution() {
+        // Go package auth with two files: auth.go and session.go
+        let hash_pw = make_test_node(0, "HashPassword", "pkg/auth/auth.go");
+        let make_session = make_test_node(1, "CreateSession", "pkg/auth/session.go");
+
+        // Go main.go in cmd/main.go
+        let main_fn = make_test_node(2, "main", "cmd/main.go");
+
+        // main.go imports pkg/auth
+        let import = FileImport::new(
+            Path::new("cmd/main.go"),
+            "myproject/pkg/auth".to_string(),
+            "auth".to_string(),
+            "auth".to_string(),
+        );
+
+        let resolver = ScopedResolver::with_imports(
+            &[hash_pw.clone(), make_session.clone(), main_fn.clone()],
+            &[import],
+        );
+
+        // 1. Cross-package call to auth.go symbol: auth.HashPassword -> score 1.0
+        let res1 = resolver.resolve(&main_fn, "auth.HashPassword");
+        assert!(res1.is_some());
+        let (id1, score1) = res1.unwrap();
+        assert_eq!(id1, SymbolId(0));
+        assert_eq!(score1, 1.0);
+
+        // 2. Cross-package call to session.go sibling symbol: auth.CreateSession -> score 1.0
+        let res2 = resolver.resolve(&main_fn, "auth.CreateSession");
+        assert!(res2.is_some());
+        let (id2, score2) = res2.unwrap();
+        assert_eq!(id2, SymbolId(1));
+        assert_eq!(score2, 1.0);
+
+        // 3. Intra-package call from session.go to auth.go without qualification: HashPassword -> score 1.0
+        let res3 = resolver.resolve(&make_session, "HashPassword");
+        assert!(res3.is_some());
+        let (id3, score3) = res3.unwrap();
+        assert_eq!(id3, SymbolId(0));
+        assert_eq!(score3, 1.0);
     }
 }
