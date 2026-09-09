@@ -20,11 +20,13 @@ impl ContextFormatter {
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let is_python = ext == "py";
+        let is_go = ext == "go";
 
         match lod {
             LodLevel::SignatureOnly => {
                 let sig = symbol.signature.trim();
                 if !is_python
+                    && !is_go
                     && (symbol.kind == SymbolKind::Function || symbol.kind == SymbolKind::Method)
                 {
                     if !sig.ends_with(';') {
@@ -251,6 +253,7 @@ impl ContextFormatter {
             Some("ts") => "typescript",
             Some("tsx") => "tsx",
             Some("js" | "jsx" | "mjs" | "cjs") => "javascript",
+            Some("go") => "go",
             _ => "text",
         }
     }
