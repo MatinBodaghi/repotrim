@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    ArchitectureReport, ContextSelector, DiffResolver, IntentResolver, LoadedRepository,
-    ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
+    ArchitectureReport, ContextSelector, DiffResolver, ImpactAnalyzer, IntentResolver,
+    LoadedRepository, ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
 };
 
 use crate::protocol::{
@@ -257,6 +257,39 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "analyze_impact".to_string(),
+                description: "Analyze the semantic blast radius and ripple effects of code changes (from git diff or a target symbol). Classifies direct mutations, 1st-order callers, transitive dependencies, affected test candidates, and computes an architectural risk score.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Optional target symbol name to evaluate blast radius for"
+                        },
+                        "fromDiff": {
+                            "type": "boolean",
+                            "description": "Optional flag to infer modified symbols from git diff (default: true if no symbol provided)"
+                        },
+                        "diffAgainst": {
+                            "type": "string",
+                            "description": "Optional git revision or branch to diff against (e.g. 'origin/main', 'HEAD~1')"
+                        },
+                        "budget": {
+                            "description": "Maximum token budget for blast radius context outline (default: 1000)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    }
+                }),
+            },
         ]
     }
 
@@ -269,6 +302,7 @@ impl McpHandler {
             "clean_cache" => self.tool_clean_cache(arguments),
             "generate_blueprint" => self.tool_generate_blueprint(arguments),
             "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
+            "analyze_impact" => self.tool_analyze_impact(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -847,5 +881,76 @@ impl McpHandler {
         }
 
         ToolCallResult::success(markdown)
+    }
+
+    fn tool_analyze_impact(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let target_path = self.resolve_path(&args);
+
+        let mut repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        if let Err(e) = repo.load_all_sources() {
+            return ToolCallResult::error(format!("Failed to load file sources: {}", e));
+        }
+
+        let graph = repo.build_graph();
+
+        let budget: usize = args
+            .get("budget")
+            .and_then(|b| {
+                if let Some(s) = b.as_str() {
+                    if s == "auto" {
+                        Some(1500)
+                    } else {
+                        s.parse().ok()
+                    }
+                } else {
+                    b.as_u64().map(|u| u as usize)
+                }
+            })
+            .unwrap_or(1000);
+
+        let format = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let report = if let Some(sym_name) = args.get("symbol").and_then(|s| s.as_str()) {
+            ImpactAnalyzer::analyze_symbol(&graph, sym_name, budget, &repo.file_sources)
+        } else if let Some(rev) = args.get("diffAgainst").and_then(|d| d.as_str()) {
+            match DiffResolver::get_git_diff_against(&target_path, rev) {
+                Ok(diff_text) => {
+                    ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
+                }
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to extract git diff against '{}': {}",
+                        rev, e
+                    ))
+                }
+            }
+        } else {
+            match DiffResolver::get_git_diff(&target_path) {
+                Ok(diff_text) => {
+                    ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
+                }
+                Err(e) => {
+                    return ToolCallResult::error(format!("Failed to extract git diff: {}", e))
+                }
+            }
+        };
+
+        if format == "json" {
+            match serde_json::to_string_pretty(&report) {
+                Ok(json_str) => ToolCallResult::success(json_str),
+                Err(e) => {
+                    ToolCallResult::error(format!("Failed to serialize report to JSON: {}", e))
+                }
+            }
+        } else {
+            ToolCallResult::success(report.context_markdown)
+        }
     }
 }

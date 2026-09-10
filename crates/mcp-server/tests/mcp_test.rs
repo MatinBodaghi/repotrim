@@ -40,14 +40,17 @@ fn test_mcp_full_lifecycle_and_tools() {
             // 9. tools/call: generate_architecture_docs
             r#"{{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{{"name":"generate_architecture_docs","arguments":{{"path":"{}"}}}}}}"#,
             "\n",
-            // 10. tools/call: unknown tool error handling
-            r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            // 10. tools/call: analyze_impact
+            r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"analyze_impact","arguments":{{"symbol":"ContextSelector","path":"{}"}}}}}}"#,
             "\n",
-            // 11. unknown method error handling
-            r#"{{"jsonrpc":"2.0","id":10,"method":"unknown_method"}}"#,
+            // 11. tools/call: unknown tool error handling
+            r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            "\n",
+            // 12. unknown method error handling
+            r#"{{"jsonrpc":"2.0","id":11,"method":"unknown_method"}}"#,
             "\n"
         ),
-        root_str, root_str, root_str, root_str, root_str, root_str
+        root_str, root_str, root_str, root_str, root_str, root_str, root_str
     );
 
     let reader = Cursor::new(input.as_bytes());
@@ -58,10 +61,10 @@ fn test_mcp_full_lifecycle_and_tools() {
         .run_loop(reader, &mut writer)
         .expect("Server loop failed");
 
-    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
-    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+    let output_str = String::from_utf8(writer).expect("Invalid UTF-8 from server");
+    let lines: Vec<&str> = output_str.trim().lines().collect();
 
-    assert_eq!(lines.len(), 10);
+    assert_eq!(lines.len(), 11);
 
     // 1. initialize
     let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -73,7 +76,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 6);
+    assert_eq!(tools.len(), 7);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -127,18 +130,26 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert!(arch_text.contains("```mermaid\nflowchart TD"));
     assert!(arch_text.contains("## 3. Subsystem Community Catalog"));
 
-    // 9. nonexistent_tool error
+    // 9. analyze_impact
     let resp9: serde_json::Value = serde_json::from_str(lines[8]).unwrap();
     assert_eq!(resp9["id"], 9);
-    assert_eq!(resp9["result"]["isError"], true);
-    let err_text = resp9["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+    assert_eq!(resp9["result"]["isError"], false);
+    let impact_text = resp9["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(impact_text.contains("# Semantic Change Impact Analysis Report"));
+    assert!(impact_text.contains("ContextSelector"));
 
-    // 10. unknown_method error
+    // 10. nonexistent_tool error
     let resp10: serde_json::Value = serde_json::from_str(lines[9]).unwrap();
     assert_eq!(resp10["id"], 10);
-    assert_eq!(resp10["error"]["code"], -32601);
-    assert!(resp10["error"]["message"]
+    assert_eq!(resp10["result"]["isError"], true);
+    let err_text = resp10["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+
+    // 11. unknown_method error
+    let resp11: serde_json::Value = serde_json::from_str(lines[10]).unwrap();
+    assert_eq!(resp11["id"], 11);
+    assert_eq!(resp11["error"]["code"], -32601);
+    assert!(resp11["error"]["message"]
         .as_str()
         .unwrap()
         .contains("Unknown method"));
