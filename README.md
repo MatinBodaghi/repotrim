@@ -109,6 +109,8 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
   $$\max_{S \subseteq V} \sum_{v \in S} \pi_q(v) \quad \text{subject to} \quad \sum_{v \in S} c(v) \le B$$
 - **Multi-Resolution Level of Detail (LOD)**:
   Dynamically assigns high detail ($\text{LOD}_2$ slices or $\text{LOD}_3$ full implementations) to query seeds, and concise signatures ($\text{LOD}_0$ / $\text{LOD}_1$) to contextual dependencies.
+- **Container-Scoped Context Rendering**:
+  Outlines nest member methods inside their enclosing parent containers (`impl Struct { ... }`, `impl Trait for Struct { ... }`, `class Class:`, `class Class { ... }`) with 4-space indentation and exact source line comments. Disambiguates identically named methods across traits and provides explicit type-ownership context for LLMs.
 - **Incremental Merkle Caching**:
   BLAKE3 content-addressed file hashing with bincode persistence. Re-indexes only modified files in <7 ms.
 - **Live File Watcher & In-Memory Daemon**:

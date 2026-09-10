@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Container-Scoped Context Rendering (Phase 19)**:
+  - Extracted parent structural containers (`container_name`) and implemented traits (`trait_name`) on `SymbolNode` across Rust, Python, TypeScript, and Go.
+  - Grouped member methods under enclosing `impl <Type> { ... }`, `impl <Trait> for <Type> { ... }`, `class <Class>:`, and `class <Class> { ... }` blocks with 4-space indentation and exact source line comments.
+  - Disambiguated identically named methods across different traits and inherent blocks for LLM clarity.
+  - Preserved idiomatic top-level receiver method formatting for Go.
+  - Added comprehensive integration test suite in `crates/engine/tests/container_scoping_test.rs`.
+
+### Changed
+- Bumped cache format version to `3` (`CACHE_VERSION = 3`) to persist container and trait metadata.
+
+---
+
 ## [0.3.0] - 2026-09-10
 
 ### Added
