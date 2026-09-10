@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Semantic Blast Radius & Change Impact Analysis Engine (Phase 21)**:
+  - Implemented forward ripple effect tracing on transposed CSR code property graph based on Arnold & Bohner (1993) and Ren et al. (2004, *Chianti*, ACM OOPSLA).
+  - Traced direct mutations, 1st-order callers, transitive downstream ripple effects, and candidate regression test suites across Rust, Python, TypeScript, and Go.
+  - Calculated weighted architectural risk score in $[0.0, 1.0]$ and assigned risk categories (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) based on caller cardinality, max in-degree, affected files, and impact fraction.
+  - Added dedicated CLI command `repotrim impact` with `--symbol`, `--diff`, and `--diff-against` options and colored terminal risk summary badges.
+  - Added `analyze_impact` MCP tool to `repotrim-mcp` server for autonomous agent change risk assessment.
+  - Added end-to-end integration tests in `crates/engine/tests/impact_test.rs`.
+  - Added academic citations for Arnold & Bohner (1993) and Ren et al. (2004) in code docstrings and `README.md`.
 - **AST Control-Flow Program Slicing & Causal Topological Ordering (Phase 20)**:
   - Replaced placeholder dummy slicing with true AST program slicing (`AstSlicer`, `LodLevel::SlicedBody`) based on Mark Weiser (1981).
   - Traverses Tree-sitter ASTs across Rust, Python, TypeScript, and Go, preserving branch conditions, loop structures, error exits (`return`, `throw`, `raise`, `panic!`, `?`), docstrings, and call invocations while eliding linear variable declarations into concise omission comments (`// ... [N lines elided] ...`).
