@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    ArchitectureReport, ContextSelector, DiffResolver, ImpactAnalyzer, IntentResolver,
-    LoadedRepository, ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
+    count_tokens, ArchitectureReport, ContextSelector, DiffResolver, ImpactAnalyzer,
+    IntentResolver, LoadedRepository, ModelProfile, PprSolver, RepositoryWatcher, SymbolId,
+    SymbolKind, TokenizerModel,
 };
 
 use crate::protocol::{
@@ -159,6 +160,11 @@ impl McpHandler {
                             "type": "string",
                             "description": "Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')"
                         },
+                        "tokenizer": {
+                            "type": "string",
+                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
+                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
+                        },
                         "path": {
                             "type": "string",
                             "description": "Target codebase directory to scan (default: '.')"
@@ -278,6 +284,11 @@ impl McpHandler {
                         "budget": {
                             "description": "Maximum token budget for blast radius context outline (default: 1000)"
                         },
+                        "tokenizer": {
+                            "type": "string",
+                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
+                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
+                        },
                         "format": {
                             "type": "string",
                             "enum": ["markdown", "json"],
@@ -389,6 +400,12 @@ impl McpHandler {
             .get("format")
             .and_then(|f| f.as_str())
             .unwrap_or("markdown");
+        let tokenizer_str = args
+            .get("tokenizer")
+            .and_then(|t| t.as_str())
+            .unwrap_or("fast");
+        let tokenizer_model =
+            TokenizerModel::from_str_name(tokenizer_str).unwrap_or(TokenizerModel::FastHeuristic);
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -405,34 +422,40 @@ impl McpHandler {
             let matches: Vec<SymbolId> = repo
                 .symbols
                 .iter()
-                .filter(|s| s.name == *seed_name || s.name.eq_ignore_ascii_case(seed_name))
+                .filter(|s| s.name == *seed_name)
                 .map(|s| s.id)
                 .collect();
 
-            if !matches.is_empty() {
-                for id in matches {
-                    *weighted_seeds.entry(id).or_default() += 2.0;
-                }
-            } else {
+            if matches.is_empty() {
                 missing_seeds.push(seed_name.clone());
+            } else {
+                for id in matches {
+                    *weighted_seeds.entry(id).or_default() += 1.0;
+                }
             }
         }
 
-        // 2. Natural language query seeds
-        if let Some(query) = &query_opt {
-            let query_seeds = IntentResolver::resolve_query(&repo.symbols, query, 5);
-            for (id, weight) in query_seeds {
-                *weighted_seeds.entry(id).or_default() += weight;
+        // 2. Query seeds via BM25 + trigram fuzzy intent resolution
+        if let Some(ref q) = query_opt {
+            let query_seeds = IntentResolver::resolve_query(&repo.symbols, q, 5);
+            for (id, confidence) in query_seeds {
+                *weighted_seeds.entry(id).or_default() += confidence;
             }
         }
 
         // 3. Git diff seeds
         if from_diff {
-            if let Ok(diff_text) = DiffResolver::get_git_diff(&target_path) {
-                let modified = DiffResolver::parse_unified_diff(&diff_text);
-                let diff_seeds = DiffResolver::resolve_modified_symbols(&repo.symbols, &modified);
-                for (id, weight) in diff_seeds {
-                    *weighted_seeds.entry(id).or_default() += weight;
+            match DiffResolver::get_git_diff(&target_path) {
+                Ok(diff_text) => {
+                    let modified_lines = DiffResolver::parse_unified_diff(&diff_text);
+                    let diff_seeds =
+                        DiffResolver::resolve_modified_symbols(&repo.symbols, &modified_lines);
+                    for (id, weight) in diff_seeds {
+                        *weighted_seeds.entry(id).or_default() += weight;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("repotrim-mcp: Failed to read git diff: {}", e);
                 }
             }
         }
@@ -450,7 +473,7 @@ impl McpHandler {
 
         let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
         let graph = repo.build_graph();
-        let selector = ContextSelector::default();
+        let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
         let (selected, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
             let (sel, md, rep) = selector.select_and_format_context_auto_weighted(
                 &graph,
@@ -469,7 +492,7 @@ impl McpHandler {
             (sel, md, None)
         };
 
-        let total_tokens: usize = selected.iter().map(|s| s.token_cost).sum();
+        let total_tokens: usize = count_tokens(&markdown, tokenizer_model);
 
         if format_str == "json" {
             let budget_val = if let Some(ref rep) = auto_report_opt {
@@ -480,6 +503,7 @@ impl McpHandler {
             let mut json_val = serde_json::json!({
                 "budget": budget_val,
                 "tokens_used": total_tokens,
+                "tokenizer": tokenizer_model.name(),
                 "symbols_count": selected.len(),
                 "symbols": selected.iter().map(|s| {
                     serde_json::json!({
@@ -916,14 +940,30 @@ impl McpHandler {
             .get("format")
             .and_then(|f| f.as_str())
             .unwrap_or("markdown");
+        let tokenizer_str = args
+            .get("tokenizer")
+            .and_then(|t| t.as_str())
+            .unwrap_or("fast");
+        let tokenizer_model =
+            TokenizerModel::from_str_name(tokenizer_str).unwrap_or(TokenizerModel::FastHeuristic);
 
         let report = if let Some(sym_name) = args.get("symbol").and_then(|s| s.as_str()) {
-            ImpactAnalyzer::analyze_symbol(&graph, sym_name, budget, &repo.file_sources)
+            ImpactAnalyzer::analyze_symbol_with_model(
+                &graph,
+                sym_name,
+                budget,
+                &repo.file_sources,
+                tokenizer_model,
+            )
         } else if let Some(rev) = args.get("diffAgainst").and_then(|d| d.as_str()) {
             match DiffResolver::get_git_diff_against(&target_path, rev) {
-                Ok(diff_text) => {
-                    ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
-                }
+                Ok(diff_text) => ImpactAnalyzer::analyze_diff_with_model(
+                    &graph,
+                    &diff_text,
+                    budget,
+                    &repo.file_sources,
+                    tokenizer_model,
+                ),
                 Err(e) => {
                     return ToolCallResult::error(format!(
                         "Failed to extract git diff against '{}': {}",
@@ -933,9 +973,13 @@ impl McpHandler {
             }
         } else {
             match DiffResolver::get_git_diff(&target_path) {
-                Ok(diff_text) => {
-                    ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
-                }
+                Ok(diff_text) => ImpactAnalyzer::analyze_diff_with_model(
+                    &graph,
+                    &diff_text,
+                    budget,
+                    &repo.file_sources,
+                    tokenizer_model,
+                ),
                 Err(e) => {
                     return ToolCallResult::error(format!("Failed to extract git diff: {}", e))
                 }

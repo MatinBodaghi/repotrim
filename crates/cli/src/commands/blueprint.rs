@@ -25,6 +25,10 @@ pub struct BlueprintArgs {
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
 
+    /// Tokenizer model for recommended token budgeting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k')
+    #[arg(long = "tokenizer", default_value = "fast")]
+    pub tokenizer: String,
+
     /// Destination file to write blueprint (defaults to 'FEATURE_BLUEPRINT.md', or '-' for stdout)
     #[arg(short = 'o', long = "output", default_value = "FEATURE_BLUEPRINT.md")]
     pub output: String,
@@ -68,6 +72,7 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
         &symbol_targets,
         &args.budget,
         args.model.as_deref(),
+        Some(&args.tokenizer),
     );
 
     if args.output == "-" {
@@ -98,6 +103,7 @@ pub fn generate_blueprint_text(
     symbol_targets: &[(repotrim_engine::SymbolNode, f32)],
     budget: &str,
     model: Option<&str>,
+    tokenizer: Option<&str>,
 ) -> String {
     let mut doc = String::new();
 
@@ -146,16 +152,20 @@ pub fn generate_blueprint_text(
         .unwrap_or("");
 
     let model_flag = model.map(|m| format!(" --model {}", m)).unwrap_or_default();
+    let tokenizer_flag = match tokenizer {
+        Some(t) if t != "fast" => format!(" --tokenizer {}", t),
+        _ => String::new(),
+    };
 
     let cli_cmd = if !primary_seed_name.is_empty() {
         format!(
-            "repotrim select --seed {} --budget {}{}\n# OR\nrepotrim select --query \"{}\" --budget {}{}",
-            primary_seed_name, budget, model_flag, task, budget, model_flag
+            "repotrim select --seed {} --budget {}{}{}\n# OR\nrepotrim select --query \"{}\" --budget {}{}{}",
+            primary_seed_name, budget, model_flag, tokenizer_flag, task, budget, model_flag, tokenizer_flag
         )
     } else {
         format!(
-            "repotrim select --query \"{}\" --budget {}{}",
-            task, budget, model_flag
+            "repotrim select --query \"{}\" --budget {}{}{}",
+            task, budget, model_flag, tokenizer_flag
         )
     };
 
@@ -173,6 +183,11 @@ pub fn generate_blueprint_text(
     });
     if let Some(m) = model {
         mcp_args["model"] = serde_json::json!(m);
+    }
+    if let Some(t) = tokenizer {
+        if t != "fast" {
+            mcp_args["tokenizer"] = serde_json::json!(t);
+        }
     }
     doc.push_str(&format!(
         "```json\n{{\n  \"name\": \"trim_context\",\n  \"arguments\": {}\n}}\n```\n\n",

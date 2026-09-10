@@ -226,3 +226,52 @@ fn test_mcp_trim_context_auto_budget() {
     assert!(bp_text.contains("\"budget\": \"auto\""));
     assert!(bp_text.contains("\"model\": \"ollama\""));
 }
+
+#[test]
+fn test_mcp_exact_tokenizer() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["estimate_tokens"],"budget":400,"tokenizer":"exact","format":"json","path":"{}"}}}}}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"analyze_impact","arguments":{{"symbol":"estimate_tokens","budget":800,"tokenizer":"exact","path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 3);
+
+    // 2. trim_context with exact tokenizer
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let json_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert_eq!(parsed_json["tokenizer"], "cl100k_base (Exact BPE)");
+    assert!(parsed_json["tokens_used"].as_u64().unwrap() > 0);
+
+    // 3. analyze_impact with exact tokenizer
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let impact_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(impact_text.contains("Semantic Change Impact Analysis Report"));
+}

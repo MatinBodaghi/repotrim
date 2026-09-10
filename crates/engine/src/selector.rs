@@ -8,6 +8,7 @@ use crate::knee::KneedleDetector;
 use crate::model::ModelProfile;
 use crate::ppr::{PprConfig, PprSolver};
 use crate::symbol::{SymbolId, SymbolNode};
+use crate::tokens::TokenizerModel;
 
 /// Diagnostic report produced when auto-budgeting context selection.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +35,7 @@ pub struct AutoBudgetReport {
 pub struct ContextSelector {
     ppr: PprSolver,
     celf: CelfOptimizer,
+    tokenizer_model: TokenizerModel,
 }
 
 impl ContextSelector {
@@ -42,7 +44,19 @@ impl ContextSelector {
         Self {
             ppr: PprSolver::new(ppr_config),
             celf: CelfOptimizer::new(celf_config),
+            tokenizer_model: TokenizerModel::default(),
         }
+    }
+
+    /// Sets the tokenizer model for token counting and LOD resolution.
+    pub fn with_tokenizer(mut self, model: TokenizerModel) -> Self {
+        self.tokenizer_model = model;
+        self
+    }
+
+    /// Returns the active tokenizer model.
+    pub fn tokenizer_model(&self) -> TokenizerModel {
+        self.tokenizer_model
     }
 
     /// Selects the optimal set of symbols matching the `budget` (in tokens), seeded by `seed_ids`.
@@ -272,12 +286,13 @@ impl ContextSelector {
 
         // 5. Dynamically assign LOD and format into Markdown
         let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
-        let lod_map = ContextFormatter::assign_lod(
+        let lod_map = ContextFormatter::assign_lod_with_model(
             &selected_symbols,
             &ppr_scores,
             &seed_id_list,
             budget,
             file_sources,
+            self.tokenizer_model,
         );
         let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
 
@@ -319,12 +334,13 @@ impl ContextSelector {
         }
 
         let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
-        let lod_map = ContextFormatter::assign_lod(
+        let lod_map = ContextFormatter::assign_lod_with_model(
             &selected_symbols,
             &ppr_scores,
             &seed_id_list,
             report.optimal_budget,
             file_sources,
+            self.tokenizer_model,
         );
         let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
 

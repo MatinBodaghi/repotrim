@@ -1,6 +1,6 @@
 use clap::Args;
 use colored::Colorize;
-use repotrim_engine::{DiffResolver, ImpactAnalyzer, ImpactReport, RiskLevel};
+use repotrim_engine::{DiffResolver, ImpactAnalyzer, ImpactReport, RiskLevel, TokenizerModel};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -23,6 +23,10 @@ pub struct ImpactArgs {
     /// Maximum token budget for blast radius context outline
     #[arg(short = 'b', long = "budget", default_value = "1000")]
     pub budget: String,
+
+    /// Tokenizer model for blast radius token budgeting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k')
+    #[arg(long = "tokenizer", default_value = "fast")]
+    pub tokenizer: String,
 
     /// Output serialization format (markdown or json)
     #[arg(long = "format", default_value = "markdown")]
@@ -50,25 +54,49 @@ pub fn execute(args: ImpactArgs) -> Result<(), Box<dyn std::error::Error>> {
         args.budget.parse().unwrap_or(1000)
     };
 
+    let tokenizer_model = TokenizerModel::from_str_name(&args.tokenizer).unwrap_or_else(|| {
+        eprintln!(
+            "{} Unknown tokenizer '{}', falling back to 'fast'",
+            "!".yellow().bold(),
+            args.tokenizer
+        );
+        TokenizerModel::FastHeuristic
+    });
+
     let report: ImpactReport = if let Some(sym_name) = &args.symbol {
         eprintln!(
-            "{} Tracing change blast radius for symbol '{}'...",
+            "{} Tracing change blast radius for symbol '{}' (tokenizer: {})...",
             "⚙".cyan().bold(),
-            sym_name.bold()
+            sym_name.bold(),
+            tokenizer_model.name().cyan()
         );
-        ImpactAnalyzer::analyze_symbol(&graph, sym_name, budget, &repo.file_sources)
+        ImpactAnalyzer::analyze_symbol_with_model(
+            &graph,
+            sym_name,
+            budget,
+            &repo.file_sources,
+            tokenizer_model,
+        )
     } else if let Some(rev) = &args.diff_against {
         eprintln!(
-            "{} Extracting git diff against '{}'...",
+            "{} Extracting git diff against '{}' (tokenizer: {})...",
             "⚙".cyan().bold(),
-            rev.bold()
+            rev.bold(),
+            tokenizer_model.name().cyan()
         );
         let diff_text = DiffResolver::get_git_diff_against(&args.path, rev)?;
-        ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
+        ImpactAnalyzer::analyze_diff_with_model(
+            &graph,
+            &diff_text,
+            budget,
+            &repo.file_sources,
+            tokenizer_model,
+        )
     } else {
         eprintln!(
-            "{} Extracting uncommitted git changes...",
-            "⚙".cyan().bold()
+            "{} Extracting uncommitted git changes (tokenizer: {})...",
+            "⚙".cyan().bold(),
+            tokenizer_model.name().cyan()
         );
         let diff_text = DiffResolver::get_git_diff(&args.path)?;
         if diff_text.trim().is_empty() {
@@ -77,7 +105,13 @@ pub fn execute(args: ImpactArgs) -> Result<(), Box<dyn std::error::Error>> {
                 "!".yellow().bold()
             );
         }
-        ImpactAnalyzer::analyze_diff(&graph, &diff_text, budget, &repo.file_sources)
+        ImpactAnalyzer::analyze_diff_with_model(
+            &graph,
+            &diff_text,
+            budget,
+            &repo.file_sources,
+            tokenizer_model,
+        )
     };
 
     let elapsed = start_time.elapsed();

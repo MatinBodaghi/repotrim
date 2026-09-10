@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::slicer::AstSlicer;
 use crate::symbol::{LodLevel, SymbolId, SymbolKind, SymbolNode};
-use crate::tokens::estimate_tokens;
+use crate::tokens::{count_tokens, TokenizerModel};
 
 /// High-performance Multi-Resolution Level-of-Detail (LOD) context formatter.
 ///
@@ -79,13 +79,32 @@ impl ContextFormatter {
     }
 
     /// Dynamically allocates Level-of-Detail (LOD) to selected symbols based on seed proximity,
-    /// PPR score priority, and the available token budget.
+    /// PPR score priority, and the available token budget using the default fast heuristic.
     pub fn assign_lod(
         symbols: &[SymbolNode],
         ppr_scores: &HashMap<SymbolId, f32>,
         seed_ids: &[SymbolId],
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
+    ) -> HashMap<SymbolId, LodLevel> {
+        Self::assign_lod_with_model(
+            symbols,
+            ppr_scores,
+            seed_ids,
+            budget,
+            file_sources,
+            TokenizerModel::default(),
+        )
+    }
+
+    /// Dynamically allocates Level-of-Detail (LOD) to selected symbols using a specific `TokenizerModel`.
+    pub fn assign_lod_with_model(
+        symbols: &[SymbolNode],
+        ppr_scores: &HashMap<SymbolId, f32>,
+        seed_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        model: TokenizerModel,
     ) -> HashMap<SymbolId, LodLevel> {
         let mut lod_map: HashMap<SymbolId, LodLevel> = HashMap::with_capacity(symbols.len());
         let seed_set: std::collections::HashSet<SymbolId> = seed_ids.iter().copied().collect();
@@ -101,7 +120,7 @@ impl ContextFormatter {
             .map(|s| {
                 let src = file_sources.get(&s.file_path).map(|f| f.as_str());
                 let rendered = Self::render_symbol(s, LodLevel::SignatureOnly, src);
-                estimate_tokens(&rendered)
+                count_tokens(&rendered, model)
             })
             .sum();
 
@@ -115,9 +134,11 @@ impl ContextFormatter {
             if seed_set.contains(&sym.id) {
                 let src = file_sources.get(&sym.file_path).map(|f| f.as_str());
                 let full_tokens =
-                    estimate_tokens(&Self::render_symbol(sym, LodLevel::FullBody, src));
-                let sig_tokens =
-                    estimate_tokens(&Self::render_symbol(sym, LodLevel::SignatureOnly, src));
+                    count_tokens(&Self::render_symbol(sym, LodLevel::FullBody, src), model);
+                let sig_tokens = count_tokens(
+                    &Self::render_symbol(sym, LodLevel::SignatureOnly, src),
+                    model,
+                );
                 let extra_tokens = full_tokens.saturating_sub(sig_tokens);
 
                 if current_tokens + extra_tokens <= budget {
@@ -125,7 +146,7 @@ impl ContextFormatter {
                     current_tokens += extra_tokens;
                 } else {
                     let sliced_tokens =
-                        estimate_tokens(&Self::render_symbol(sym, LodLevel::SlicedBody, src));
+                        count_tokens(&Self::render_symbol(sym, LodLevel::SlicedBody, src), model);
                     let extra_sliced = sliced_tokens.saturating_sub(sig_tokens);
                     if current_tokens + extra_sliced <= budget {
                         lod_map.insert(sym.id, LodLevel::SlicedBody);
@@ -153,10 +174,14 @@ impl ContextFormatter {
                 break;
             }
             let src = file_sources.get(&sym.file_path).map(|f| f.as_str());
-            let doc_tokens =
-                estimate_tokens(&Self::render_symbol(sym, LodLevel::SignatureAndDoc, src));
-            let sig_tokens =
-                estimate_tokens(&Self::render_symbol(sym, LodLevel::SignatureOnly, src));
+            let doc_tokens = count_tokens(
+                &Self::render_symbol(sym, LodLevel::SignatureAndDoc, src),
+                model,
+            );
+            let sig_tokens = count_tokens(
+                &Self::render_symbol(sym, LodLevel::SignatureOnly, src),
+                model,
+            );
             let extra = doc_tokens.saturating_sub(sig_tokens);
 
             if current_tokens + extra <= budget {

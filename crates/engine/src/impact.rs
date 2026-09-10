@@ -6,7 +6,7 @@ use crate::diff::DiffResolver;
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::symbol::{LodLevel, SymbolId, SymbolNode};
-use crate::tokens::estimate_tokens;
+use crate::tokens::{count_tokens, TokenizerModel};
 
 /// Architectural risk assessment for a change set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -73,12 +73,29 @@ pub struct ImpactReport {
 pub struct ImpactAnalyzer;
 
 impl ImpactAnalyzer {
-    /// Analyzes the change impact and blast radius for a list of mutated seed symbol IDs.
+    /// Analyzes the change impact and blast radius for a list of mutated seed symbol IDs using default fast heuristic.
     pub fn analyze_symbols(
         graph: &MultiplexGraph,
         mutated_ids: &[SymbolId],
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
+    ) -> ImpactReport {
+        Self::analyze_symbols_with_model(
+            graph,
+            mutated_ids,
+            budget,
+            file_sources,
+            TokenizerModel::default(),
+        )
+    }
+
+    /// Analyzes the change impact and blast radius for a list of mutated seed symbol IDs using a specific tokenizer model.
+    pub fn analyze_symbols_with_model(
+        graph: &MultiplexGraph,
+        mutated_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        model: TokenizerModel,
     ) -> ImpactReport {
         if mutated_ids.is_empty() || graph.is_empty() {
             return Self::empty_report();
@@ -92,6 +109,10 @@ impl ImpactAnalyzer {
             .copied()
             .filter(|id| (id.0 as usize) < num_nodes)
             .collect();
+
+        if mutated_set.is_empty() {
+            return Self::empty_report();
+        }
 
         // 1. Identify 1st-order direct callers (distance = 1 in transposed CSR)
         let mut direct_set: HashSet<SymbolId> = HashSet::new();
@@ -116,20 +137,23 @@ impl ImpactAnalyzer {
             if depth >= MAX_DEPTH {
                 continue;
             }
-            for &nxt_idx in transposed.neighbors(curr_id.0) {
-                let nxt_id = SymbolId(nxt_idx);
-                if visited.insert(nxt_id) {
-                    transitive_set.insert(nxt_id);
-                    queue.push_back((nxt_id, depth + 1));
+            for &caller_idx in transposed.neighbors(curr_id.0) {
+                let next_id = SymbolId(caller_idx);
+                if visited.insert(next_id) {
+                    transitive_set.insert(next_id);
+                    queue.push_back((next_id, depth + 1));
                 }
             }
         }
 
-        // 3. Partition into production code vs test targets
-        let mut mutated_symbols = Vec::with_capacity(mutated_set.len());
+        // 3. Classify symbols into Mutated, Direct, Transitive, and Affected Tests
+        let mut mutated_symbols: Vec<SymbolNode> = Vec::new();
+        let mut affected_files: HashSet<PathBuf> = HashSet::new();
+
         for &id in &mutated_set {
             if let Some(s) = graph.symbol(id) {
                 mutated_symbols.push(s.clone());
+                affected_files.insert(s.file_path.clone());
             }
         }
 
@@ -145,6 +169,7 @@ impl ImpactAnalyzer {
                 } else {
                     direct_impact.push(s.clone());
                 }
+                affected_files.insert(s.file_path.clone());
             }
         }
 
@@ -156,6 +181,7 @@ impl ImpactAnalyzer {
                 } else {
                     transitive_impact.push(s.clone());
                 }
+                affected_files.insert(s.file_path.clone());
             }
         }
 
@@ -181,23 +207,14 @@ impl ImpactAnalyzer {
                 .then_with(|| a.span.start_row.cmp(&b.span.start_row))
         });
 
-        // 4. Calculate Risk Metrics
-        let mut affected_files_set: HashSet<&PathBuf> = HashSet::new();
-        for s in mutated_symbols
+        // 4. Compute Architectural Risk Score and Level
+        let max_in_degree = mutated_set
             .iter()
-            .chain(&direct_impact)
-            .chain(&transitive_impact)
-            .chain(&affected_tests)
-        {
-            affected_files_set.insert(&s.file_path);
-        }
-        let affected_files_count = affected_files_set.len();
-
-        let max_in_degree = mutated_symbols
-            .iter()
-            .map(|s| transposed.out_degree(s.id.0))
+            .map(|&id| transposed.neighbors(id.0).len())
             .max()
             .unwrap_or(0);
+
+        let affected_files_count = affected_files.len();
 
         let (risk_level, risk_score) = Self::compute_risk_level(
             mutated_symbols.len(),
@@ -227,6 +244,7 @@ impl ImpactAnalyzer {
             &affected_tests,
             budget,
             file_sources,
+            model,
         );
 
         ImpactReport {
@@ -239,12 +257,29 @@ impl ImpactAnalyzer {
         }
     }
 
-    /// Evaluates impact for a specific symbol by name.
+    /// Evaluates impact for a specific symbol by name using default fast heuristic.
     pub fn analyze_symbol(
         graph: &MultiplexGraph,
         symbol_name: &str,
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
+    ) -> ImpactReport {
+        Self::analyze_symbol_with_model(
+            graph,
+            symbol_name,
+            budget,
+            file_sources,
+            TokenizerModel::default(),
+        )
+    }
+
+    /// Evaluates impact for a specific symbol by name using a specific tokenizer model.
+    pub fn analyze_symbol_with_model(
+        graph: &MultiplexGraph,
+        symbol_name: &str,
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        model: TokenizerModel,
     ) -> ImpactReport {
         let matching: Vec<SymbolId> = graph
             .symbols()
@@ -253,15 +288,32 @@ impl ImpactAnalyzer {
             .map(|s| s.id)
             .collect();
 
-        Self::analyze_symbols(graph, &matching, budget, file_sources)
+        Self::analyze_symbols_with_model(graph, &matching, budget, file_sources, model)
     }
 
-    /// Evaluates impact across all symbols touched by a unified git diff.
+    /// Evaluates impact across all symbols touched by a unified git diff using default fast heuristic.
     pub fn analyze_diff(
         graph: &MultiplexGraph,
         diff_text: &str,
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
+    ) -> ImpactReport {
+        Self::analyze_diff_with_model(
+            graph,
+            diff_text,
+            budget,
+            file_sources,
+            TokenizerModel::default(),
+        )
+    }
+
+    /// Evaluates impact across all symbols touched by a unified git diff using a specific tokenizer model.
+    pub fn analyze_diff_with_model(
+        graph: &MultiplexGraph,
+        diff_text: &str,
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        model: TokenizerModel,
     ) -> ImpactReport {
         let modified_lines = DiffResolver::parse_unified_diff(diff_text);
         if modified_lines.is_empty() {
@@ -272,7 +324,27 @@ impl ImpactAnalyzer {
             DiffResolver::resolve_modified_symbols(graph.symbols(), &modified_lines);
         let mutated_ids: Vec<SymbolId> = weighted_symbols.into_iter().map(|(id, _)| id).collect();
 
-        Self::analyze_symbols(graph, &mutated_ids, budget, file_sources)
+        Self::analyze_symbols_with_model(graph, &mutated_ids, budget, file_sources, model)
+    }
+
+    /// Returns an empty impact report.
+    pub fn empty_report() -> ImpactReport {
+        ImpactReport {
+            summary: ImpactSummary {
+                risk_level: RiskLevel::Low,
+                risk_score: 0.0,
+                mutated_count: 0,
+                direct_impact_count: 0,
+                transitive_impact_count: 0,
+                affected_tests_count: 0,
+                affected_files_count: 0,
+            },
+            mutated_symbols: Vec::new(),
+            direct_impact: Vec::new(),
+            transitive_impact: Vec::new(),
+            affected_tests: Vec::new(),
+            context_markdown: "# Semantic Change Impact Analysis Report\n\n## Executive Risk Summary\n\n- **Architectural Risk Level**: `[LOW]` (Score: `0.00`)\n- **Directly Mutated Symbols**: 0\n- **1st-Order Callers Impacted**: 0\n- **Transitive Ripple Dependents**: 0\n- **Affected Test Targets**: 0\n- **Files in Blast Radius**: 0\n".to_string(),
+        }
     }
 
     /// Determines if a symbol represents a unit or integration test.
@@ -357,6 +429,7 @@ impl ImpactAnalyzer {
     }
 
     /// Renders the impact report into a formatted Markdown document.
+    #[allow(clippy::too_many_arguments)]
     fn render_impact_markdown(
         summary: &ImpactSummary,
         mutated: &[SymbolNode],
@@ -365,6 +438,7 @@ impl ImpactAnalyzer {
         tests: &[SymbolNode],
         budget: usize,
         file_sources: &HashMap<PathBuf, String>,
+        model: TokenizerModel,
     ) -> String {
         let mut md = String::new();
 
@@ -452,7 +526,7 @@ impl ImpactAnalyzer {
                     .copied()
                     .unwrap_or(LodLevel::SignatureOnly);
                 let src = file_sources.get(&s.file_path).map(|f| f.as_str());
-                estimate_tokens(&ContextFormatter::render_symbol(s, lod, src))
+                count_tokens(&ContextFormatter::render_symbol(s, lod, src), model)
             })
             .sum();
 
@@ -472,7 +546,7 @@ impl ImpactAnalyzer {
                         .copied()
                         .unwrap_or(LodLevel::SignatureOnly);
                     let src = file_sources.get(&s.file_path).map(|f| f.as_str());
-                    estimate_tokens(&ContextFormatter::render_symbol(s, lod, src))
+                    count_tokens(&ContextFormatter::render_symbol(s, lod, src), model)
                 })
                 .sum();
             if current_tokens > budget {
@@ -487,25 +561,6 @@ impl ImpactAnalyzer {
         md.push('\n');
 
         md
-    }
-
-    fn empty_report() -> ImpactReport {
-        ImpactReport {
-            summary: ImpactSummary {
-                risk_level: RiskLevel::Low,
-                risk_score: 0.0,
-                mutated_count: 0,
-                direct_impact_count: 0,
-                transitive_impact_count: 0,
-                affected_tests_count: 0,
-                affected_files_count: 0,
-            },
-            mutated_symbols: Vec::new(),
-            direct_impact: Vec::new(),
-            transitive_impact: Vec::new(),
-            affected_tests: Vec::new(),
-            context_markdown: String::from("# Semantic Change Impact Analysis Report\n\nNo mutated symbols or changes detected in the target scope.\n"),
-        }
     }
 }
 

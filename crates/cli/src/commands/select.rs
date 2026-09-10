@@ -1,6 +1,9 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
-use repotrim_engine::{ContextSelector, DiffResolver, IntentResolver, ModelProfile, SymbolId};
+use repotrim_engine::{
+    count_tokens, ContextSelector, DiffResolver, IntentResolver, ModelProfile, SymbolId,
+    TokenizerModel,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -37,6 +40,10 @@ pub struct SelectArgs {
     /// Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
+
+    /// Tokenizer model for token budgeting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k')
+    #[arg(long = "tokenizer", default_value = "fast")]
+    pub tokenizer: String,
 
     /// Target codebase directory to scan
     #[arg(short = 'p', long = "path", default_value = ".")]
@@ -270,8 +277,17 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         "⚙".cyan().bold()
     );
 
+    let tokenizer_model = TokenizerModel::from_str_name(&args.tokenizer).unwrap_or_else(|| {
+        eprintln!(
+            "{} Unknown tokenizer '{}', falling back to 'fast'",
+            "!".yellow().bold(),
+            args.tokenizer
+        );
+        TokenizerModel::FastHeuristic
+    });
+
     let graph = repo.build_graph();
-    let selector = ContextSelector::default();
+    let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
 
     let select_start = Instant::now();
     let (selected_symbols, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
@@ -294,7 +310,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
     };
     let select_duration = select_start.elapsed();
 
-    let total_tokens_used: usize = selected_symbols.iter().map(|s| s.token_cost).sum();
+    let total_tokens_used: usize = count_tokens(&markdown, tokenizer_model);
 
     if let Some(ref report) = auto_report_opt {
         eprintln!(
@@ -305,20 +321,22 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             report.optimal_budget
         );
         eprintln!(
-            "{} Selected {} symbols (~{} tokens / {} auto-budget [{}]) in {:?}",
+            "{} Selected {} symbols (~{} tokens [{}] / {} auto-budget [{}]) in {:?}",
             "✓".green().bold(),
             selected_symbols.len().to_string().bold(),
             total_tokens_used.to_string().bold(),
+            tokenizer_model.name().cyan(),
             report.knee_tokens,
             report.model_name,
             select_duration
         );
     } else {
         eprintln!(
-            "{} Selected {} symbols (~{} tokens / {} budget) in {:?}",
+            "{} Selected {} symbols (~{} tokens [{}] / {} budget) in {:?}",
             "✓".green().bold(),
             selected_symbols.len().to_string().bold(),
             total_tokens_used.to_string().bold(),
+            tokenizer_model.name().cyan(),
             explicit_budget.unwrap(),
             select_duration
         );
@@ -336,6 +354,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
                 "budget": budget_val,
                 "symbols_count": selected_symbols.len(),
                 "tokens_used": total_tokens_used,
+                "tokenizer": tokenizer_model.name(),
                 "symbols": selected_symbols.iter().map(|s| {
                     serde_json::json!({
                         "id": s.id.0,

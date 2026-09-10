@@ -362,3 +362,54 @@ fn test_cli_blueprint_with_auto_budget() {
     assert!(stdout.contains("\"budget\": \"auto\""));
     assert!(stdout.contains("\"model\": \"deepseek\""));
 }
+
+#[test]
+fn test_cli_select_with_exact_tokenizer() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "estimate_tokens",
+            "--budget",
+            "500",
+            "--tokenizer",
+            "exact",
+            "--format",
+            "json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select --tokenizer exact");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    assert!(parsed.get("tokenizer").is_some());
+    assert!(parsed["tokenizer"].as_str().unwrap().contains("Exact BPE"));
+    assert!(parsed["tokens_used"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn test_cli_blueprint_with_tokenizer() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "blueprint",
+            "exact token accounting",
+            "--budget",
+            "2000",
+            "--tokenizer",
+            "exact",
+            "--output",
+            "-",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim blueprint with tokenizer");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--tokenizer exact"));
+    assert!(stdout.contains("\"tokenizer\": \"exact\""));
+}
