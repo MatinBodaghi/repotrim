@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::celf::{CelfConfig, CelfOptimizer, SensitivityReport};
+use crate::celf::{CelfConfig, CelfOptimizer, MckpResult, SensitivityReport};
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::knee::KneedleDetector;
@@ -448,6 +448,214 @@ impl ContextSelector {
 
         (selected_symbols, markdown, sensitivity)
     }
+
+    /// End-to-end pipeline using Multiple-Choice Knapsack (MCKP) joint symbol selection
+    /// and Level-of-Detail (LOD) optimization (Kellerer et al., 2004; Dyer, 1984).
+    pub fn select_and_format_context_joint_lod(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, MckpResult) {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_and_format_context_weighted_joint_lod(graph, &seeds, budget, file_sources)
+    }
+
+    /// End-to-end pipeline with weighted seeds using Multiple-Choice Knapsack (MCKP)
+    /// joint symbol selection and Level-of-Detail (LOD) optimization.
+    pub fn select_and_format_context_weighted_joint_lod(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, MckpResult) {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
+            return (
+                Vec::new(),
+                String::new(),
+                MckpResult {
+                    selected_lods: HashMap::new(),
+                    total_tokens: 0,
+                    cumulative_utility: 0.0,
+                    trace: Vec::new(),
+                },
+            );
+        }
+
+        // 1. Compute local PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+
+        // 2. Anchor boost: prioritize user focus seeds proportional to weights
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        // 3. Solve Multiple-Choice Knapsack Problem (MCKP) jointly
+        let mckp_result = self.celf.optimize_mckp(
+            graph,
+            &ppr_scores,
+            budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+
+        // 4. Collect and canonically sort selected symbol nodes
+        let mut selected_symbols: Vec<SymbolNode> = mckp_result
+            .selected_lods
+            .keys()
+            .filter_map(|&id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        // 5. Format into Markdown using the exact MCKP-selected LOD mapping
+        let markdown = ContextFormatter::format_markdown(
+            &selected_symbols,
+            &mckp_result.selected_lods,
+            file_sources,
+        );
+
+        (selected_symbols, markdown, mckp_result)
+    }
+
+    /// End-to-end pipeline with auto-budgeting using Multiple-Choice Knapsack (MCKP)
+    /// joint symbol selection and Level-of-Detail (LOD) optimization.
+    pub fn select_and_format_context_auto_joint_lod(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        profile: ModelProfile,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, AutoBudgetReport, MckpResult) {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_and_format_context_auto_weighted_joint_lod(graph, &seeds, profile, file_sources)
+    }
+
+    /// End-to-end pipeline with auto-budgeting and weighted seeds using Multiple-Choice Knapsack (MCKP)
+    /// joint symbol selection and Level-of-Detail (LOD) optimization.
+    pub fn select_and_format_context_auto_weighted_joint_lod(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        profile: ModelProfile,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, AutoBudgetReport, MckpResult) {
+        if graph.is_empty() || weighted_seeds.is_empty() {
+            let report = AutoBudgetReport {
+                model_name: profile.name.to_string(),
+                optimal_budget: 0,
+                knee_tokens: 0,
+                knee_utility_ratio: 0.0,
+                candidate_count: 0,
+                selected_count: 0,
+            };
+            let mckp = MckpResult {
+                selected_lods: HashMap::new(),
+                total_tokens: 0,
+                cumulative_utility: 0.0,
+                trace: Vec::new(),
+            };
+            return (Vec::new(), String::new(), report, mckp);
+        }
+
+        // 1. Compute local PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        // 2. Run MCKP optimization up to max_budget to generate the incremental utility-cost curve
+        let full_mckp = self.celf.optimize_mckp(
+            graph,
+            &ppr_scores,
+            profile.max_budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+
+        if full_mckp.trace.is_empty() {
+            let report = AutoBudgetReport {
+                model_name: profile.name.to_string(),
+                optimal_budget: 0,
+                knee_tokens: 0,
+                knee_utility_ratio: 0.0,
+                candidate_count: 0,
+                selected_count: 0,
+            };
+            return (Vec::new(), String::new(), report, full_mckp);
+        }
+
+        // 3. Extract curve points: (cumulative_tokens, cumulative_utility)
+        let points: Vec<(usize, f32)> = full_mckp
+            .trace
+            .iter()
+            .map(|s| (s.cumulative_tokens, s.cumulative_utility))
+            .collect();
+
+        // 4. Run KneedleDetector
+        let detector = KneedleDetector::with_params(profile.sensitivity, 0.35);
+        let knee = detector.find_knee(&points);
+        let (knee_tokens, knee_ratio, _) = match knee {
+            Some(k) => (k.token_cost, k.utility_ratio, k.index),
+            None => {
+                let last = full_mckp.trace.last().unwrap();
+                (
+                    last.cumulative_tokens,
+                    1.0,
+                    full_mckp.trace.len().saturating_sub(1),
+                )
+            }
+        };
+
+        let optimal_budget = knee_tokens.clamp(profile.min_budget, profile.max_budget);
+
+        // 5. Re-run MCKP at optimal_budget
+        let mckp_result = self.celf.optimize_mckp(
+            graph,
+            &ppr_scores,
+            optimal_budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+
+        // 6. Collect and sort selected symbols
+        let mut selected_symbols: Vec<SymbolNode> = mckp_result
+            .selected_lods
+            .keys()
+            .filter_map(|&id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        let markdown = ContextFormatter::format_markdown(
+            &selected_symbols,
+            &mckp_result.selected_lods,
+            file_sources,
+        );
+
+        let report = AutoBudgetReport {
+            model_name: profile.name.to_string(),
+            optimal_budget,
+            knee_tokens,
+            knee_utility_ratio: knee_ratio,
+            candidate_count: full_mckp.selected_lods.len(),
+            selected_count: selected_symbols.len(),
+        };
+
+        (selected_symbols, markdown, report, mckp_result)
+    }
 }
 
 #[cfg(test)]
@@ -684,5 +892,53 @@ mod tests {
         assert!(!md.is_empty());
         assert_eq!(report.selected_count, syms.len());
         assert!(report.stability_index >= 0.0 && report.stability_index <= 1.0);
+    }
+
+    #[test]
+    fn test_context_selector_joint_lod() {
+        let s0 = make_test_symbol(0, "entry", "src/entry.rs", 1, 10);
+        let mut s1 = make_test_symbol(1, "service", "src/service.rs", 1, 15);
+        s1.docstring = Some("Handles backend business transactions".to_string());
+
+        let edges = vec![ReferenceEdge {
+            source: SymbolId(0),
+            target_ident: "service".to_string(),
+            kind: EdgeKind::Call,
+        }];
+
+        let graph = MultiplexGraph::build(vec![s0, s1], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let mut sources = HashMap::new();
+        sources.insert(
+            PathBuf::from("src/entry.rs"),
+            "fn entry() { service(); }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/service.rs"),
+            "/// Handles backend business transactions\nfn service() { do_work(); }".to_string(),
+        );
+
+        // Run joint LOD selection with modest budget
+        let (syms, md, mckp) =
+            selector.select_and_format_context_joint_lod(&graph, &[SymbolId(0)], 50, &sources);
+
+        assert!(!syms.is_empty());
+        assert!(!md.is_empty());
+        assert!(mckp.total_tokens <= 50);
+        assert_eq!(syms.len(), mckp.selected_lods.len());
+
+        // Run auto joint LOD selection
+        let (auto_syms, auto_md, report, auto_mckp) = selector
+            .select_and_format_context_auto_joint_lod(
+                &graph,
+                &[SymbolId(0)],
+                ModelProfile::claude_3_5_sonnet(),
+                &sources,
+            );
+
+        assert!(!auto_syms.is_empty());
+        assert!(!auto_md.is_empty());
+        assert!(auto_mckp.total_tokens <= report.optimal_budget);
     }
 }
