@@ -187,7 +187,8 @@ impl ContextFormatter {
         lod_map
     }
 
-    /// Renders selected symbols into structured Markdown with file paths and line numbers.
+    /// Renders selected symbols into structured Markdown with file paths, line numbers,
+    /// and container-scoped nesting (struct/class/trait impl blocks).
     pub fn format_markdown(
         symbols: &[SymbolNode],
         lod_map: &HashMap<SymbolId, LodLevel>,
@@ -208,9 +209,7 @@ impl ContextFormatter {
         let mut output = String::new();
 
         for path in file_paths {
-            let mut file_syms = by_file[path].clone();
-            file_syms.sort_by_key(|s| s.span.start_row);
-
+            let file_syms = &by_file[path];
             let file_src = file_sources.get(path).map(|s| s.as_str());
             let lang_tag = Self::language_tag_for_path(path);
             let comment_prefix = if lang_tag == "python" { "#" } else { "//" };
@@ -218,24 +217,163 @@ impl ContextFormatter {
             output.push_str(&format!("### File: `{}`\n", path.display()));
             output.push_str(&format!("```{}\n", lang_tag));
 
-            for (idx, sym) in file_syms.iter().enumerate() {
+            if lang_tag == "go" {
+                let mut sorted_syms = file_syms.clone();
+                sorted_syms.sort_by_key(|s| s.span.start_row);
+
+                for (idx, sym) in sorted_syms.iter().enumerate() {
+                    let lod = lod_map
+                        .get(&sym.id)
+                        .copied()
+                        .unwrap_or(LodLevel::SignatureOnly);
+                    let rendered = Self::render_symbol(sym, lod, file_src);
+
+                    let start_line = sym.span.start_row + 1;
+                    let end_line = sym.span.end_row + 1;
+
+                    if idx > 0 {
+                        output.push('\n');
+                    }
+                    output.push_str(&format!(
+                        "{} Lines {}-{}\n",
+                        comment_prefix, start_line, end_line
+                    ));
+                    output.push_str(&rendered);
+                    output.push('\n');
+                }
+                output.push_str("```\n\n");
+                continue;
+            }
+
+            // Group symbols by container: key = (container_name, trait_name)
+            let mut container_methods: HashMap<(String, Option<String>), Vec<&SymbolNode>> =
+                HashMap::new();
+            let mut standalone_syms: Vec<&SymbolNode> = Vec::new();
+
+            for &sym in file_syms {
+                if let Some(c_name) = &sym.container_name {
+                    container_methods
+                        .entry((c_name.clone(), sym.trait_name.clone()))
+                        .or_default()
+                        .push(sym);
+                } else {
+                    standalone_syms.push(sym);
+                }
+            }
+
+            // In Python, check if a class struct symbol is present to serve as the container header
+            let mut python_class_syms: HashMap<String, &SymbolNode> = HashMap::new();
+            if lang_tag == "python" {
+                standalone_syms.retain(|sym| {
+                    if sym.kind == SymbolKind::Struct
+                        && container_methods.contains_key(&(sym.name.clone(), None))
+                    {
+                        let lod = lod_map
+                            .get(&sym.id)
+                            .copied()
+                            .unwrap_or(LodLevel::SignatureOnly);
+                        if lod != LodLevel::FullBody {
+                            python_class_syms.insert(sym.name.clone(), sym);
+                            return false;
+                        }
+                    }
+                    true
+                });
+            }
+
+            struct RenderItem {
+                min_row: usize,
+                content: String,
+            }
+
+            let mut items: Vec<RenderItem> = Vec::new();
+
+            // 1. Standalone symbols
+            for sym in standalone_syms {
                 let lod = lod_map
                     .get(&sym.id)
                     .copied()
                     .unwrap_or(LodLevel::SignatureOnly);
                 let rendered = Self::render_symbol(sym, lod, file_src);
-
                 let start_line = sym.span.start_row + 1;
                 let end_line = sym.span.end_row + 1;
+                let content = format!(
+                    "{} Lines {}-{}\n{}",
+                    comment_prefix, start_line, end_line, rendered
+                );
+                items.push(RenderItem {
+                    min_row: sym.span.start_row,
+                    content,
+                });
+            }
 
+            // 2. Container groups
+            for ((container_name, trait_name), mut methods) in container_methods {
+                methods.sort_by_key(|s| s.span.start_row);
+                let min_row = if let Some(class_sym) = python_class_syms.get(&container_name) {
+                    class_sym.span.start_row
+                } else {
+                    methods.first().map(|m| m.span.start_row).unwrap_or(0)
+                };
+
+                let mut rendered_methods = Vec::new();
+                for m in &methods {
+                    let lod = lod_map
+                        .get(&m.id)
+                        .copied()
+                        .unwrap_or(LodLevel::SignatureOnly);
+                    let rendered = Self::render_symbol(m, lod, file_src);
+                    let start_line = m.span.start_row + 1;
+                    let end_line = m.span.end_row + 1;
+                    let method_block = format!(
+                        "{} Lines {}-{}\n{}",
+                        comment_prefix, start_line, end_line, rendered
+                    );
+                    let indented = Self::indent_lines(&method_block, "    ");
+                    rendered_methods.push(indented);
+                }
+                let methods_body = rendered_methods.join("\n\n");
+
+                let content = if lang_tag == "python" {
+                    if let Some(class_sym) = python_class_syms.get(&container_name) {
+                        let lod = lod_map
+                            .get(&class_sym.id)
+                            .copied()
+                            .unwrap_or(LodLevel::SignatureOnly);
+                        let rendered_class = Self::render_symbol(class_sym, lod, file_src);
+                        let start_line = class_sym.span.start_row + 1;
+                        let end_line = class_sym.span.end_row + 1;
+                        format!(
+                            "{} Lines {}-{}\n{}\n{}",
+                            comment_prefix, start_line, end_line, rendered_class, methods_body
+                        )
+                    } else {
+                        format!("class {}:\n{}", container_name, methods_body)
+                    }
+                } else {
+                    let (header, footer) = Self::container_header_and_footer(
+                        lang_tag,
+                        &container_name,
+                        trait_name.as_deref(),
+                    );
+                    if let Some(footer) = footer {
+                        format!("{}\n{}\n{}", header, methods_body, footer)
+                    } else {
+                        format!("{}\n{}", header, methods_body)
+                    }
+                };
+
+                items.push(RenderItem { min_row, content });
+            }
+
+            // Sort items canonically by source line appearance
+            items.sort_by_key(|item| item.min_row);
+
+            for (idx, item) in items.iter().enumerate() {
                 if idx > 0 {
                     output.push('\n');
                 }
-                output.push_str(&format!(
-                    "{} Lines {}-{}\n",
-                    comment_prefix, start_line, end_line
-                ));
-                output.push_str(&rendered);
+                output.push_str(&item.content);
                 output.push('\n');
             }
 
@@ -243,6 +381,46 @@ impl ContextFormatter {
         }
 
         output.trim_end().to_string()
+    }
+
+    /// Indents each non-empty line of a string with the given indentation prefix.
+    pub fn indent_lines(text: &str, indent: &str) -> String {
+        text.lines()
+            .map(|line| {
+                if line.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{}{}", indent, line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Synthesizes the container opening header and closing footer for a given language.
+    pub fn container_header_and_footer(
+        lang_tag: &str,
+        container_name: &str,
+        trait_name: Option<&str>,
+    ) -> (String, Option<String>) {
+        match lang_tag {
+            "rust" => {
+                if let Some(tr) = trait_name {
+                    (
+                        format!("impl {} for {} {{", tr, container_name),
+                        Some("}".to_string()),
+                    )
+                } else {
+                    (format!("impl {} {{", container_name), Some("}".to_string()))
+                }
+            }
+            "python" => (format!("class {}:", container_name), None),
+            "typescript" | "tsx" | "javascript" => (
+                format!("class {} {{", container_name),
+                Some("}".to_string()),
+            ),
+            _ => (format!("{} {{", container_name), Some("}".to_string())),
+        }
     }
 
     /// Infers the syntax highlighting language tag from a file path.
@@ -394,5 +572,217 @@ mod tests {
         assert!(md.contains("// Lines 4-6"));
         assert!(md.contains("pub fn bar();"));
         assert!(md.contains("```"));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_test_symbol_full(
+        id: u32,
+        name: &str,
+        kind: SymbolKind,
+        file_path: &str,
+        span: TextSpan,
+        sig: &str,
+        doc: Option<&str>,
+        container: Option<&str>,
+        trait_name: Option<&str>,
+    ) -> SymbolNode {
+        SymbolNode {
+            id: SymbolId(id),
+            name: name.to_string(),
+            kind,
+            file_path: PathBuf::from(file_path),
+            span,
+            signature: sig.to_string(),
+            docstring: doc.map(|s| s.to_string()),
+            token_cost: 10,
+            ast_hash: [0u8; 32],
+            container_name: container.map(|s| s.to_string()),
+            trait_name: trait_name.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_format_markdown_rust_container_scoping() {
+        let struct_sym = make_test_symbol_full(
+            1,
+            "DirEntry",
+            SymbolKind::Struct,
+            "src/entry.rs",
+            TextSpan::new(0, 30, 0, 2),
+            "pub struct DirEntry { path: PathBuf }",
+            None,
+            None,
+            None,
+        );
+        let method_new = make_test_symbol_full(
+            2,
+            "new",
+            SymbolKind::Method,
+            "src/entry.rs",
+            TextSpan::new(40, 70, 4, 6),
+            "pub fn new(path: PathBuf) -> Self",
+            None,
+            Some("DirEntry"),
+            None,
+        );
+        let method_clone = make_test_symbol_full(
+            3,
+            "clone",
+            SymbolKind::Method,
+            "src/entry.rs",
+            TextSpan::new(80, 110, 8, 10),
+            "fn clone(&self) -> Self",
+            None,
+            Some("DirEntry"),
+            Some("Clone"),
+        );
+        let fn_helper = make_test_symbol_full(
+            4,
+            "helper",
+            SymbolKind::Function,
+            "src/entry.rs",
+            TextSpan::new(120, 140, 12, 14),
+            "pub fn helper()",
+            None,
+            None,
+            None,
+        );
+
+        let symbols = vec![struct_sym, method_new, method_clone, fn_helper];
+        let mut lod_map = HashMap::new();
+        for s in &symbols {
+            lod_map.insert(s.id, LodLevel::SignatureOnly);
+        }
+
+        let sources = HashMap::new();
+        let md = ContextFormatter::format_markdown(&symbols, &lod_map, &sources);
+
+        assert!(md.contains("### File: `src/entry.rs`"));
+        assert!(md.contains("```rust"));
+
+        // Standalone struct
+        assert!(md.contains("// Lines 1-3\npub struct DirEntry { path: PathBuf }"));
+
+        // Inherent impl block
+        assert!(md.contains(
+            "impl DirEntry {\n    // Lines 5-7\n    pub fn new(path: PathBuf) -> Self;\n}"
+        ));
+
+        // Trait impl block
+        assert!(md.contains(
+            "impl Clone for DirEntry {\n    // Lines 9-11\n    fn clone(&self) -> Self;\n}"
+        ));
+
+        // Standalone function
+        assert!(md.contains("// Lines 13-15\npub fn helper();"));
+    }
+
+    #[test]
+    fn test_format_markdown_python_container_scoping() {
+        let class_sym = make_test_symbol_full(
+            1,
+            "UserService",
+            SymbolKind::Struct,
+            "service.py",
+            TextSpan::new(0, 25, 0, 2),
+            "class UserService:",
+            Some("Manages user accounts."),
+            None,
+            None,
+        );
+        let init_method = make_test_symbol_full(
+            2,
+            "__init__",
+            SymbolKind::Method,
+            "service.py",
+            TextSpan::new(30, 60, 3, 5),
+            "def __init__(self, db: Database):",
+            None,
+            Some("UserService"),
+            None,
+        );
+        let get_user = make_test_symbol_full(
+            3,
+            "get_user",
+            SymbolKind::Method,
+            "service.py",
+            TextSpan::new(70, 100, 6, 8),
+            "def get_user(self, user_id: int) -> User:",
+            None,
+            Some("UserService"),
+            None,
+        );
+
+        let symbols = vec![class_sym, init_method, get_user];
+        let mut lod_map = HashMap::new();
+        lod_map.insert(SymbolId(1), LodLevel::SignatureAndDoc);
+        lod_map.insert(SymbolId(2), LodLevel::SignatureOnly);
+        lod_map.insert(SymbolId(3), LodLevel::SignatureOnly);
+
+        let sources = HashMap::new();
+        let md = ContextFormatter::format_markdown(&symbols, &lod_map, &sources);
+
+        assert!(md.contains("### File: `service.py`"));
+        assert!(md.contains("```python"));
+
+        // Class header with docstring, followed by indented methods
+        assert!(md.contains("# Lines 1-3\n# Manages user accounts.\nclass UserService:\n    # Lines 4-6\n    def __init__(self, db: Database):\n\n    # Lines 7-9\n    def get_user(self, user_id: int) -> User:"));
+    }
+
+    #[test]
+    fn test_format_markdown_typescript_container_scoping() {
+        let method_sym = make_test_symbol_full(
+            1,
+            "getUser",
+            SymbolKind::Method,
+            "src/service.ts",
+            TextSpan::new(20, 50, 2, 4),
+            "public getUser(id: number): User",
+            None,
+            Some("UserService"),
+            None,
+        );
+
+        let symbols = vec![method_sym];
+        let mut lod_map = HashMap::new();
+        lod_map.insert(SymbolId(1), LodLevel::SignatureOnly);
+
+        let sources = HashMap::new();
+        let md = ContextFormatter::format_markdown(&symbols, &lod_map, &sources);
+
+        assert!(md.contains("### File: `src/service.ts`"));
+        assert!(md.contains("```typescript"));
+        assert!(md.contains(
+            "class UserService {\n    // Lines 3-5\n    public getUser(id: number): User;\n}"
+        ));
+    }
+
+    #[test]
+    fn test_format_markdown_go_receiver_rendering() {
+        let method_sym = make_test_symbol_full(
+            1,
+            "Start",
+            SymbolKind::Method,
+            "server.go",
+            TextSpan::new(20, 50, 2, 4),
+            "func (s *Server) Start() error",
+            None,
+            Some("Server"),
+            None,
+        );
+
+        let symbols = vec![method_sym];
+        let mut lod_map = HashMap::new();
+        lod_map.insert(SymbolId(1), LodLevel::SignatureOnly);
+
+        let sources = HashMap::new();
+        let md = ContextFormatter::format_markdown(&symbols, &lod_map, &sources);
+
+        assert!(md.contains("### File: `server.go`"));
+        assert!(md.contains("```go"));
+        // Top-level receiver method without synthetic class or impl
+        assert!(md.contains("// Lines 3-5\nfunc (s *Server) Start() error"));
+        assert!(!md.contains("class Server"));
+        assert!(!md.contains("impl Server"));
     }
 }
