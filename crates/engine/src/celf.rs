@@ -4,6 +4,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::graph::MultiplexGraph;
+use crate::ppr::PprResult;
 use crate::symbol::SymbolId;
 
 /// Configuration parameters for the CELF Submodular Knapsack optimizer.
@@ -74,6 +75,56 @@ pub struct CelfTraceStep {
     pub marginal_gain: f32,
     /// Cumulative utility score after including this symbol.
     pub cumulative_utility: f32,
+}
+
+/// Pair of symbols (one selected in budget, one unselected) whose cost-normalized
+/// marginal utility intervals overlap under theoretical ACL PageRank approximation error.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BorderlinePair {
+    /// Identifier of the selected symbol.
+    pub selected_symbol: SymbolId,
+    /// Identifier of the unselected rival symbol.
+    pub unselected_symbol: SymbolId,
+    /// Name of the selected symbol.
+    pub selected_name: String,
+    /// Name of the unselected rival symbol.
+    pub unselected_name: String,
+    /// Lower bound on marginal utility per token for the selected symbol: $\Delta_{\min}(u) / c(u)$.
+    pub selected_density_min: f32,
+    /// Upper bound on marginal utility per token for the unselected rival: $\Delta_{\max}(v) / c(v)$.
+    pub unselected_density_max: f32,
+    /// Overlap magnitude: $\Delta_{\max}(v)/c(v) - \Delta_{\min}(u)/c(u)$.
+    pub overlap: f32,
+}
+
+/// Numerical stability and sensitivity analysis of the CELF knapsack selection
+/// under Andersen-Chung-Lang (ACL) PageRank approximation errors.
+///
+/// # Mathematical Formulation (Andersen et al., 2006; Leskovec et al., 2007)
+/// Because ACL PageRank diffusion computes a monotone lower bound on stationary PageRank,
+/// each symbol's true marginal gain $\Delta^*(v \mid S)$ is bounded within $[\Delta_{\min}(v), \Delta_{\max}(v)]$.
+/// If for selected $u \in S$ and unselected $v \notin S$, $\Delta_{\max}(v)/c(v) \le \Delta_{\min}(u)/c(u)$,
+/// then $u$'s selection over $v$ is unconditionally invariant to worst-case numerical approximation error.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SensitivityReport {
+    /// Push threshold epsilon used by the ACL solver.
+    pub epsilon: f32,
+    /// Teleportation damping factor alpha used by the ACL solver.
+    pub alpha: f32,
+    /// Maximum theoretical PageRank error bound across all evaluated candidate symbols.
+    pub max_error_bound: f32,
+    /// Mean theoretical PageRank error bound across all evaluated candidate symbols.
+    pub mean_error_bound: f32,
+    /// Total number of candidate symbols considered for knapsack selection.
+    pub total_candidates: usize,
+    /// Total number of symbols selected within the token budget.
+    pub selected_count: usize,
+    /// Number of selected symbols that have zero borderline rival overlaps (unconditionally stable).
+    pub stable_count: usize,
+    /// Knapsack Stability Index in [0.0, 1.0]: ratio of unconditionally stable symbols to selected symbols.
+    pub stability_index: f32,
+    /// Detected borderline candidate pairs ranked by overlap severity in descending order.
+    pub borderline_pairs: Vec<BorderlinePair>,
 }
 
 /// Cost-Effective Lazy Forward (CELF) submodular knapsack optimizer.
@@ -435,6 +486,226 @@ impl CelfOptimizer {
 
         direct_relevance + neighbor_gain + diversity_gain
     }
+
+    /// Evaluates the numerical stability and sensitivity of the selected knapsack set
+    /// against worst-case Andersen-Chung-Lang (ACL) PageRank approximation errors.
+    ///
+    /// Computes marginal density uncertainty intervals $[\Delta_{\min}(v)/c(v), \Delta_{\max}(v)/c(v)]$,
+    /// identifies borderline candidate pairs whose selection could invert under numerical perturbation,
+    /// and calculates the Knapsack Stability Index $\in [0.0, 1.0]$.
+    pub fn analyze_sensitivity(
+        &self,
+        graph: &MultiplexGraph,
+        ppr_result: &PprResult,
+        selected_ids: &[SymbolId],
+        budget: usize,
+        alpha: f32,
+        epsilon: f32,
+    ) -> SensitivityReport {
+        let max_err = ppr_result
+            .error_bounds
+            .values()
+            .copied()
+            .fold(0.0_f32, f32::max);
+        let mean_err = if ppr_result.error_bounds.is_empty() {
+            0.0
+        } else {
+            ppr_result.error_bounds.values().sum::<f32>() / ppr_result.error_bounds.len() as f32
+        };
+
+        if selected_ids.is_empty() || graph.is_empty() {
+            return SensitivityReport {
+                epsilon,
+                alpha,
+                max_error_bound: max_err,
+                mean_error_bound: mean_err,
+                total_candidates: 0,
+                selected_count: 0,
+                stable_count: 0,
+                stability_index: 1.0,
+                borderline_pairs: Vec::new(),
+            };
+        }
+
+        let selected_set: HashSet<SymbolId> = selected_ids.iter().copied().collect();
+
+        // 1. Compute marginal density intervals for selected items u in S
+        // Evaluate u's marginal contribution with respect to S \ {u}
+        struct SelectedInfo {
+            id: SymbolId,
+            name: String,
+            density_min: f32,
+        }
+
+        let mut selected_info = Vec::with_capacity(selected_ids.len());
+
+        for &u in selected_ids {
+            let sym_u = match graph.symbol(u) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            // Build covered set and file token costs for S \ {u}
+            let mut covered_minus_u = HashSet::new();
+            let mut file_costs_minus_u = HashMap::new();
+
+            for &other_id in selected_ids {
+                if other_id == u {
+                    continue;
+                }
+                covered_minus_u.insert(other_id);
+                for &neighbor in graph.neighbors(other_id) {
+                    covered_minus_u.insert(SymbolId(neighbor));
+                }
+                if let Some(other_sym) = graph.symbol(other_id) {
+                    let cost = other_sym.token_cost.max(1);
+                    *file_costs_minus_u
+                        .entry(other_sym.file_path.clone())
+                        .or_default() += cost;
+                }
+            }
+
+            let min_gain = self.compute_marginal_gain(
+                u,
+                graph,
+                &ppr_result.scores,
+                &covered_minus_u,
+                &file_costs_minus_u,
+            );
+
+            let cost_u = sym_u.token_cost.max(1) as f32;
+            let density_min = min_gain / cost_u;
+
+            selected_info.push(SelectedInfo {
+                id: u,
+                name: sym_u.name.clone(),
+                density_min,
+            });
+        }
+
+        // 2. Build full covered set and file token costs for S
+        let mut covered_s = HashSet::new();
+        let mut file_costs_s = HashMap::new();
+        for &s_id in selected_ids {
+            covered_s.insert(s_id);
+            for &neighbor in graph.neighbors(s_id) {
+                covered_s.insert(SymbolId(neighbor));
+            }
+            if let Some(s_sym) = graph.symbol(s_id) {
+                let cost = s_sym.token_cost.max(1);
+                *file_costs_s.entry(s_sym.file_path.clone()).or_default() += cost;
+            }
+        }
+
+        // 3. Compute marginal density intervals for unselected candidates v in V \ S
+        struct UnselectedInfo {
+            id: SymbolId,
+            name: String,
+            density_max: f32,
+        }
+
+        let mut unselected_info = Vec::new();
+        let mut total_candidates = selected_ids.len();
+
+        for sym in graph.symbols() {
+            if selected_set.contains(&sym.id) {
+                continue;
+            }
+
+            let score = ppr_result.scores.get(&sym.id).copied().unwrap_or(0.0);
+            let err_bound = ppr_result.error_bounds.get(&sym.id).copied().unwrap_or(0.0);
+
+            // Candidate filtering matching knapsack pool
+            if (score < self.config.min_relevance_threshold && err_bound == 0.0)
+                && !ppr_result.scores.is_empty()
+            {
+                continue;
+            }
+
+            let cost = sym.token_cost.max(1);
+            if cost > budget {
+                continue;
+            }
+
+            total_candidates += 1;
+
+            let min_gain = self.compute_marginal_gain(
+                sym.id,
+                graph,
+                &ppr_result.scores,
+                &covered_s,
+                &file_costs_s,
+            );
+
+            let mut neighbor_err = 0.0_f32;
+            for &neighbor in graph.neighbors(sym.id) {
+                let n_id = SymbolId(neighbor);
+                if !covered_s.contains(&n_id) {
+                    neighbor_err += self.config.neighbor_coverage_weight
+                        * ppr_result.error_bounds.get(&n_id).copied().unwrap_or(0.0);
+                }
+            }
+
+            let max_gain = min_gain + err_bound + neighbor_err;
+            let density_max = max_gain / (cost as f32);
+
+            unselected_info.push(UnselectedInfo {
+                id: sym.id,
+                name: sym.name.clone(),
+                density_max,
+            });
+        }
+
+        // 4. Cross-evaluate borderline rivals and compute stability index
+        let mut borderline_pairs = Vec::new();
+        let mut stable_count = 0;
+
+        for sel in &selected_info {
+            let mut sel_stable = true;
+            for unsel in &unselected_info {
+                if unsel.density_max > sel.density_min {
+                    sel_stable = false;
+                    borderline_pairs.push(BorderlinePair {
+                        selected_symbol: sel.id,
+                        unselected_symbol: unsel.id,
+                        selected_name: sel.name.clone(),
+                        unselected_name: unsel.name.clone(),
+                        selected_density_min: sel.density_min,
+                        unselected_density_max: unsel.density_max,
+                        overlap: unsel.density_max - sel.density_min,
+                    });
+                }
+            }
+            if sel_stable {
+                stable_count += 1;
+            }
+        }
+
+        let stability_index = if selected_ids.is_empty() {
+            1.0
+        } else {
+            stable_count as f32 / selected_ids.len() as f32
+        };
+
+        // Sort borderline pairs descending by overlap magnitude
+        borderline_pairs
+            .sort_by(|a, b| b.overlap.partial_cmp(&a.overlap).unwrap_or(Ordering::Equal));
+
+        // Cap to top 25 to prevent memory explosion
+        borderline_pairs.truncate(25);
+
+        SensitivityReport {
+            epsilon,
+            alpha,
+            max_error_bound: max_err,
+            mean_error_bound: mean_err,
+            total_candidates,
+            selected_count: selected_ids.len(),
+            stable_count,
+            stability_index,
+            borderline_pairs,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -633,5 +904,91 @@ mod tests {
             .sum();
         assert!(total_cost <= 30);
         assert!(selected.contains(&SymbolId(0)));
+    }
+
+    #[test]
+    fn test_celf_sensitivity_analysis_stable() {
+        let s0 = make_test_node(0, "f0", "a.rs", 10);
+        let s1 = make_test_node(1, "f1", "a.rs", 10);
+        let s2 = make_test_node(2, "f2", "b.rs", 10);
+
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &[], LayerWeights::default());
+
+        let mut scores = HashMap::new();
+        scores.insert(SymbolId(0), 0.9);
+        scores.insert(SymbolId(1), 0.05);
+        scores.insert(SymbolId(2), 0.01);
+
+        let mut error_bounds = HashMap::new();
+        error_bounds.insert(SymbolId(0), 0.001);
+        error_bounds.insert(SymbolId(1), 0.001);
+        error_bounds.insert(SymbolId(2), 0.001);
+
+        let ppr_result = PprResult {
+            scores,
+            residuals: HashMap::new(),
+            error_bounds,
+            max_residual: 0.0001,
+            total_residual: 0.0001,
+            iterations: 100,
+            truncated: false,
+        };
+
+        let optimizer = CelfOptimizer::default();
+        let selected = vec![SymbolId(0)];
+
+        let report = optimizer.analyze_sensitivity(&graph, &ppr_result, &selected, 10, 0.15, 1e-4);
+
+        assert_eq!(report.selected_count, 1);
+        assert_eq!(report.stable_count, 1);
+        assert_eq!(report.stability_index, 1.0);
+        assert!(report.borderline_pairs.is_empty());
+    }
+
+    #[test]
+    fn test_celf_sensitivity_borderline_detection() {
+        // Two symbols with identical costs and nearly identical utilities
+        let s0 = make_test_node(0, "selected_border", "a.rs", 10);
+        let s1 = make_test_node(1, "unselected_border", "b.rs", 10);
+
+        let graph = MultiplexGraph::build(vec![s0, s1], &[], LayerWeights::default());
+
+        let mut scores = HashMap::new();
+        scores.insert(SymbolId(0), 0.100);
+        scores.insert(SymbolId(1), 0.098);
+
+        let mut error_bounds = HashMap::new();
+        // Error bound of 0.005 exceeds difference (0.002)
+        error_bounds.insert(SymbolId(0), 0.005);
+        error_bounds.insert(SymbolId(1), 0.005);
+
+        let ppr_result = PprResult {
+            scores,
+            residuals: HashMap::new(),
+            error_bounds,
+            max_residual: 0.001,
+            total_residual: 0.001,
+            iterations: 50,
+            truncated: false,
+        };
+
+        let optimizer = CelfOptimizer::new(CelfConfig {
+            lambda_diversity: 0.0,
+            neighbor_coverage_weight: 0.0,
+            min_relevance_threshold: 0.0,
+            threshold_epsilon: None,
+        });
+
+        let selected = vec![SymbolId(0)];
+
+        let report = optimizer.analyze_sensitivity(&graph, &ppr_result, &selected, 10, 0.15, 1e-4);
+
+        assert_eq!(report.selected_count, 1);
+        assert_eq!(report.stable_count, 0);
+        assert_eq!(report.stability_index, 0.0);
+        assert_eq!(report.borderline_pairs.len(), 1);
+        assert_eq!(report.borderline_pairs[0].selected_symbol, SymbolId(0));
+        assert_eq!(report.borderline_pairs[0].unselected_symbol, SymbolId(1));
+        assert!(report.borderline_pairs[0].overlap > 0.0);
     }
 }

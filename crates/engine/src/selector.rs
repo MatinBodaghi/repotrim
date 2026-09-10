@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::celf::{CelfConfig, CelfOptimizer};
+use crate::celf::{CelfConfig, CelfOptimizer, SensitivityReport};
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::knee::KneedleDetector;
@@ -346,6 +346,98 @@ impl ContextSelector {
 
         (selected_symbols, markdown, report)
     }
+
+    /// End-to-end pipeline: selects mathematically optimal symbols and formats them
+    /// into structured Markdown context with dynamic Level-of-Detail (LOD) and
+    /// knapsack numerical stability and sensitivity diagnostics.
+    pub fn select_and_format_context_with_sensitivity(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, SensitivityReport) {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_and_format_context_weighted_with_sensitivity(
+            graph,
+            &seeds,
+            budget,
+            file_sources,
+        )
+    }
+
+    /// End-to-end pipeline with weighted seeds: selects optimal symbols and formats
+    /// them with LOD and knapsack sensitivity diagnostics.
+    pub fn select_and_format_context_weighted_with_sensitivity(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String, SensitivityReport) {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
+            let report = SensitivityReport {
+                epsilon: self.ppr.config().epsilon,
+                alpha: self.ppr.config().alpha,
+                max_error_bound: 0.0,
+                mean_error_bound: 0.0,
+                total_candidates: 0,
+                selected_count: 0,
+                stable_count: 0,
+                stability_index: 1.0,
+                borderline_pairs: Vec::new(),
+            };
+            return (Vec::new(), String::new(), report);
+        }
+
+        // 1. Compute detailed PPR relevance diffusion with weighted seeds
+        let mut ppr_result = self.ppr.compute_detailed(graph, weighted_seeds);
+
+        // 2. Anchor boost
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_result.scores.entry(seed_id).or_default() += weight;
+        }
+
+        // 3. Select optimal subset using CELF submodular knapsack
+        let selected_ids = self.celf.optimize(graph, &ppr_result.scores, budget);
+
+        // 4. Analyze numerical sensitivity
+        let sensitivity = self.celf.analyze_sensitivity(
+            graph,
+            &ppr_result,
+            &selected_ids,
+            budget,
+            self.ppr.config().alpha,
+            self.ppr.config().epsilon,
+        );
+
+        // 5. Collect and canonically sort symbol nodes
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        // 6. Dynamically assign LOD and format into Markdown
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let lod_map = ContextFormatter::assign_lod_with_model(
+            &selected_symbols,
+            &ppr_result.scores,
+            &seed_id_list,
+            budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+
+        (selected_symbols, markdown, sensitivity)
+    }
 }
 
 #[cfg(test)]
@@ -548,5 +640,39 @@ mod tests {
         assert!(!syms.is_empty());
         assert!(!md.is_empty());
         assert_eq!(rep.optimal_budget, report.optimal_budget);
+    }
+
+    #[test]
+    fn test_context_selector_with_sensitivity() {
+        let s0 = make_test_symbol(0, "entry", "src/entry.rs", 1, 10);
+        let s1 = make_test_symbol(1, "service", "src/service.rs", 1, 10);
+
+        let edges = vec![ReferenceEdge {
+            source: SymbolId(0),
+            target_ident: "service".to_string(),
+            kind: EdgeKind::Call,
+        }];
+
+        let graph = MultiplexGraph::build(vec![s0, s1], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let mut sources = HashMap::new();
+        sources.insert(PathBuf::from("src/entry.rs"), "fn entry() {}".to_string());
+        sources.insert(
+            PathBuf::from("src/service.rs"),
+            "fn service() {}".to_string(),
+        );
+
+        let (syms, md, report) = selector.select_and_format_context_with_sensitivity(
+            &graph,
+            &[SymbolId(0)],
+            100,
+            &sources,
+        );
+
+        assert!(!syms.is_empty());
+        assert!(!md.is_empty());
+        assert_eq!(report.selected_count, syms.len());
+        assert!(report.stability_index >= 0.0 && report.stability_index <= 1.0);
     }
 }

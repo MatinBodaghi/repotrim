@@ -86,6 +86,11 @@ impl PprSolver {
         Self { config }
     }
 
+    /// Returns the configuration parameters of this solver.
+    pub fn config(&self) -> PprConfig {
+        self.config
+    }
+
     /// Computes Personalized PageRank diffusion scores seeded at the provided `(SymbolId, weight)` pairs.
     ///
     /// The input seed weights are automatically normalized so $\sum p_0(s) = 1.0$.
