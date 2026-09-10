@@ -119,7 +119,10 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert_eq!(resp7["result"]["isError"], false);
     let bp_text = resp7["result"]["content"][0]["text"].as_str().unwrap();
     assert!(bp_text.contains("Feature Blueprint: token estimation"));
-    assert!(bp_text.contains("estimate_tokens"));
+    assert!(
+        bp_text.contains("tokens.rs")
+            && (bp_text.contains("estimate_tokens") || bp_text.contains("count_tokens"))
+    );
 
     // 8. generate_architecture_docs
     let resp8: serde_json::Value = serde_json::from_str(lines[7]).unwrap();

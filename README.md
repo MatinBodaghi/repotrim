@@ -175,6 +175,12 @@ repotrim select --seed PprSolver --seed CsrMatrix --budget 750 --path ./my-proje
 
 # Output structured JSON instead of Markdown
 repotrim select --seed RepositoryCache --budget 400 --format json
+
+# Exact OpenAI/Claude BPE token accounting (cl100k_base)
+repotrim select --seed ContextSelector --budget 1000 --tokenizer exact
+
+# Exact GPT-4o BPE token accounting (o200k_base)
+repotrim select --seed ContextSelector --budget 1000 --tokenizer o200k
 ```
 
 ### 2. Generate Feature Blueprint (`blueprint`)
@@ -428,6 +434,8 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Maxim Sviridenko. *"A note on maximizing a submodular set function subject to a knapsack constraint"*. In *Operations Research Letters*, 32(1): 41–45, 2004. [DOI: 10.1016/S0167-6377(03)00062-2](https://doi.org/10.1016/S0167-6377(03)00062-2).
 16. **Fast Threshold-Based Submodular Maximization:**
     - Ashwinkumar Badanidiyuru, Jan Vondrák. *"Fast algorithms for maximizing submodular functions"*. In *Proceedings of the 25th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA '14)*, pp. 1497–1514, 2014. [DOI: 10.1137/1.9781611973402.110](https://doi.org/10.1137/1.9781611973402.110).
+17. **Byte-Pair Encoding (BPE) Subword Tokenization:**
+    - Rico Sennrich, Barry Haddow, Alexandra Birch. *"Neural Machine Translation of Rare Words with Subword Units"*. In *Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (ACL 2016)*, pp. 1715–1725. [DOI: 10.18653/v1/P16-1162](https://doi.org/10.18653/v1/P16-1162).
 
 ---
 
