@@ -139,7 +139,7 @@ impl AstSlicer {
         let mut elided_start_line: Option<usize> = None;
         let mut elided_end_line: usize = 0;
 
-        for stmt in &statements {
+        for (idx, stmt) in statements.iter().enumerate() {
             let stmt_start = stmt.start_byte().saturating_sub(offset);
             let stmt_end = stmt.end_byte().saturating_sub(offset);
 
@@ -152,7 +152,14 @@ impl AstSlicer {
                 && stmt.kind() == "expression_statement"
                 && stmt.child(0).map(|c| c.kind() == "string").unwrap_or(false);
 
-            let is_sig = is_doc || Self::is_significant_statement(*stmt, source_bytes, offset);
+            // In Rust, preserve the final tail expression of a block (implicit return value)
+            let is_rust_tail_expr = lang == SupportedLanguage::Rust
+                && idx == statements.len() - 1
+                && stmt.kind() != "let_declaration";
+
+            let is_sig = is_doc
+                || is_rust_tail_expr
+                || Self::is_significant_statement(*stmt, source_bytes, offset);
 
             if is_sig {
                 // Flush any accumulated elided lines

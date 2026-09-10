@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::slicer::AstSlicer;
 use crate::symbol::{LodLevel, SymbolId, SymbolKind, SymbolNode};
 use crate::tokens::estimate_tokens;
 
@@ -57,27 +58,7 @@ impl ContextFormatter {
                     if symbol.span.end_byte <= src.len()
                         && symbol.span.start_byte < symbol.span.end_byte
                     {
-                        let full = src[symbol.span.start_byte..symbol.span.end_byte].trim();
-                        let line_count = full.lines().count();
-                        if line_count <= 5
-                            || (symbol.kind != SymbolKind::Function
-                                && symbol.kind != SymbolKind::Method)
-                        {
-                            return full.to_string();
-                        }
-                        if is_python {
-                            let sig = symbol.signature.trim_end_matches(':').trim();
-                            return format!(
-                                "{}:\n    # ... [implementation body sliced for budget] ...\n    pass",
-                                sig
-                            );
-                        } else {
-                            let sig = symbol.signature.trim_end_matches(';').trim();
-                            return format!(
-                                "{} {{\n    // ... [implementation body sliced for budget] ...\n}}",
-                                sig
-                            );
-                        }
+                        return AstSlicer::slice_symbol(symbol, src);
                     }
                 }
                 Self::render_symbol(symbol, LodLevel::SignatureAndDoc, file_source)
@@ -205,6 +186,7 @@ impl ContextFormatter {
 
         let mut file_paths: Vec<&PathBuf> = by_file.keys().copied().collect();
         file_paths.sort();
+        let file_paths = Self::sort_files_topologically(&file_paths, &by_file);
 
         let mut output = String::new();
 
@@ -435,6 +417,251 @@ impl ContextFormatter {
             _ => "text",
         }
     }
+
+    /// Sorts file paths in causal topological dependency order.
+    ///
+    /// If file A references types, structs, traits, or functions defined in file B,
+    /// file B is prioritized before file A so that foundational definitions and callees
+    /// precede orchestrators and callers.
+    ///
+    /// Uses Kahn's algorithm (1962). Ties and unresolvable dependency cycles
+    /// fall back deterministically to canonical lexicographical order.
+    pub fn sort_files_topologically<'a>(
+        file_paths: &[&'a PathBuf],
+        by_file: &HashMap<&'a PathBuf, Vec<&'a SymbolNode>>,
+    ) -> Vec<&'a PathBuf> {
+        if file_paths.len() <= 1 {
+            return file_paths.to_vec();
+        }
+
+        // 1. Collect all symbol names defined in each file
+        let mut defined_in_file: HashMap<&'a PathBuf, HashSet<&str>> = HashMap::new();
+        for &path in file_paths {
+            if let Some(syms) = by_file.get(path) {
+                let mut names = HashSet::new();
+                for s in syms {
+                    names.insert(s.name.as_str());
+                }
+                defined_in_file.insert(path, names);
+            }
+        }
+
+        // Helper set of common language keywords and primitive types to ignore
+        let ignored_keywords: HashSet<&'static str> = [
+            "fn",
+            "pub",
+            "mut",
+            "self",
+            "Self",
+            "let",
+            "ref",
+            "crate",
+            "super",
+            "where",
+            "impl",
+            "for",
+            "as",
+            "in",
+            "if",
+            "else",
+            "match",
+            "while",
+            "loop",
+            "return",
+            "break",
+            "continue",
+            "struct",
+            "enum",
+            "type",
+            "trait",
+            "mod",
+            "use",
+            "const",
+            "static",
+            "async",
+            "await",
+            "dyn",
+            "true",
+            "false",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "usize",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "i128",
+            "isize",
+            "f32",
+            "f64",
+            "bool",
+            "char",
+            "str",
+            "String",
+            "Option",
+            "Some",
+            "None",
+            "Result",
+            "Ok",
+            "Err",
+            "Vec",
+            "Box",
+            "Rc",
+            "Arc",
+            "HashMap",
+            "HashSet",
+            "def",
+            "class",
+            "cls",
+            "yield",
+            "import",
+            "from",
+            "try",
+            "except",
+            "finally",
+            "raise",
+            "with",
+            "pass",
+            "int",
+            "float",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "Optional",
+            "List",
+            "Dict",
+            "Set",
+            "Tuple",
+            "Any",
+            "Union",
+            "function",
+            "interface",
+            "var",
+            "export",
+            "public",
+            "private",
+            "protected",
+            "readonly",
+            "number",
+            "boolean",
+            "any",
+            "void",
+            "null",
+            "undefined",
+            "Promise",
+            "func",
+            "package",
+            "byte",
+            "rune",
+            "float64",
+            "nil",
+            "error",
+        ]
+        .into_iter()
+        .collect();
+
+        // 2. Build dependency graph: B -> A means file B must precede file A (because A references B)
+        let mut adj: HashMap<&'a PathBuf, HashSet<&'a PathBuf>> = HashMap::new();
+        let mut in_degree: HashMap<&'a PathBuf, usize> = HashMap::new();
+
+        for &path in file_paths {
+            in_degree.insert(path, 0);
+        }
+
+        for &file_a in file_paths {
+            let empty_defs = HashSet::new();
+            let defs_a = defined_in_file.get(file_a).unwrap_or(&empty_defs);
+
+            // Extract all identifier words used in file_a's symbol signatures/containers/traits
+            let mut used_idents: HashSet<&str> = HashSet::new();
+            if let Some(syms) = by_file.get(file_a) {
+                for s in syms {
+                    Self::extract_identifiers(&s.signature, &mut used_idents);
+                    if let Some(c) = &s.container_name {
+                        Self::extract_identifiers(c, &mut used_idents);
+                    }
+                    if let Some(t) = &s.trait_name {
+                        Self::extract_identifiers(t, &mut used_idents);
+                    }
+                }
+            }
+
+            // Keep only external identifiers (not defined in file_a, not keywords)
+            used_idents
+                .retain(|ident| !defs_a.contains(ident) && !ignored_keywords.contains(ident));
+
+            // Check which other files define any of these identifiers
+            for &file_b in file_paths {
+                if file_b == file_a {
+                    continue;
+                }
+                if let Some(defs_b) = defined_in_file.get(file_b) {
+                    let references_b = defs_b.iter().any(|b_sym| used_idents.contains(b_sym));
+                    if references_b {
+                        // file_b is a dependency of file_a, so file_b -> file_a
+                        if adj.entry(file_b).or_default().insert(file_a) {
+                            *in_degree.entry(file_a).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Kahn's Algorithm using a sorted set (BTreeSet) to deterministically break ties alphabetically
+        let mut ready: BTreeSet<&'a PathBuf> = BTreeSet::new();
+        for &path in file_paths {
+            if in_degree.get(path).copied().unwrap_or(0) == 0 {
+                ready.insert(path);
+            }
+        }
+
+        let mut ordered: Vec<&'a PathBuf> = Vec::with_capacity(file_paths.len());
+        let mut visited: HashSet<&'a PathBuf> = HashSet::new();
+
+        while let Some(&next) = ready.iter().next() {
+            ready.remove(next);
+            ordered.push(next);
+            visited.insert(next);
+
+            if let Some(neighbors) = adj.get(next) {
+                for &neighbor in neighbors {
+                    if let Some(deg) = in_degree.get_mut(neighbor) {
+                        *deg = deg.saturating_sub(1);
+                        if *deg == 0 && !visited.contains(neighbor) {
+                            ready.insert(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Cycle fallback: any remaining files not in ordered are sorted alphabetically and appended
+        if ordered.len() < file_paths.len() {
+            let mut remaining: Vec<&'a PathBuf> = file_paths
+                .iter()
+                .copied()
+                .filter(|p| !visited.contains(p))
+                .collect();
+            remaining.sort();
+            ordered.extend(remaining);
+        }
+
+        ordered
+    }
+
+    /// Extracts alphanumeric identifier words from text.
+    fn extract_identifiers<'s>(text: &'s str, out: &mut HashSet<&'s str>) {
+        for word in text.split(|c: char| !c.is_alphanumeric() && c != '_') {
+            let trimmed = word.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with(|c: char| c.is_ascii_digit()) {
+                out.insert(trimmed);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -491,7 +718,8 @@ mod tests {
 
         // LOD 2: SlicedBody
         let sliced = ContextFormatter::render_symbol(&sym, LodLevel::SlicedBody, Some(src));
-        assert!(sliced.contains("// ... [implementation body sliced for budget] ..."));
+        assert!(sliced.contains("// ... [5 lines elided] ..."));
+        assert!(sliced.contains("a + b + c + d + e"));
 
         // LOD 3: FullBody
         let full = ContextFormatter::render_symbol(&sym, LodLevel::FullBody, Some(src));
@@ -784,5 +1012,98 @@ mod tests {
         assert!(md.contains("// Lines 3-5\nfunc (s *Server) Start() error"));
         assert!(!md.contains("class Server"));
         assert!(!md.contains("impl Server"));
+    }
+
+    #[test]
+    fn test_sort_files_topologically_causal_order() {
+        // models.rs defines User and Database
+        let user_sym = make_test_symbol_full(
+            1,
+            "User",
+            SymbolKind::Struct,
+            "src/models.rs",
+            TextSpan::new(0, 30, 0, 2),
+            "pub struct User;",
+            None,
+            None,
+            None,
+        );
+        let db_sym = make_test_symbol_full(
+            2,
+            "Database",
+            SymbolKind::Struct,
+            "src/models.rs",
+            TextSpan::new(31, 65, 3, 5),
+            "pub struct Database;",
+            None,
+            None,
+            None,
+        );
+
+        // controllers.rs references Database and User in login_handler signature
+        let handler_sym = make_test_symbol_full(
+            3,
+            "login_handler",
+            SymbolKind::Function,
+            "src/controllers.rs",
+            TextSpan::new(0, 70, 0, 3),
+            "pub fn login_handler(db: &Database) -> User;",
+            None,
+            None,
+            None,
+        );
+
+        let models_path = PathBuf::from("src/models.rs");
+        let controllers_path = PathBuf::from("src/controllers.rs");
+
+        let mut by_file = HashMap::new();
+        by_file.insert(&models_path, vec![&user_sym, &db_sym]);
+        by_file.insert(&controllers_path, vec![&handler_sym]);
+
+        // Alphabetically, "src/controllers.rs" comes before "src/models.rs"
+        let file_paths = vec![&controllers_path, &models_path];
+
+        // Topologically, models must come before controllers because controllers depends on models
+        let sorted = ContextFormatter::sort_files_topologically(&file_paths, &by_file);
+        assert_eq!(sorted, vec![&models_path, &controllers_path]);
+    }
+
+    #[test]
+    fn test_sort_files_topologically_cycle_fallback() {
+        let sym_a = make_test_symbol_full(
+            1,
+            "Alpha",
+            SymbolKind::Struct,
+            "src/a.rs",
+            TextSpan::new(0, 30, 0, 2),
+            "pub struct Alpha(pub Beta);",
+            None,
+            None,
+            None,
+        );
+        let sym_b = make_test_symbol_full(
+            2,
+            "Beta",
+            SymbolKind::Struct,
+            "src/b.rs",
+            TextSpan::new(0, 30, 0, 2),
+            "pub struct Beta(pub Alpha);",
+            None,
+            None,
+            None,
+        );
+
+        let path_a = PathBuf::from("src/a.rs");
+        let path_b = PathBuf::from("src/b.rs");
+
+        let mut by_file = HashMap::new();
+        by_file.insert(&path_a, vec![&sym_a]);
+        by_file.insert(&path_b, vec![&sym_b]);
+
+        let file_paths = vec![&path_b, &path_a];
+        let sorted = ContextFormatter::sort_files_topologically(&file_paths, &by_file);
+
+        // Cycle gracefully falls back to deterministic alphabetical ordering
+        assert_eq!(sorted, vec![&path_a, &path_b]);
     }
 }
