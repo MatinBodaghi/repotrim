@@ -60,6 +60,10 @@ pub struct SelectArgs {
     /// Optional file destination to write output (defaults to stdout)
     #[arg(short = 'o', long = "output")]
     pub output: Option<PathBuf>,
+
+    /// Display numerical stability diagnostics and knapsack sensitivity analysis
+    #[arg(long = "diagnostics", alias = "sensitivity")]
+    pub diagnostics: bool,
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -290,24 +294,47 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
     let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
 
     let select_start = Instant::now();
-    let (selected_symbols, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
-        let (selected, md, report) = selector.select_and_format_context_auto_weighted(
-            &graph,
-            &seed_pairs,
-            *model,
-            &repo.file_sources,
-        );
-        (selected, md, Some(report))
-    } else {
-        let budget = explicit_budget.unwrap();
-        let (selected, md) = selector.select_and_format_context_weighted(
-            &graph,
-            &seed_pairs,
-            budget,
-            &repo.file_sources,
-        );
-        (selected, md, None)
-    };
+    let (selected_symbols, markdown, auto_report_opt, sensitivity_opt) =
+        if let Some(ref model) = model_profile {
+            let (selected, md, report) = selector.select_and_format_context_auto_weighted(
+                &graph,
+                &seed_pairs,
+                *model,
+                &repo.file_sources,
+            );
+            let sens = if args.diagnostics {
+                let (_, _, s) = selector.select_and_format_context_weighted_with_sensitivity(
+                    &graph,
+                    &seed_pairs,
+                    report.knee_tokens,
+                    &repo.file_sources,
+                );
+                Some(s)
+            } else {
+                None
+            };
+            (selected, md, Some(report), sens)
+        } else {
+            let budget = explicit_budget.unwrap();
+            if args.diagnostics {
+                let (selected, md, sens) = selector
+                    .select_and_format_context_weighted_with_sensitivity(
+                        &graph,
+                        &seed_pairs,
+                        budget,
+                        &repo.file_sources,
+                    );
+                (selected, md, None, Some(sens))
+            } else {
+                let (selected, md) = selector.select_and_format_context_weighted(
+                    &graph,
+                    &seed_pairs,
+                    budget,
+                    &repo.file_sources,
+                );
+                (selected, md, None, None)
+            }
+        };
     let select_duration = select_start.elapsed();
 
     let total_tokens_used: usize = count_tokens(&markdown, tokenizer_model);
@@ -340,6 +367,78 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             explicit_budget.unwrap(),
             select_duration
         );
+    }
+
+    if args.diagnostics {
+        if let Some(ref sens) = sensitivity_opt {
+            eprintln!();
+            eprintln!(
+                "{}",
+                "================================================================================"
+                    .cyan()
+            );
+            eprintln!(
+                "  {}",
+                "RepoTrim Knapsack Sensitivity & Numerical Stability Analysis".bold()
+            );
+            eprintln!(
+                "{}",
+                "================================================================================"
+                    .cyan()
+            );
+            eprintln!(
+                "  {:<24} : {:.1}% ({} of {} selected symbols unconditionally stable)",
+                "Stability Index",
+                sens.stability_index * 100.0,
+                sens.stable_count,
+                sens.selected_count
+            );
+            eprintln!("  {:<24} : {:e}", "ACL Epsilon (ε)", sens.epsilon);
+            eprintln!("  {:<24} : {:.2}", "ACL Damping Factor (α)", sens.alpha);
+            eprintln!(
+                "  {:<24} : {:.5}",
+                "Max Theoretical Error (δ)", sens.max_error_bound
+            );
+            eprintln!(
+                "  {:<24} : {:.5}",
+                "Mean Theoretical Error", sens.mean_error_bound
+            );
+            eprintln!(
+                "  {:<24} : {}",
+                "Candidate Pool Evaluated", sens.total_candidates
+            );
+
+            if !sens.borderline_pairs.is_empty() {
+                eprintln!();
+                eprintln!(
+                    "  {}",
+                    "Borderline Candidate Pairs (Near Knapsack Decision Boundary):"
+                        .yellow()
+                        .bold()
+                );
+                eprintln!("  {}", "------------------------------------------------------------------------------".dimmed());
+                for (idx, pair) in sens.borderline_pairs.iter().take(5).enumerate() {
+                    eprintln!(
+                        "  {}. Selected   : {} [min density: {:.4}]",
+                        idx + 1,
+                        pair.selected_name.bold(),
+                        pair.selected_density_min
+                    );
+                    eprintln!(
+                        "     Unselected : {} [max density: {:.4}]",
+                        pair.unselected_name.dimmed(),
+                        pair.unselected_density_max
+                    );
+                    eprintln!("     Overlap    : +{:.4}", pair.overlap);
+                }
+            }
+            eprintln!(
+                "{}",
+                "================================================================================"
+                    .cyan()
+            );
+            eprintln!();
+        }
     }
 
     let output_content = match args.format {
@@ -378,6 +477,9 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
                     "candidate_count": report.candidate_count,
                     "selected_count": report.selected_count,
                 });
+            }
+            if let Some(ref sens) = sensitivity_opt {
+                json_obj["sensitivity"] = serde_json::to_value(sens)?;
             }
             serde_json::to_string_pretty(&json_obj)?
         }

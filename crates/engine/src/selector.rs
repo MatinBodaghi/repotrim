@@ -59,6 +59,16 @@ impl ContextSelector {
         self.tokenizer_model
     }
 
+    /// Returns a borrowed reference to the inner PPR solver.
+    pub fn ppr(&self) -> &PprSolver {
+        &self.ppr
+    }
+
+    /// Returns a borrowed reference to the inner CELF optimizer.
+    pub fn celf(&self) -> &CelfOptimizer {
+        &self.celf
+    }
+
     /// Selects the optimal set of symbols matching the `budget` (in tokens), seeded by `seed_ids`.
     ///
     /// The resulting `SymbolNode`s are sorted in canonical file and line order

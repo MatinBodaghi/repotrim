@@ -181,6 +181,9 @@ repotrim select --seed ContextSelector --budget 1000 --tokenizer exact
 
 # Exact GPT-4o BPE token accounting (o200k_base)
 repotrim select --seed ContextSelector --budget 1000 --tokenizer o200k
+
+# Numerical stability & knapsack sensitivity diagnostics
+repotrim select --seed ContextSelector --budget 1000 --diagnostics
 ```
 
 ### 2. Generate Feature Blueprint (`blueprint`)
@@ -314,7 +317,7 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `format?: string` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `format?: string`, `diagnostics?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting and sensitivity diagnostics |
 | **`analyze_impact`** | `symbol?: string`, `diff?: string`, `diffAgainst?: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Computes architectural blast radius, 1st-order callers, transitive dependents, and recommended regression tests |
 | **`generate_blueprint`** | `task: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors and target files |
 | **`generate_architecture_docs`** | `path?: string`, `output?: string` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
@@ -351,7 +354,9 @@ repotrim/
 │   ├── benchmarks/             # Comparative study, polyglot & dogfood benchmarks
 │   │   ├── comparative_study.md
 │   │   ├── external_evaluations.md
-│   │   └── dogfood.md
+│   │   ├── dogfood.md
+│   │   ├── token_calibration.md
+│   │   └── sensitivity_analysis.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
 │       ├── FEATURE_BLUEPRINT_TEMPLATE.md
@@ -398,8 +403,9 @@ cargo fmt --all -- --check
 
 RepoTrim's mathematical architecture builds on foundational algorithms and literature in graph theory, submodular optimization, and program analysis:
 
-1. **Personalized PageRank Local Diffusion (ACL Forward-Push):**
+1. **Personalized PageRank Local Diffusion (ACL Forward-Push) & Approximation Error Bounds:**
    - Reid Andersen, Fan Chung, Kevin Lang. *"Local Graph Partitioning using PageRank Vectors"*. In *Foundations of Computer Science (FOCS)*, 2006. [DOI: 10.1109/FOCS.2006.44](https://doi.org/10.1109/FOCS.2006.44).
+   - Empirical validation & sensitivity diagnostics: [`docs/benchmarks/sensitivity_analysis.md`](docs/benchmarks/sensitivity_analysis.md).
 2. **Submodular Knapsack Optimization (CELF):**
    - Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)*, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
 3. **Code Property Graph (CPG):**
@@ -434,8 +440,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Maxim Sviridenko. *"A note on maximizing a submodular set function subject to a knapsack constraint"*. In *Operations Research Letters*, 32(1): 41–45, 2004. [DOI: 10.1016/S0167-6377(03)00062-2](https://doi.org/10.1016/S0167-6377(03)00062-2).
 16. **Fast Threshold-Based Submodular Maximization:**
     - Ashwinkumar Badanidiyuru, Jan Vondrák. *"Fast algorithms for maximizing submodular functions"*. In *Proceedings of the 25th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA '14)*, pp. 1497–1514, 2014. [DOI: 10.1137/1.9781611973402.110](https://doi.org/10.1137/1.9781611973402.110).
-17. **Byte-Pair Encoding (BPE) Subword Tokenization:**
+17. **Byte-Pair Encoding (BPE) Subword Tokenization & Empirical Calibration:**
     - Rico Sennrich, Barry Haddow, Alexandra Birch. *"Neural Machine Translation of Rare Words with Subword Units"*. In *Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (ACL 2016)*, pp. 1715–1725. [DOI: 10.18653/v1/P16-1162](https://doi.org/10.18653/v1/P16-1162).
+    - Polyglot calibration study: [`docs/benchmarks/token_calibration.md`](docs/benchmarks/token_calibration.md).
 
 ---
 

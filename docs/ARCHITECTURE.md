@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **467** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **1699** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.162** | High cross-boundary integration |
+| **Total AST Symbols** | **490** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **1826** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.152** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -26,11 +26,11 @@ flowchart TD
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (380 syms)"]
+        subsys_crates_engine["crates-engine (403 syms)"]
     end
 
-    subsys_crates_mcp_server -->|"67 refs"| subsys_crates_engine
-    subsys_crates_cli -->|"91 refs"| subsys_crates_engine
+    subsys_crates_mcp_server -->|"68 refs"| subsys_crates_engine
+    subsys_crates_cli -->|"92 refs"| subsys_crates_engine
     subsys_crates_cli -->|"2 refs"| subsys_crates_mcp_server
     subsys_crates_engine -->|"2 refs"| subsys_crates_mcp_server
 ```
@@ -41,9 +41,9 @@ flowchart TD
 
 | Subsystem | Layer | Root Directory | Symbols | Tokens | Coupling (Out $\to$ In) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 47 | 1107 | crates-engine (67) |
-| **crates-cli** | `Presentation` | `crates/cli` | 40 | 2425 | crates-engine (91), crates-mcp-server (2) |
-| **crates-engine** | `Domain` | `crates/engine` | 380 | 11138 | crates-mcp-server (2) |
+| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 47 | 1107 | crates-engine (68) |
+| **crates-cli** | `Presentation` | `crates/cli` | 40 | 2458 | crates-engine (92), crates-mcp-server (2) |
+| **crates-engine** | `Domain` | `crates/engine` | 403 | 12288 | crates-mcp-server (2) |
 
 ---
 
@@ -54,18 +54,18 @@ flowchart TD
 *Ingress entrypoints, CLI commands, MCP protocol dispatchers, and UI components.*
 
 - **`crates-mcp-server`** (at `crates/mcp-server`): 47 symbols (1107 tokens).
-  - Depends on: `crates-engine` (67 refs)
+  - Depends on: `crates-engine` (68 refs)
   - Consumed by: `crates-cli` (2 callers), `crates-engine` (2 callers)
-- **`crates-cli`** (at `crates/cli`): 40 symbols (2425 tokens).
-  - Depends on: `crates-engine` (91 refs), `crates-mcp-server` (2 refs)
+- **`crates-cli`** (at `crates/cli`): 40 symbols (2458 tokens).
+  - Depends on: `crates-engine` (92 refs), `crates-mcp-server` (2 refs)
 
 ### Layer 2: Domain & Business Logic
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 380 symbols (11138 tokens).
+- **`crates-engine`** (at `crates/engine`): 403 symbols (12288 tokens).
   - Depends on: `crates-mcp-server` (2 refs)
-  - Consumed by: `crates-cli` (91 callers), `crates-mcp-server` (67 callers)
+  - Consumed by: `crates-cli` (92 callers), `crates-mcp-server` (68 callers)
 
 ---
 
@@ -75,21 +75,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 82 | 1 | 0.04670 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 79 | 1 | 0.01409 | `crates/engine/src/cache.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 58 | 2 | 0.00696 | `crates/engine/src/cache.rs` |
-| **`from`** | `Method` | `Domain` | 54 | 1 | 0.04110 | `crates/engine/src/error.rs` |
-| **`is_empty`** | `Method` | `Domain` | 48 | 1 | 0.00786 | `crates/engine/src/graph.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 45 | 3 | 0.00777 | `crates/engine/src/symbol.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 43 | 17 | 0.01656 | `crates/engine/src/graph.rs` |
-| **`as_str`** | `Method` | `Domain` | 39 | 1 | 0.01304 | `crates/engine/src/impact.rs` |
-| **`new`** | `Method` | `Domain` | 29 | 1 | 0.02320 | `crates/engine/src/symbol.rs` |
-| **`build`** | `Method` | `Domain` | 26 | 5 | 0.00195 | `crates/engine/src/graph.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 23 | 4 | 0.00118 | `crates/engine/src/loader.rs` |
-| **`default`** | `Method` | `Infrastructure` | 22 | 2 | 0.00347 | `crates/engine/src/cache.rs` |
-| **`EngineError`** | `Enum` | `Core` | 17 | 1 | 0.03871 | `crates/engine/src/error.rs` |
-| **`parse_file_with_imports`** | `Method` | `Domain` | 19 | 22 | 0.00221 | `crates/engine/src/parser.rs` |
-| **`symbol`** | `Method` | `Core` | 18 | 3 | 0.00162 | `crates/engine/src/graph.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 99 | 1 | 0.05342 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 83 | 1 | 0.01389 | `crates/engine/src/cache.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 63 | 2 | 0.00707 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 57 | 1 | 0.04013 | `crates/engine/src/error.rs` |
+| **`is_empty`** | `Method` | `Domain` | 50 | 1 | 0.00765 | `crates/engine/src/graph.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 48 | 3 | 0.00778 | `crates/engine/src/symbol.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 47 | 17 | 0.01652 | `crates/engine/src/graph.rs` |
+| **`as_str`** | `Method` | `Domain` | 39 | 1 | 0.01243 | `crates/engine/src/impact.rs` |
+| **`build`** | `Method` | `Domain` | 35 | 5 | 0.00211 | `crates/engine/src/graph.rs` |
+| **`new`** | `Method` | `Domain` | 29 | 1 | 0.02246 | `crates/engine/src/symbol.rs` |
+| **`default`** | `Method` | `Infrastructure` | 25 | 2 | 0.00347 | `crates/engine/src/cache.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 23 | 4 | 0.00112 | `crates/engine/src/loader.rs` |
+| **`EngineError`** | `Enum` | `Core` | 17 | 1 | 0.03774 | `crates/engine/src/error.rs` |
+| **`symbol`** | `Method` | `Core` | 20 | 3 | 0.00165 | `crates/engine/src/graph.rs` |
+| **`parse_file_with_imports`** | `Method` | `Domain` | 19 | 22 | 0.00210 | `crates/engine/src/parser.rs` |
 
 ---
 
@@ -328,6 +328,10 @@ pub struct SelectArgs {
     /// Optional file destination to write output (defaults to stdout)
     #[arg(short = 'o', long = "output")]
     pub output: Option<PathBuf>,
+
+    /// Display numerical stability diagnostics and knapsack sensitivity analysis
+    #[arg(long = "diagnostics", alias = "sensitivity")]
+    pub diagnostics: bool,
 }
 ```
 

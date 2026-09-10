@@ -173,6 +173,10 @@ impl McpHandler {
                             "type": "string",
                             "enum": ["markdown", "json"],
                             "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "diagnostics": {
+                            "type": "boolean",
+                            "description": "Optional flag to include knapsack numerical stability and sensitivity diagnostics"
                         }
                     }
                 }),
@@ -406,6 +410,10 @@ impl McpHandler {
             .unwrap_or("fast");
         let tokenizer_model =
             TokenizerModel::from_str_name(tokenizer_str).unwrap_or(TokenizerModel::FastHeuristic);
+        let diagnostics = args
+            .get("diagnostics")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false);
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -425,7 +433,6 @@ impl McpHandler {
                 .filter(|s| s.name == *seed_name)
                 .map(|s| s.id)
                 .collect();
-
             if matches.is_empty() {
                 missing_seeds.push(seed_name.clone());
             } else {
@@ -474,22 +481,45 @@ impl McpHandler {
         let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
         let graph = repo.build_graph();
         let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
-        let (selected, markdown, auto_report_opt) = if let Some(ref model) = model_profile {
+        let (selected, markdown, auto_report_opt, sensitivity_opt) = if let Some(ref model) =
+            model_profile
+        {
             let (sel, md, rep) = selector.select_and_format_context_auto_weighted(
                 &graph,
                 &seed_pairs,
                 *model,
                 &repo.file_sources,
             );
-            (sel, md, Some(rep))
+            let sens = if diagnostics {
+                let (_, _, s) = selector.select_and_format_context_weighted_with_sensitivity(
+                    &graph,
+                    &seed_pairs,
+                    rep.knee_tokens,
+                    &repo.file_sources,
+                );
+                Some(s)
+            } else {
+                None
+            };
+            (sel, md, Some(rep), sens)
         } else {
-            let (sel, md) = selector.select_and_format_context_weighted(
-                &graph,
-                &seed_pairs,
-                explicit_budget,
-                &repo.file_sources,
-            );
-            (sel, md, None)
+            if diagnostics {
+                let (sel, md, s) = selector.select_and_format_context_weighted_with_sensitivity(
+                    &graph,
+                    &seed_pairs,
+                    explicit_budget,
+                    &repo.file_sources,
+                );
+                (sel, md, None, Some(s))
+            } else {
+                let (sel, md) = selector.select_and_format_context_weighted(
+                    &graph,
+                    &seed_pairs,
+                    explicit_budget,
+                    &repo.file_sources,
+                );
+                (sel, md, None, None)
+            }
         };
 
         let total_tokens: usize = count_tokens(&markdown, tokenizer_model);
@@ -528,6 +558,9 @@ impl McpHandler {
                     "selected_count": rep.selected_count,
                 });
             }
+            if let Some(ref sens) = sensitivity_opt {
+                json_val["sensitivity"] = serde_json::to_value(sens).unwrap();
+            }
             ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
         } else {
             let mut prefix = String::new();
@@ -535,6 +568,16 @@ impl McpHandler {
                 prefix.push_str(&format!(
                     "<!-- Auto-budget tuned to {} tokens via Knee-Curve (knee utility: {:.1}%, ceiling: {}, model: {}) -->\n\n",
                     rep.knee_tokens, rep.knee_utility_ratio * 100.0, rep.optimal_budget, rep.model_name
+                ));
+            }
+            if let Some(ref sens) = sensitivity_opt {
+                prefix.push_str(&format!(
+                    "<!-- Knapsack Sensitivity: Stability Index: {:.1}% ({} of {} stable), Epsilon: {:e}, Max Error Bound: {:.5} -->\n\n",
+                    sens.stability_index * 100.0,
+                    sens.stable_count,
+                    sens.selected_count,
+                    sens.epsilon,
+                    sens.max_error_bound,
                 ));
             }
             if !missing_seeds.is_empty() {
