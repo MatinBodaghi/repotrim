@@ -3,9 +3,94 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::ppr::PprResult;
-use crate::symbol::SymbolId;
+use crate::symbol::{LodLevel, SymbolId, SymbolNode};
+use crate::tokens::{count_tokens, TokenizerModel};
+
+/// Relative utility multipliers for discrete Level-of-Detail (LOD) representations.
+///
+/// In Multiple-Choice Knapsack (MCKP) joint optimization (Kellerer et al., 2004), each code symbol
+/// can be rendered at one of four discrete resolution tiers, each providing an increasing fraction
+/// of full semantic utility:
+/// - `signature`: Basic interface signature contract (name, params, return type). Default: `0.35`.
+/// - `doc`: Interface signature plus documentation comments. Default: `0.60`.
+/// - `sliced`: Sliced control-flow skeleton (branches, loops, inter-procedural calls). Default: `0.85`.
+/// - `full`: Complete unpruned source implementation. Default: `1.00`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LodWeights {
+    pub signature: f32,
+    pub doc: f32,
+    pub sliced: f32,
+    pub full: f32,
+}
+
+impl Default for LodWeights {
+    fn default() -> Self {
+        Self {
+            signature: 0.35,
+            doc: 0.60,
+            sliced: 0.85,
+            full: 1.00,
+        }
+    }
+}
+
+impl LodWeights {
+    /// Returns the utility multiplier corresponding to a given `LodLevel`.
+    pub fn multiplier(&self, level: LodLevel) -> f32 {
+        match level {
+            LodLevel::SignatureOnly => self.signature,
+            LodLevel::SignatureAndDoc => self.doc,
+            LodLevel::SlicedBody => self.sliced,
+            LodLevel::FullBody => self.full,
+        }
+    }
+}
+
+/// Concrete Level-of-Detail option for a symbol in Multiple-Choice Knapsack Optimization.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LodOption {
+    /// The discrete LOD level, or `None` representing exclusion from context.
+    pub level: Option<LodLevel>,
+    /// Concrete token cost under the active tokenizer.
+    pub cost: usize,
+    /// Semantic utility multiplier $\mu \in [0.0, 1.0]$.
+    pub utility_multiplier: f32,
+}
+
+/// Diagnostic trace step recorded during MCKP joint selection and LOD assignment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MckpTraceStep {
+    /// Identifier of the upgraded symbol.
+    pub symbol_id: SymbolId,
+    /// Previous LOD level before upgrade (`None` if newly admitted).
+    pub from_level: Option<LodLevel>,
+    /// New LOD level after upgrade.
+    pub to_level: LodLevel,
+    /// Incremental token cost of this upgrade step.
+    pub incremental_cost: usize,
+    /// Cumulative token cost after this upgrade step.
+    pub cumulative_tokens: usize,
+    /// Marginal utility gain provided by this upgrade step.
+    pub marginal_gain: f32,
+    /// Cumulative utility score after this upgrade step.
+    pub cumulative_utility: f32,
+}
+
+/// Result of Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail assignment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MckpResult {
+    /// Mapping of selected symbol IDs to their chosen Level-of-Detail.
+    pub selected_lods: HashMap<SymbolId, LodLevel>,
+    /// Total tokens consumed by the selected configuration.
+    pub total_tokens: usize,
+    /// Total cumulative submodular utility achieved.
+    pub cumulative_utility: f32,
+    /// Diagnostic trace steps of upgrades performed.
+    pub trace: Vec<MckpTraceStep>,
+}
 
 /// Configuration parameters for the CELF Submodular Knapsack optimizer.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -19,6 +104,8 @@ pub struct CelfConfig {
     /// Optional error tolerance ($\varepsilon$) for Badanidiyuru-Vondrák (2014) threshold-based greedy search.
     /// When `None` (default), uses lazy CELF with Khuller et al. (1999) best-singleton knapsack correction.
     pub threshold_epsilon: Option<f32>,
+    /// Relative utility multipliers for discrete Level-of-Detail (LOD) representations.
+    pub lod_weights: LodWeights,
 }
 
 impl Default for CelfConfig {
@@ -28,8 +115,102 @@ impl Default for CelfConfig {
             neighbor_coverage_weight: 0.2,
             min_relevance_threshold: 1e-5,
             threshold_epsilon: None,
+            lod_weights: LodWeights::default(),
         }
     }
+}
+
+impl CelfConfig {
+    /// Sets custom Level-of-Detail utility multipliers.
+    pub fn with_lod_weights(mut self, weights: LodWeights) -> Self {
+        self.lod_weights = weights;
+        self
+    }
+}
+
+/// Builds the Pareto-efficient upper convex hull of Level-of-Detail options for a symbol.
+///
+/// Prunes dominated options:
+/// 1. Prunes options with non-increasing costs or non-increasing utility.
+/// 2. If two options have the same cost, retains only the one with strictly higher utility.
+/// 3. Prunes non-convex points where the incremental slope $\frac{\Delta \mu}{\Delta c}$ does not decrease
+///    (Dyer, 1984; Zemel, 1980; Kellerer et al., 2004, Chapter 11.1).
+pub fn build_pareto_frontier(
+    sym: &SymbolNode,
+    file_source: Option<&str>,
+    model: TokenizerModel,
+    weights: LodWeights,
+) -> Vec<LodOption> {
+    let mut raw_options = Vec::with_capacity(5);
+    raw_options.push(LodOption {
+        level: None,
+        cost: 0,
+        utility_multiplier: 0.0,
+    });
+
+    let levels = [
+        LodLevel::SignatureOnly,
+        LodLevel::SignatureAndDoc,
+        LodLevel::SlicedBody,
+        LodLevel::FullBody,
+    ];
+
+    let mut last_cost = 0;
+    for &lvl in &levels {
+        let text = ContextFormatter::render_symbol(sym, lvl, file_source);
+        let cost = count_tokens(&text, model).max(1);
+        let multiplier = weights.multiplier(lvl);
+        raw_options.push(LodOption {
+            level: Some(lvl),
+            cost: cost.max(last_cost),
+            utility_multiplier: multiplier,
+        });
+        last_cost = cost.max(last_cost);
+    }
+
+    // Pass 1: Deduplicate / monotonic filter
+    // If two options have identical cost, keep the one with higher utility multiplier.
+    let mut monotonic: Vec<LodOption> = Vec::new();
+    for opt in raw_options {
+        if let Some(last) = monotonic.last_mut() {
+            if opt.cost == last.cost {
+                if opt.utility_multiplier > last.utility_multiplier {
+                    *last = opt;
+                }
+            } else if opt.cost > last.cost && opt.utility_multiplier > last.utility_multiplier {
+                monotonic.push(opt);
+            }
+        } else {
+            monotonic.push(opt);
+        }
+    }
+
+    // Pass 2: Upper convex hull filter (LP dominance)
+    // For three consecutive points A, B, C: slope(A, B) must be strictly greater than slope(B, C).
+    // If slope(A, B) <= slope(B, C), point B is dominated and pruned.
+    let mut hull: Vec<LodOption> = Vec::with_capacity(monotonic.len());
+    for opt in monotonic {
+        while hull.len() >= 2 {
+            let n = hull.len();
+            let a = &hull[n - 2];
+            let b = &hull[n - 1];
+            let c = &opt;
+
+            let slope_ab =
+                (b.utility_multiplier - a.utility_multiplier) / ((b.cost - a.cost) as f32);
+            let slope_bc =
+                (c.utility_multiplier - b.utility_multiplier) / ((c.cost - b.cost) as f32);
+
+            if slope_ab <= slope_bc {
+                hull.pop();
+            } else {
+                break;
+            }
+        }
+        hull.push(opt);
+    }
+
+    hull
 }
 
 /// Element stored in the CELF max-priority queue.
@@ -58,6 +239,37 @@ impl Ord for CelfItem {
     fn cmp(&self, other: &Self) -> Ordering {
         self.marginal_gain_per_token
             .partial_cmp(&other.marginal_gain_per_token)
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+/// Element stored in the MCKP upgrade max-priority queue.
+#[derive(Debug, Clone)]
+struct MckpItem {
+    symbol_id: SymbolId,
+    current_level_idx: usize,
+    marginal_density: f32,
+    last_iteration: usize,
+}
+
+impl PartialEq for MckpItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.marginal_density == other.marginal_density
+    }
+}
+
+impl Eq for MckpItem {}
+
+impl PartialOrd for MckpItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MckpItem {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.marginal_density
+            .partial_cmp(&other.marginal_density)
             .unwrap_or(Ordering::Equal)
     }
 }
@@ -150,6 +362,14 @@ pub struct SensitivityReport {
 ///   Optionally, by sweeping geometrically decaying marginal density thresholds $\tau$, threshold greedy achieves
 ///   a $(1 - 1/e - \varepsilon)$ approximation guarantee in $O\left(\frac{|V|}{\varepsilon} \log \frac{|V|}{\varepsilon}\right)$ time.
 ///
+/// Internal context bundle passed during MCKP lazy marginal gain computations.
+struct MckpContext<'a> {
+    graph: &'a MultiplexGraph,
+    ppr_scores: &'a HashMap<SymbolId, f32>,
+    covered_nodes: &'a HashSet<SymbolId>,
+    file_token_costs: &'a HashMap<PathBuf, usize>,
+}
+
 /// - **Lazy Forward Evaluations (Leskovec et al., 2007)**:
 ///   Leverages submodular diminishing returns to avoid recomputing marginal gains for elements whose upper bounds
 ///   remain below the current queue maximum, executing in $<2\text{ms}$ on multi-thousand symbol graphs.
@@ -706,6 +926,293 @@ impl CelfOptimizer {
             borderline_pairs,
         }
     }
+
+    /// Evaluates the incremental marginal gain $\Delta(v, j \to j+1 \mid S)$ of upgrading symbol `id`
+    /// from frontier state $j$ to state $j+1$.
+    fn compute_mckp_marginal_gain(
+        &self,
+        id: SymbolId,
+        current_state_idx: usize,
+        ctx: &MckpContext<'_>,
+        frontier: &[LodOption],
+    ) -> f32 {
+        let sym = match ctx.graph.symbol(id) {
+            Some(s) => s,
+            None => return 0.0,
+        };
+
+        let cur_opt = &frontier[current_state_idx];
+        let next_opt = &frontier[current_state_idx + 1];
+
+        let delta_cost = next_opt.cost.saturating_sub(cur_opt.cost).max(1);
+        let delta_mult = (next_opt.utility_multiplier - cur_opt.utility_multiplier).max(0.0);
+
+        // 1. Direct relevance gain proportional to delta_mult
+        let ppr_score = ctx.ppr_scores.get(&id).copied().unwrap_or(0.01);
+        let direct_gain = delta_mult * ppr_score;
+
+        // 2. 1-hop neighbor coverage gain (only awarded upon initial admission from None -> level)
+        let mut neighbor_gain = 0.0_f32;
+        if current_state_idx == 0 {
+            let neighbors = ctx.graph.neighbors(id);
+            for &n in neighbors {
+                let neighbor_id = SymbolId(n);
+                if !ctx.covered_nodes.contains(&neighbor_id) {
+                    let n_score = ctx.ppr_scores.get(&neighbor_id).copied().unwrap_or(0.005);
+                    neighbor_gain += self.config.neighbor_coverage_weight * n_score;
+                }
+            }
+        }
+
+        // 3. File diversity gain: log(1 + delta_cost / (1 + current_file_cost))
+        let current_file_cost = ctx
+            .file_token_costs
+            .get(&sym.file_path)
+            .copied()
+            .unwrap_or(0) as f32;
+        let diversity_gain = ((1.0 + (delta_cost as f32 / (1.0 + current_file_cost))).ln())
+            * self.config.lambda_diversity;
+
+        direct_gain + neighbor_gain + diversity_gain
+    }
+
+    /// Solves the joint Symbol Selection and Level-of-Detail (LOD) assignment problem
+    /// as a Multiple-Choice Knapsack Problem (MCKP) with submodular objective (Kellerer et al., 2004; Dyer, 1984).
+    ///
+    /// Guarantees a $\frac{1}{2}(1 - 1/e)$ approximation factor via best-singleton correction
+    /// (Khuller et al., 1999; Sviridenko, 2004) while eliminating stranded budget and
+    /// maximizing semantic information density.
+    pub fn optimize_mckp(
+        &self,
+        graph: &MultiplexGraph,
+        ppr_scores: &HashMap<SymbolId, f32>,
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        tokenizer_model: TokenizerModel,
+    ) -> MckpResult {
+        if budget == 0 || graph.is_empty() {
+            return MckpResult {
+                selected_lods: HashMap::new(),
+                total_tokens: 0,
+                cumulative_utility: 0.0,
+                trace: Vec::new(),
+            };
+        }
+
+        // 1. Build Pareto-efficient LOD frontiers for each candidate symbol
+        let mut symbol_frontiers: HashMap<SymbolId, Vec<LodOption>> = HashMap::new();
+        let mut current_state: HashMap<SymbolId, usize> = HashMap::new();
+        let mut best_singleton: Option<(SymbolId, LodLevel, usize, f32)> = None;
+
+        for sym in graph.symbols() {
+            let score = ppr_scores.get(&sym.id).copied().unwrap_or(0.0);
+            if score < self.config.min_relevance_threshold && !ppr_scores.is_empty() {
+                continue;
+            }
+
+            let file_src = file_sources.get(&sym.file_path).map(|s| s.as_str());
+            let frontier =
+                build_pareto_frontier(sym, file_src, tokenizer_model, self.config.lod_weights);
+
+            // If even the minimum option exceeds budget, symbol cannot fit
+            if frontier.len() < 2 || frontier[1].cost > budget {
+                continue;
+            }
+
+            // Evaluate singleton candidate choices against empty set for Khuller-Sviridenko guarantee
+            for opt in &frontier[1..] {
+                if opt.cost <= budget {
+                    if let Some(level) = opt.level {
+                        let direct = opt.utility_multiplier * score;
+                        let mut neighbor = 0.0_f32;
+                        for &n in graph.neighbors(sym.id) {
+                            let n_score = ppr_scores.get(&SymbolId(n)).copied().unwrap_or(0.005);
+                            neighbor += self.config.neighbor_coverage_weight * n_score;
+                        }
+                        let diversity =
+                            ((1.0 + (opt.cost as f32)).ln()) * self.config.lambda_diversity;
+                        let standalone_util = direct + neighbor + diversity;
+
+                        match &best_singleton {
+                            Some((_, _, _, best_val)) if *best_val >= standalone_util => {}
+                            _ => {
+                                best_singleton = Some((sym.id, level, opt.cost, standalone_util));
+                            }
+                        }
+                    }
+                }
+            }
+
+            current_state.insert(sym.id, 0);
+            symbol_frontiers.insert(sym.id, frontier);
+        }
+
+        // 2. Initialize CELF priority queue with initial upgrade (None -> P_1)
+        let mut heap: BinaryHeap<MckpItem> = BinaryHeap::new();
+        let mut covered_nodes: HashSet<SymbolId> = HashSet::new();
+        let mut file_token_costs: HashMap<PathBuf, usize> = HashMap::new();
+
+        let ctx = MckpContext {
+            graph,
+            ppr_scores,
+            covered_nodes: &covered_nodes,
+            file_token_costs: &file_token_costs,
+        };
+
+        for (&sym_id, frontier) in &symbol_frontiers {
+            let delta_c = frontier[1].cost - frontier[0].cost;
+            let initial_gain = self.compute_mckp_marginal_gain(sym_id, 0, &ctx, frontier);
+            let density = initial_gain / (delta_c as f32);
+            heap.push(MckpItem {
+                symbol_id: sym_id,
+                current_level_idx: 0,
+                marginal_density: density,
+                last_iteration: 0,
+            });
+        }
+
+        let mut current_tokens: usize = 0;
+        let mut cumulative_utility: f32 = 0.0;
+        let mut current_iteration: usize = 0;
+        let mut trace: Vec<MckpTraceStep> = Vec::new();
+
+        // 3. CELF Lazy Evaluation Loop
+        while let Some(mut top) = heap.pop() {
+            let frontier = match symbol_frontiers.get(&top.symbol_id) {
+                Some(f) => f,
+                None => continue,
+            };
+            let j = match current_state.get(&top.symbol_id) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+
+            // Discard stale heap entries
+            if top.current_level_idx != j || j + 1 >= frontier.len() {
+                continue;
+            }
+
+            let next_option = &frontier[j + 1];
+            let delta_c = next_option.cost - frontier[j].cost;
+
+            // Skip if this upgrade exceeds remaining budget
+            if current_tokens + delta_c > budget {
+                continue;
+            }
+
+            // If evaluated in current iteration, accept by submodularity
+            if top.last_iteration == current_iteration {
+                current_tokens += delta_c;
+                let delta_gain = (top.marginal_density * (delta_c as f32)).max(0.0);
+                cumulative_utility += delta_gain;
+                *current_state.get_mut(&top.symbol_id).unwrap() = j + 1;
+
+                if let Some(sym) = graph.symbol(top.symbol_id) {
+                    *file_token_costs.entry(sym.file_path.clone()).or_default() += delta_c;
+                }
+
+                if j == 0 {
+                    covered_nodes.insert(top.symbol_id);
+                    for &n in graph.neighbors(top.symbol_id) {
+                        covered_nodes.insert(SymbolId(n));
+                    }
+                }
+
+                let from_level = frontier[j].level;
+                let to_level = next_option.level.unwrap();
+
+                trace.push(MckpTraceStep {
+                    symbol_id: top.symbol_id,
+                    from_level,
+                    to_level,
+                    incremental_cost: delta_c,
+                    cumulative_tokens: current_tokens,
+                    marginal_gain: delta_gain,
+                    cumulative_utility,
+                });
+
+                current_iteration += 1;
+
+                // Push next available upgrade for this symbol if one exists on Pareto frontier
+                if j + 2 < frontier.len() {
+                    let next_next = &frontier[j + 2];
+                    let next_delta_c = next_next.cost - next_option.cost;
+                    let current_ctx = MckpContext {
+                        graph,
+                        ppr_scores,
+                        covered_nodes: &covered_nodes,
+                        file_token_costs: &file_token_costs,
+                    };
+                    let next_gain = self.compute_mckp_marginal_gain(
+                        top.symbol_id,
+                        j + 1,
+                        &current_ctx,
+                        frontier,
+                    );
+                    let next_density = next_gain / (next_delta_c as f32);
+                    heap.push(MckpItem {
+                        symbol_id: top.symbol_id,
+                        current_level_idx: j + 1,
+                        marginal_density: next_density,
+                        last_iteration: current_iteration,
+                    });
+                }
+            } else {
+                // Lazy re-evaluation
+                let current_ctx = MckpContext {
+                    graph,
+                    ppr_scores,
+                    covered_nodes: &covered_nodes,
+                    file_token_costs: &file_token_costs,
+                };
+                let current_gain =
+                    self.compute_mckp_marginal_gain(top.symbol_id, j, &current_ctx, frontier);
+                let current_density = current_gain / (delta_c as f32);
+                top.marginal_density = current_density;
+                top.last_iteration = current_iteration;
+                heap.push(top);
+            }
+        }
+
+        // 4. Khuller et al. (1999) / Sviridenko (2004) Best-Singleton Correction
+        if let Some((best_sym, best_lod, best_cost, best_util)) = best_singleton {
+            if best_util > cumulative_utility && best_cost <= budget {
+                let mut selected_lods = HashMap::new();
+                selected_lods.insert(best_sym, best_lod);
+                return MckpResult {
+                    selected_lods,
+                    total_tokens: best_cost,
+                    cumulative_utility: best_util,
+                    trace: vec![MckpTraceStep {
+                        symbol_id: best_sym,
+                        from_level: None,
+                        to_level: best_lod,
+                        incremental_cost: best_cost,
+                        cumulative_tokens: best_cost,
+                        marginal_gain: best_util,
+                        cumulative_utility: best_util,
+                    }],
+                };
+            }
+        }
+
+        // 5. Collect selected LOD levels
+        let mut selected_lods = HashMap::new();
+        for (&id, &state_idx) in &current_state {
+            if state_idx > 0 {
+                if let Some(level) = symbol_frontiers[&id][state_idx].level {
+                    selected_lods.insert(id, level);
+                }
+            }
+        }
+
+        MckpResult {
+            selected_lods,
+            total_tokens: current_tokens,
+            cumulative_utility,
+            trace,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -786,6 +1293,7 @@ mod tests {
             neighbor_coverage_weight: 0.0,
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
+            lod_weights: LodWeights::default(),
         });
 
         let selected = optimizer.optimize(&graph, &ppr_scores, 20);
@@ -859,6 +1367,7 @@ mod tests {
             neighbor_coverage_weight: 0.0,
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
+            lod_weights: LodWeights::default(),
         });
 
         // Budget = 10.
@@ -893,6 +1402,7 @@ mod tests {
             neighbor_coverage_weight: 0.0,
             min_relevance_threshold: 0.0,
             threshold_epsilon: Some(0.1),
+            lod_weights: LodWeights::default(),
         });
 
         let (selected, trace) = optimizer.optimize_with_trace(&graph, &ppr_scores, 30);
@@ -977,6 +1487,7 @@ mod tests {
             neighbor_coverage_weight: 0.0,
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
+            lod_weights: LodWeights::default(),
         });
 
         let selected = vec![SymbolId(0)];
@@ -990,5 +1501,229 @@ mod tests {
         assert_eq!(report.borderline_pairs[0].selected_symbol, SymbolId(0));
         assert_eq!(report.borderline_pairs[0].unselected_symbol, SymbolId(1));
         assert!(report.borderline_pairs[0].overlap > 0.0);
+    }
+
+    #[test]
+    fn test_pareto_frontier_deduplication_and_convex_hull() {
+        let mut s0 = make_test_node(0, "compute_hash", "src/crypto.rs", 20);
+        s0.docstring =
+            Some("Computes BLAKE3 cryptographic digest.\nVerifies integrity.".to_string());
+
+        let source = "/// Computes BLAKE3 cryptographic digest.\n/// Verifies integrity.\nfn compute_hash() {\n    let state = init();\n    let hash = finish(state);\n    return hash;\n}";
+
+        let frontier = build_pareto_frontier(
+            &s0,
+            Some(source),
+            TokenizerModel::FastHeuristic,
+            LodWeights::default(),
+        );
+
+        // Frontier must start with None at cost 0
+        assert_eq!(frontier[0].level, None);
+        assert_eq!(frontier[0].cost, 0);
+        assert_eq!(frontier[0].utility_multiplier, 0.0);
+
+        // Every subsequent option must have strictly increasing cost and utility multiplier
+        for i in 1..frontier.len() {
+            assert!(
+                frontier[i].cost > frontier[i - 1].cost,
+                "Costs not strictly increasing: {} <= {}",
+                frontier[i].cost,
+                frontier[i - 1].cost
+            );
+            assert!(
+                frontier[i].utility_multiplier > frontier[i - 1].utility_multiplier,
+                "Utilities not strictly increasing"
+            );
+        }
+
+        // Slopes must be strictly decreasing (upper convex hull condition)
+        for i in 2..frontier.len() {
+            let slope_prev = (frontier[i - 1].utility_multiplier
+                - frontier[i - 2].utility_multiplier)
+                / ((frontier[i - 1].cost - frontier[i - 2].cost) as f32);
+            let slope_cur = (frontier[i].utility_multiplier - frontier[i - 1].utility_multiplier)
+                / ((frontier[i].cost - frontier[i - 1].cost) as f32);
+            assert!(
+                slope_prev >= slope_cur,
+                "Convex hull violation: prev slope {} < cur slope {}",
+                slope_prev,
+                slope_cur
+            );
+        }
+    }
+
+    #[test]
+    fn test_pareto_frontier_prunes_empty_docstring() {
+        let s0 = make_test_node(0, "empty_doc", "src/lib.rs", 10);
+        let source = "fn empty_doc() {}";
+
+        let frontier = build_pareto_frontier(
+            &s0,
+            Some(source),
+            TokenizerModel::FastHeuristic,
+            LodWeights::default(),
+        );
+
+        // Since s0 has no docstring, SignatureAndDoc should not appear in the frontier
+        // because it provides identical text/cost as SignatureOnly
+        let has_doc = frontier
+            .iter()
+            .any(|opt| opt.level == Some(LodLevel::SignatureAndDoc));
+        assert!(
+            !has_doc,
+            "Redundant SignatureAndDoc was not pruned from Pareto frontier"
+        );
+    }
+
+    #[test]
+    fn test_mckp_joint_optimization_budget_invariant() {
+        let s0 = make_test_node(0, "root_handler", "src/main.rs", 10);
+        let mut s1 = make_test_node(1, "authenticate", "src/auth.rs", 15);
+        s1.docstring = Some("Authenticates bearer token".to_string());
+        let s2 = make_test_node(2, "log_event", "src/logger.rs", 8);
+
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &[], LayerWeights::default());
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(0), 0.50);
+        ppr_scores.insert(SymbolId(1), 0.35);
+        ppr_scores.insert(SymbolId(2), 0.15);
+
+        let mut sources = HashMap::new();
+        sources.insert(
+            PathBuf::from("src/main.rs"),
+            "fn root_handler() { let x = 1; }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/auth.rs"),
+            "/// Authenticates bearer token\nfn authenticate() { let y = 2; }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/logger.rs"),
+            "fn log_event() { println!(); }".to_string(),
+        );
+
+        let optimizer = CelfOptimizer::default();
+        let budgets = [15, 30, 60, 150];
+
+        for &b in &budgets {
+            let result = optimizer.optimize_mckp(
+                &graph,
+                &ppr_scores,
+                b,
+                &sources,
+                TokenizerModel::FastHeuristic,
+            );
+
+            assert!(
+                result.total_tokens <= b,
+                "MCKP total tokens {} exceeded budget {}",
+                result.total_tokens,
+                b
+            );
+
+            // Verified selected LODs match selected symbols
+            for (&sym_id, &lod) in &result.selected_lods {
+                assert!(graph.symbol(sym_id).is_some());
+                assert!(matches!(
+                    lod,
+                    LodLevel::SignatureOnly
+                        | LodLevel::SignatureAndDoc
+                        | LodLevel::SlicedBody
+                        | LodLevel::FullBody
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn test_mckp_incremental_upgrade_progression() {
+        let source = "/// Processes incoming encrypted payload in chunks\nfn process_payload() {\n    let decrypted = decrypt();\n    let verified = verify(decrypted);\n    return verified;\n}";
+        let mut s0 = make_test_node(0, "process_payload", "src/pipeline.rs", 10);
+        s0.docstring = Some("Processes incoming encrypted payload in chunks".to_string());
+        s0.span = TextSpan::new(0, source.len(), 0, 5);
+
+        let graph = MultiplexGraph::build(vec![s0.clone()], &[], LayerWeights::default());
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(0), 1.0);
+
+        let mut sources = HashMap::new();
+        sources.insert(PathBuf::from("src/pipeline.rs"), source.to_string());
+
+        let optimizer = CelfOptimizer::default();
+
+        // Very small budget: fits SignatureOnly
+        let res_small = optimizer.optimize_mckp(
+            &graph,
+            &ppr_scores,
+            15,
+            &sources,
+            TokenizerModel::FastHeuristic,
+        );
+        assert_eq!(res_small.selected_lods.len(), 1);
+        let lod_small = res_small.selected_lods[&SymbolId(0)];
+        assert_eq!(lod_small, LodLevel::SignatureOnly);
+
+        // Generous budget: upgrades to FullBody
+        let res_large = optimizer.optimize_mckp(
+            &graph,
+            &ppr_scores,
+            200,
+            &sources,
+            TokenizerModel::FastHeuristic,
+        );
+        assert_eq!(res_large.selected_lods.len(), 1);
+        let lod_large = res_large.selected_lods[&SymbolId(0)];
+        assert_eq!(lod_large, LodLevel::FullBody);
+        assert!(res_large.total_tokens > res_small.total_tokens);
+        assert!(res_large.cumulative_utility > res_small.cumulative_utility);
+    }
+
+    #[test]
+    fn test_mckp_best_singleton_supersedes_greedy() {
+        // Adversarial singleton instance for MCKP:
+        // Item 0: cheap signature (cost 6), low utility (0.01)
+        // Item 1: high utility item whose full body costs 10 (utility 1.0)
+        let s0 = make_test_node(0, "cheap_filler", "src/filler.rs", 6);
+        let mut s1 = make_test_node(1, "heavy_core", "src/core.rs", 10);
+        s1.span = TextSpan::new(0, 40, 0, 2);
+
+        let graph = MultiplexGraph::build(vec![s0, s1], &[], LayerWeights::default());
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(0), 0.05);
+        ppr_scores.insert(SymbolId(1), 10.0);
+
+        let mut sources = HashMap::new();
+        sources.insert(
+            PathBuf::from("src/filler.rs"),
+            "fn cheap_filler() {}".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/core.rs"),
+            "fn heavy_core() { expensive_work(); }".to_string(),
+        );
+
+        let optimizer = CelfOptimizer::new(CelfConfig {
+            lambda_diversity: 0.0,
+            neighbor_coverage_weight: 0.0,
+            min_relevance_threshold: 0.0,
+            threshold_epsilon: None,
+            lod_weights: LodWeights::default(),
+        });
+
+        // With budget 10, the best singleton s1 at FullBody provides enormous utility
+        let result = optimizer.optimize_mckp(
+            &graph,
+            &ppr_scores,
+            10,
+            &sources,
+            TokenizerModel::FastHeuristic,
+        );
+
+        assert_eq!(result.selected_lods.len(), 1);
+        assert!(result.selected_lods.contains_key(&SymbolId(1)));
     }
 }

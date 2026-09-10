@@ -27,7 +27,10 @@ pub use architecture::{
 pub use cache::{
     compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };
-pub use celf::{BorderlinePair, CelfConfig, CelfOptimizer, CelfTraceStep, SensitivityReport};
+pub use celf::{
+    BorderlinePair, CelfConfig, CelfOptimizer, CelfTraceStep, LodOption, LodWeights, MckpResult,
+    MckpTraceStep, SensitivityReport,
+};
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;
