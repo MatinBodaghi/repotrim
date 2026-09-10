@@ -190,6 +190,12 @@ impl MultiplexGraph {
     pub fn layer_weights(&self) -> &LayerWeights {
         &self.layer_weights
     }
+
+    /// Computes and returns the transposed (reverse) CSR matrix where edges point from callee to caller.
+    #[inline]
+    pub fn transpose_csr(&self) -> CsrMatrix {
+        self.raw_csr.transpose()
+    }
 }
 
 #[cfg(test)]
