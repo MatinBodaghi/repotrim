@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml"><img src="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License" /></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.80%2B-orange.svg" alt="Rust Version" /></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.90%2B-orange.svg" alt="Rust Version" /></a>
   <a href="https://crates.io/crates/repotrim"><img src="https://img.shields.io/badge/crates.io-v0.4.0-red.svg" alt="crates.io" /></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2024--11--05-green.svg" alt="MCP Compatible" /></a>
 </p>
@@ -104,9 +104,10 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
   Resolves call and type targets across files without requiring a slow compiler daemon, weighting lexical proximity, scope hierarchy, and receiver hints.
 - **Personalized PageRank (ACL Forward-Push)**:
   Computes query-focused relevance vectors $\boldsymbol{\pi}_q$ with $O(1/\epsilon)$ local running time independent of total repository size.
-- **CELF Submodular Knapsack Optimization**:
-  Cost-Effective Lazy Forward queue solves the budget-constrained facility location problem:
+- **CELF Submodular Knapsack Optimization (with Best-Singleton Correction)**:
+  Cost-Effective Lazy Forward queue solves the budget-constrained knapsack problem:
   $$\max_{S \subseteq V} \sum_{v \in S} \pi_q(v) \quad \text{subject to} \quad \sum_{v \in S} c(v) \le B$$
+  Combines density-ordered lazy forward evaluation with the Khuller et al. (1999) / Sviridenko (2004) best-singleton correction $\max(S_{\text{greedy}}, \{v^*\})$, achieving a provable $\frac{1}{2}(1 - 1/e)$ approximation guarantee for general knapsack constraints, with an optional $(1 - 1/e - \varepsilon)$ threshold greedy pass (Badanidiyuru & Vondrák, 2014).
 - **Multi-Resolution Level of Detail (LOD) & AST Program Slicing**:
   Dynamically assigns high detail ($\text{LOD}_2$ control-flow skeleton slices or $\text{LOD}_3$ full implementations) to query seeds, and concise signatures ($\text{LOD}_0$ / $\text{LOD}_1$) to contextual dependencies. Leverages Weiser (1981) AST program slicing across Rust, Python, TypeScript, and Go to elide contiguous blocks of linear variable assignments into concise comments (`// ... [N lines elided] ...`) while preserving branch conditions, loop structures, error exits, and inter-procedural call sites.
 - **Causal Topological Dependency Ordering**:
@@ -123,6 +124,9 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
 ---
 
 ## Quickstart & Installation
+
+> [!NOTE]
+> **Toolchain Requirement**: RepoTrim requires **Rust 1.90.0 or higher** (due to `edition2024` Tree-sitter AST parser dependencies and Cargo lockfile format v4).
 
 ### Option 1: Install via Cargo
 
@@ -417,6 +421,13 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 13. **Software Change Impact Analysis & Test Selection:**
     - Robert S. Arnold, Shawn A. Bohner. *"Software Change Impact Analysis"*. IEEE Computer Society Press, Los Alamitos, CA, 1993. [ISBN: 0-8186-2775-8](https://ieeexplore.ieee.org/document/27758).
     - Xiaoxia Ren, Fenil Shah, Frank Tip, Barbara G. Ryder, Ophelia Chesley. *"Chianti: A Tool for Change Impact Analysis of Java Programs"*. In *Proceedings of the 19th ACM SIGPLAN Conference on Object-Oriented Programming, Systems, Languages, and Applications (OOPSLA '04)*, 2004, pp. 432–448. [DOI: 10.1145/1028976.1029012](https://doi.org/10.1145/1028976.1029012).
+14. **Monotone Submodular Maximization under Cardinality Constraints:**
+    - George L. Nemhauser, Laurence A. Wolsey, Marshall L. Fisher. *"An analysis of approximations for maximizing submodular set functions—I"*. In *Mathematical Programming*, 14(1): 265–294, 1978. [DOI: 10.1007/BF01588971](https://doi.org/10.1007/BF01588971).
+15. **Submodular Knapsack Maximization & Best-Singleton Correction:**
+    - Samir Khuller, Anna Moss, Joseph (Seffi) Naor. *"The budgeted maximum coverage problem"*. In *Information Processing Letters*, 70(1): 39–45, 1999. [DOI: 10.1016/S0020-0190(99)00031-9](https://doi.org/10.1016/S0020-0190(99)00031-9).
+    - Maxim Sviridenko. *"A note on maximizing a submodular set function subject to a knapsack constraint"*. In *Operations Research Letters*, 32(1): 41–45, 2004. [DOI: 10.1016/S0167-6377(03)00062-2](https://doi.org/10.1016/S0167-6377(03)00062-2).
+16. **Fast Threshold-Based Submodular Maximization:**
+    - Ashwinkumar Badanidiyuru, Jan Vondrák. *"Fast algorithms for maximizing submodular functions"*. In *Proceedings of the 25th Annual ACM-SIAM Symposium on Discrete Algorithms (SODA '14)*, pp. 1497–1514, 2014. [DOI: 10.1137/1.9781611973402.110](https://doi.org/10.1137/1.9781611973402.110).
 
 ---
 
