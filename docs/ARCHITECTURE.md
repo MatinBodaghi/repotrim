@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **490** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **1826** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.152** | High cross-boundary integration |
+| **Total AST Symbols** | **521** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **2012** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.143** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -21,16 +21,16 @@ The following diagram illustrates the directed dependency flow between architect
 ```mermaid
 flowchart TD
     subgraph Presentation["Layer 1: Presentation & Entrypoints"]
-        subsys_crates_mcp_server["crates-mcp-server (47 syms)"]
-        subsys_crates_cli["crates-cli (40 syms)"]
+        subsys_crates_mcp_server["crates-mcp-server (48 syms)"]
+        subsys_crates_cli["crates-cli (41 syms)"]
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (403 syms)"]
+        subsys_crates_engine["crates-engine (432 syms)"]
     end
 
-    subsys_crates_mcp_server -->|"68 refs"| subsys_crates_engine
-    subsys_crates_cli -->|"92 refs"| subsys_crates_engine
+    subsys_crates_mcp_server -->|"72 refs"| subsys_crates_engine
+    subsys_crates_cli -->|"95 refs"| subsys_crates_engine
     subsys_crates_cli -->|"2 refs"| subsys_crates_mcp_server
     subsys_crates_engine -->|"2 refs"| subsys_crates_mcp_server
 ```
@@ -41,9 +41,9 @@ flowchart TD
 
 | Subsystem | Layer | Root Directory | Symbols | Tokens | Coupling (Out $\to$ In) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 47 | 1107 | crates-engine (68) |
-| **crates-cli** | `Presentation` | `crates/cli` | 40 | 2458 | crates-engine (92), crates-mcp-server (2) |
-| **crates-engine** | `Domain` | `crates/engine` | 403 | 12288 | crates-mcp-server (2) |
+| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 48 | 1117 | crates-engine (72) |
+| **crates-cli** | `Presentation` | `crates/cli` | 41 | 2522 | crates-engine (95), crates-mcp-server (2) |
+| **crates-engine** | `Domain` | `crates/engine` | 432 | 13468 | crates-mcp-server (2) |
 
 ---
 
@@ -53,19 +53,19 @@ flowchart TD
 
 *Ingress entrypoints, CLI commands, MCP protocol dispatchers, and UI components.*
 
-- **`crates-mcp-server`** (at `crates/mcp-server`): 47 symbols (1107 tokens).
-  - Depends on: `crates-engine` (68 refs)
+- **`crates-mcp-server`** (at `crates/mcp-server`): 48 symbols (1117 tokens).
+  - Depends on: `crates-engine` (72 refs)
   - Consumed by: `crates-cli` (2 callers), `crates-engine` (2 callers)
-- **`crates-cli`** (at `crates/cli`): 40 symbols (2458 tokens).
-  - Depends on: `crates-engine` (92 refs), `crates-mcp-server` (2 refs)
+- **`crates-cli`** (at `crates/cli`): 41 symbols (2522 tokens).
+  - Depends on: `crates-engine` (95 refs), `crates-mcp-server` (2 refs)
 
 ### Layer 2: Domain & Business Logic
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 403 symbols (12288 tokens).
+- **`crates-engine`** (at `crates/engine`): 432 symbols (13468 tokens).
   - Depends on: `crates-mcp-server` (2 refs)
-  - Consumed by: `crates-cli` (92 callers), `crates-mcp-server` (68 callers)
+  - Consumed by: `crates-cli` (95 callers), `crates-mcp-server` (72 callers)
 
 ---
 
@@ -75,21 +75,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 99 | 1 | 0.05342 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 83 | 1 | 0.01389 | `crates/engine/src/cache.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 63 | 2 | 0.00707 | `crates/engine/src/cache.rs` |
-| **`from`** | `Method` | `Domain` | 57 | 1 | 0.04013 | `crates/engine/src/error.rs` |
-| **`is_empty`** | `Method` | `Domain` | 50 | 1 | 0.00765 | `crates/engine/src/graph.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 48 | 3 | 0.00778 | `crates/engine/src/symbol.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 47 | 17 | 0.01652 | `crates/engine/src/graph.rs` |
-| **`as_str`** | `Method` | `Domain` | 39 | 1 | 0.01243 | `crates/engine/src/impact.rs` |
-| **`build`** | `Method` | `Domain` | 35 | 5 | 0.00211 | `crates/engine/src/graph.rs` |
-| **`new`** | `Method` | `Domain` | 29 | 1 | 0.02246 | `crates/engine/src/symbol.rs` |
-| **`default`** | `Method` | `Infrastructure` | 25 | 2 | 0.00347 | `crates/engine/src/cache.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 23 | 4 | 0.00112 | `crates/engine/src/loader.rs` |
-| **`EngineError`** | `Enum` | `Core` | 17 | 1 | 0.03774 | `crates/engine/src/error.rs` |
-| **`symbol`** | `Method` | `Core` | 20 | 3 | 0.00165 | `crates/engine/src/graph.rs` |
-| **`parse_file_with_imports`** | `Method` | `Domain` | 19 | 22 | 0.00210 | `crates/engine/src/parser.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 117 | 1 | 0.05653 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 88 | 1 | 0.01337 | `crates/engine/src/cache.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 71 | 2 | 0.00701 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 65 | 1 | 0.04019 | `crates/engine/src/error.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 54 | 3 | 0.00780 | `crates/engine/src/symbol.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 53 | 17 | 0.01623 | `crates/engine/src/graph.rs` |
+| **`is_empty`** | `Method` | `Domain` | 53 | 1 | 0.00734 | `crates/engine/src/graph.rs` |
+| **`as_str`** | `Method` | `Domain` | 44 | 1 | 0.01221 | `crates/engine/src/impact.rs` |
+| **`build`** | `Method` | `Domain` | 42 | 5 | 0.00210 | `crates/engine/src/graph.rs` |
+| **`new`** | `Method` | `Domain` | 29 | 1 | 0.02155 | `crates/engine/src/symbol.rs` |
+| **`default`** | `Method` | `Infrastructure` | 28 | 2 | 0.00337 | `crates/engine/src/cache.rs` |
+| **`symbol`** | `Method` | `Core` | 24 | 3 | 0.00169 | `crates/engine/src/graph.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 23 | 4 | 0.00106 | `crates/engine/src/loader.rs` |
+| **`EngineError`** | `Enum` | `Core` | 17 | 1 | 0.03759 | `crates/engine/src/error.rs` |
+| **`ContextSelector`** | `Struct` | `Domain` | 20 | 22 | 0.00198 | `crates/engine/src/selector.rs` |
 
 ---
 
@@ -332,6 +332,10 @@ pub struct SelectArgs {
     /// Display numerical stability diagnostics and knapsack sensitivity analysis
     #[arg(long = "diagnostics", alias = "sensitivity")]
     pub diagnostics: bool,
+
+    /// Enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization
+    #[arg(long = "joint-lod", alias = "mckp")]
+    pub joint_lod: bool,
 }
 ```
 
@@ -395,6 +399,17 @@ pub enum OutputFormat {
 
 ### Subsystem: `crates-engine`
 
+- **`build_pareto_frontier`** (`Function` in `crates/engine/src/celf.rs`):
+> Builds the Pareto-efficient upper convex hull of Level-of-Detail options for a symbol.
+```text
+pub fn build_pareto_frontier(
+    sym: &SymbolNode,
+    file_source: Option<&str>,
+    model: TokenizerModel,
+    weights: LodWeights,
+) -> Vec<LodOption>
+```
+
 - **`compute_blake3_hash`** (`Function` in `crates/engine/src/cache.rs`):
 > Computes the 32-byte BLAKE3 cryptographic hash of a byte slice.
 ```text
@@ -435,12 +450,6 @@ pub fn get_mtime_nanos(metadata: &fs::Metadata) -> u128
 > Inspects whether a given path is located within an ignored directory (e.g. .git, target).
 ```text
 pub fn is_ignored_path(path: &Path, root: &Path) -> bool
-```
-
-- **`normalize_path`** (`Function` in `crates/engine/src/import.rs`):
-> Normalizes a path by resolving `.` and `..` components logically.
-```text
-pub fn normalize_path(path: &Path) -> PathBuf
 ```
 
 ---

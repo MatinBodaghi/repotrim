@@ -413,3 +413,29 @@ fn test_cli_blueprint_with_tokenizer() {
     assert!(stdout.contains("--tokenizer exact"));
     assert!(stdout.contains("\"tokenizer\": \"exact\""));
 }
+
+#[test]
+fn test_cli_select_with_joint_lod() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "ContextSelector",
+            "--budget",
+            "500",
+            "--joint-lod",
+            "--format",
+            "json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select --joint-lod");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON output");
+    assert!(parsed.get("joint_lod").is_some());
+    assert_eq!(parsed["joint_lod"]["enabled"], true);
+    assert!(parsed["joint_lod"]["total_tokens"].as_u64().unwrap() <= 500);
+}

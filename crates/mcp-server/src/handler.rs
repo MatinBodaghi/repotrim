@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
     count_tokens, ArchitectureReport, ContextSelector, DiffResolver, ImpactAnalyzer,
-    IntentResolver, LoadedRepository, ModelProfile, PprSolver, RepositoryWatcher, SymbolId,
-    SymbolKind, TokenizerModel,
+    IntentResolver, LoadedRepository, LodLevel, ModelProfile, PprSolver, RepositoryWatcher,
+    SymbolId, SymbolKind, TokenizerModel,
 };
 
 use crate::protocol::{
@@ -177,6 +177,10 @@ impl McpHandler {
                         "diagnostics": {
                             "type": "boolean",
                             "description": "Optional flag to include knapsack numerical stability and sensitivity diagnostics"
+                        },
+                        "jointLod": {
+                            "type": "boolean",
+                            "description": "Optional flag to enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization"
                         }
                     }
                 }),
@@ -414,6 +418,10 @@ impl McpHandler {
             .get("diagnostics")
             .and_then(|d| d.as_bool())
             .unwrap_or(false);
+        let joint_lod = args
+            .get("jointLod")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false);
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -481,9 +489,26 @@ impl McpHandler {
         let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
         let graph = repo.build_graph();
         let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
-        let (selected, markdown, auto_report_opt, sensitivity_opt) = if let Some(ref model) =
-            model_profile
-        {
+        let (selected, markdown, auto_report_opt, sensitivity_opt, mckp_opt) = if joint_lod {
+            if let Some(ref model) = model_profile {
+                let (sel, md, rep, mckp) = selector
+                    .select_and_format_context_auto_weighted_joint_lod(
+                        &graph,
+                        &seed_pairs,
+                        *model,
+                        &repo.file_sources,
+                    );
+                (sel, md, Some(rep), None, Some(mckp))
+            } else {
+                let (sel, md, mckp) = selector.select_and_format_context_weighted_joint_lod(
+                    &graph,
+                    &seed_pairs,
+                    explicit_budget,
+                    &repo.file_sources,
+                );
+                (sel, md, None, None, Some(mckp))
+            }
+        } else if let Some(ref model) = model_profile {
             let (sel, md, rep) = selector.select_and_format_context_auto_weighted(
                 &graph,
                 &seed_pairs,
@@ -501,25 +526,23 @@ impl McpHandler {
             } else {
                 None
             };
-            (sel, md, Some(rep), sens)
+            (sel, md, Some(rep), sens, None)
+        } else if diagnostics {
+            let (sel, md, s) = selector.select_and_format_context_weighted_with_sensitivity(
+                &graph,
+                &seed_pairs,
+                explicit_budget,
+                &repo.file_sources,
+            );
+            (sel, md, None, Some(s), None)
         } else {
-            if diagnostics {
-                let (sel, md, s) = selector.select_and_format_context_weighted_with_sensitivity(
-                    &graph,
-                    &seed_pairs,
-                    explicit_budget,
-                    &repo.file_sources,
-                );
-                (sel, md, None, Some(s))
-            } else {
-                let (sel, md) = selector.select_and_format_context_weighted(
-                    &graph,
-                    &seed_pairs,
-                    explicit_budget,
-                    &repo.file_sources,
-                );
-                (sel, md, None, None)
-            }
+            let (sel, md) = selector.select_and_format_context_weighted(
+                &graph,
+                &seed_pairs,
+                explicit_budget,
+                &repo.file_sources,
+            );
+            (sel, md, None, None, None)
         };
 
         let total_tokens: usize = count_tokens(&markdown, tokenizer_model);
@@ -561,6 +584,9 @@ impl McpHandler {
             if let Some(ref sens) = sensitivity_opt {
                 json_val["sensitivity"] = serde_json::to_value(sens).unwrap();
             }
+            if let Some(ref mckp) = mckp_opt {
+                json_val["joint_lod"] = serde_json::to_value(mckp).unwrap();
+            }
             ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
         } else {
             let mut prefix = String::new();
@@ -578,6 +604,24 @@ impl McpHandler {
                     sens.selected_count,
                     sens.epsilon,
                     sens.max_error_bound,
+                ));
+            }
+            if let Some(ref mckp) = mckp_opt {
+                let mut sig_c = 0;
+                let mut doc_c = 0;
+                let mut slice_c = 0;
+                let mut full_c = 0;
+                for &lod in mckp.selected_lods.values() {
+                    match lod {
+                        LodLevel::SignatureOnly => sig_c += 1,
+                        LodLevel::SignatureAndDoc => doc_c += 1,
+                        LodLevel::SlicedBody => slice_c += 1,
+                        LodLevel::FullBody => full_c += 1,
+                    }
+                }
+                prefix.push_str(&format!(
+                    "<!-- Joint LOD (MCKP): Total Tokens: {}, Cumulative Utility: {:.3}, Levels: {} Signature, {} Sig+Doc, {} Sliced, {} Full -->\n\n",
+                    mckp.total_tokens, mckp.cumulative_utility, sig_c, doc_c, slice_c, full_c
                 ));
             }
             if !missing_seeds.is_empty() {

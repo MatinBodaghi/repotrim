@@ -278,3 +278,52 @@ fn test_mcp_exact_tokenizer() {
     let impact_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
     assert!(impact_text.contains("Semantic Change Impact Analysis Report"));
 }
+
+#[test]
+fn test_mcp_joint_lod() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":400,"jointLod":true,"format":"markdown","path":"{}"}}}}}}"#,
+            "\n",
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":400,"jointLod":true,"format":"json","path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 3);
+
+    // 2. trim_context with jointLod (markdown)
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md_text.contains("<!-- Joint LOD (MCKP):"));
+
+    // 3. trim_context with jointLod (json)
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert!(parsed_json.get("joint_lod").is_some());
+    assert!(parsed_json["joint_lod"]["total_tokens"].as_u64().unwrap() <= 400);
+}

@@ -1,7 +1,7 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
 use repotrim_engine::{
-    count_tokens, ContextSelector, DiffResolver, IntentResolver, ModelProfile, SymbolId,
+    count_tokens, ContextSelector, DiffResolver, IntentResolver, LodLevel, ModelProfile, SymbolId,
     TokenizerModel,
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,10 @@ pub struct SelectArgs {
     /// Display numerical stability diagnostics and knapsack sensitivity analysis
     #[arg(long = "diagnostics", alias = "sensitivity")]
     pub diagnostics: bool,
+
+    /// Enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization
+    #[arg(long = "joint-lod", alias = "mckp")]
+    pub joint_lod: bool,
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -294,47 +298,67 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
     let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
 
     let select_start = Instant::now();
-    let (selected_symbols, markdown, auto_report_opt, sensitivity_opt) =
+    let (selected_symbols, markdown, auto_report_opt, sensitivity_opt, mckp_opt) = if args.joint_lod
+    {
         if let Some(ref model) = model_profile {
-            let (selected, md, report) = selector.select_and_format_context_auto_weighted(
-                &graph,
-                &seed_pairs,
-                *model,
-                &repo.file_sources,
-            );
-            let sens = if args.diagnostics {
-                let (_, _, s) = selector.select_and_format_context_weighted_with_sensitivity(
+            let (selected, md, report, mckp) = selector
+                .select_and_format_context_auto_weighted_joint_lod(
                     &graph,
                     &seed_pairs,
-                    report.knee_tokens,
+                    *model,
                     &repo.file_sources,
                 );
-                Some(s)
-            } else {
-                None
-            };
-            (selected, md, Some(report), sens)
+            (selected, md, Some(report), None, Some(mckp))
         } else {
             let budget = explicit_budget.unwrap();
-            if args.diagnostics {
-                let (selected, md, sens) = selector
-                    .select_and_format_context_weighted_with_sensitivity(
-                        &graph,
-                        &seed_pairs,
-                        budget,
-                        &repo.file_sources,
-                    );
-                (selected, md, None, Some(sens))
-            } else {
-                let (selected, md) = selector.select_and_format_context_weighted(
+            let (selected, md, mckp) = selector.select_and_format_context_weighted_joint_lod(
+                &graph,
+                &seed_pairs,
+                budget,
+                &repo.file_sources,
+            );
+            (selected, md, None, None, Some(mckp))
+        }
+    } else if let Some(ref model) = model_profile {
+        let (selected, md, report) = selector.select_and_format_context_auto_weighted(
+            &graph,
+            &seed_pairs,
+            *model,
+            &repo.file_sources,
+        );
+        let sens = if args.diagnostics {
+            let (_, _, s) = selector.select_and_format_context_weighted_with_sensitivity(
+                &graph,
+                &seed_pairs,
+                report.knee_tokens,
+                &repo.file_sources,
+            );
+            Some(s)
+        } else {
+            None
+        };
+        (selected, md, Some(report), sens, None)
+    } else {
+        let budget = explicit_budget.unwrap();
+        if args.diagnostics {
+            let (selected, md, sens) = selector
+                .select_and_format_context_weighted_with_sensitivity(
                     &graph,
                     &seed_pairs,
                     budget,
                     &repo.file_sources,
                 );
-                (selected, md, None, None)
-            }
-        };
+            (selected, md, None, Some(sens), None)
+        } else {
+            let (selected, md) = selector.select_and_format_context_weighted(
+                &graph,
+                &seed_pairs,
+                budget,
+                &repo.file_sources,
+            );
+            (selected, md, None, None, None)
+        }
+    };
     let select_duration = select_start.elapsed();
 
     let total_tokens_used: usize = count_tokens(&markdown, tokenizer_model);
@@ -366,6 +390,30 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             tokenizer_model.name().cyan(),
             explicit_budget.unwrap(),
             select_duration
+        );
+    }
+
+    if let Some(ref mckp) = mckp_opt {
+        let mut sig_c = 0;
+        let mut doc_c = 0;
+        let mut slice_c = 0;
+        let mut full_c = 0;
+        for &lod in mckp.selected_lods.values() {
+            match lod {
+                LodLevel::SignatureOnly => sig_c += 1,
+                LodLevel::SignatureAndDoc => doc_c += 1,
+                LodLevel::SlicedBody => slice_c += 1,
+                LodLevel::FullBody => full_c += 1,
+            }
+        }
+        eprintln!(
+            "  {} Joint LOD (MCKP): {} signature, {} sig+doc, {} sliced, {} full (utility: {:.3})",
+            "→".cyan().bold(),
+            sig_c.to_string().bold(),
+            doc_c.to_string().bold(),
+            slice_c.to_string().bold(),
+            full_c.to_string().bold(),
+            mckp.cumulative_utility
         );
     }
 
@@ -480,6 +528,16 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             }
             if let Some(ref sens) = sensitivity_opt {
                 json_obj["sensitivity"] = serde_json::to_value(sens)?;
+            }
+            if let Some(ref mckp) = mckp_opt {
+                json_obj["joint_lod"] = serde_json::json!({
+                    "enabled": true,
+                    "total_tokens": mckp.total_tokens,
+                    "cumulative_utility": mckp.cumulative_utility,
+                    "selected_lods": mckp.selected_lods.iter().map(|(id, lod)| {
+                        (id.0.to_string(), format!("{:?}", lod))
+                    }).collect::<HashMap<_, _>>(),
+                });
             }
             serde_json::to_string_pretty(&json_obj)?
         }
