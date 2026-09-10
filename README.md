@@ -107,8 +107,10 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
 - **CELF Submodular Knapsack Optimization**:
   Cost-Effective Lazy Forward queue solves the budget-constrained facility location problem:
   $$\max_{S \subseteq V} \sum_{v \in S} \pi_q(v) \quad \text{subject to} \quad \sum_{v \in S} c(v) \le B$$
-- **Multi-Resolution Level of Detail (LOD)**:
-  Dynamically assigns high detail ($\text{LOD}_2$ slices or $\text{LOD}_3$ full implementations) to query seeds, and concise signatures ($\text{LOD}_0$ / $\text{LOD}_1$) to contextual dependencies.
+- **Multi-Resolution Level of Detail (LOD) & AST Program Slicing**:
+  Dynamically assigns high detail ($\text{LOD}_2$ control-flow skeleton slices or $\text{LOD}_3$ full implementations) to query seeds, and concise signatures ($\text{LOD}_0$ / $\text{LOD}_1$) to contextual dependencies. Leverages Weiser (1981) AST program slicing across Rust, Python, TypeScript, and Go to elide contiguous blocks of linear variable assignments into concise comments (`// ... [N lines elided] ...`) while preserving branch conditions, loop structures, error exits, and inter-procedural call sites.
+- **Causal Topological Dependency Ordering**:
+  Sequences multi-file Markdown context outlines via Kahn's algorithm (1962) in causal dependency order (callees and foundational data models precede caller orchestrators) rather than naive alphabetical ordering, optimizing autoregressive LLM attention bias.
 - **Container-Scoped Context Rendering**:
   Outlines nest member methods inside their enclosing parent containers (`impl Struct { ... }`, `impl Trait for Struct { ... }`, `class Class:`, `class Class { ... }`) with 4-space indentation and exact source line comments. Disambiguates identically named methods across traits and provides explicit type-ownership context for LLMs.
 - **Incremental Merkle Caching**:
@@ -341,6 +343,7 @@ repotrim/
     │       ├── intent.rs       # BM25 + trigram + semantic hybrid query resolver
     │       ├── parser.rs       # Polyglot Tree-sitter AST symbol extractor
     │       ├── selector.rs     # CELF knapsack context selector
+    │       ├── slicer.rs       # AST control-flow program slicer (Weiser 1981)
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
     │       └── tokens.rs       # In-engine allocation-free BPE token estimator
     ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, mcp)
@@ -391,6 +394,10 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
    - Luan Gao, Zhuyun Dai, Jamie Callan. *"COIL: Efficient Dense-Sparse Hybrid Retrieval"*. In *ACM SIGIR Conference on Research and Development in Information Retrieval*, 2021. [arXiv:2104.07186](https://arxiv.org/abs/2104.07186).
 10. **Knee Point Detection in Discrete Curvature (Kneedle):**
     - Ville Satopää, Jeannie Albrecht, David Irwin, Barath Raghavan. *"Finding a 'Kneedle' in a Haystack: Detecting Knee Points in System Behavior"*. In *31st International Conference on Distributed Computing Systems Workshops (ICDCSW)*, 2011, pp. 166–171. [DOI: 10.1109/ICDCSW.2011.20](https://doi.org/10.1109/ICDCSW.2011.20).
+11. **Program Slicing & Control-Flow Skeletonization:**
+    - Mark Weiser. *"Program Slicing"*. In *Proceedings of the 5th International Conference on Software Engineering (ICSE '81)*, pp. 439–449, 1981; *IEEE Transactions on Software Engineering*, SE-10(4): 352–357, 1984. [DOI: 10.1109/TSE.1984.5010248](https://doi.org/10.1109/TSE.1984.5010248).
+12. **Topological Ordering (Kahn's Algorithm):**
+    - Arthur B. Kahn. *"Topological sorting of large networks"*. In *Communications of the ACM*, 5(11): 558–562, 1962. [DOI: 10.1145/368996.369025](https://doi.org/10.1145/368996.369025).
 
 ---
 

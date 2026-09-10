@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AST Control-Flow Program Slicing & Causal Topological Ordering (Phase 20)**:
+  - Replaced placeholder dummy slicing with true AST program slicing (`AstSlicer`, `LodLevel::SlicedBody`) based on Mark Weiser (1981).
+  - Traverses Tree-sitter ASTs across Rust, Python, TypeScript, and Go, preserving branch conditions, loop structures, error exits (`return`, `throw`, `raise`, `panic!`, `?`), docstrings, and call invocations while eliding linear variable declarations into concise omission comments (`// ... [N lines elided] ...`).
+  - Implemented causal topological file ordering in `ContextFormatter` using Kahn's algorithm (1962), sequencing files so prerequisite data types and callees precede caller orchestrators.
+  - Added deterministic alphabetical tie-breaking and graceful cycle fallback.
+  - Added academic citations for Weiser (1981) and Kahn (1962) in code docstrings and `README.md`.
+  - Added comprehensive integration test suite in `crates/engine/tests/program_slicing_test.rs`.
 - **Container-Scoped Context Rendering (Phase 19)**:
   - Extracted parent structural containers (`container_name`) and implemented traits (`trait_name`) on `SymbolNode` across Rust, Python, TypeScript, and Go.
   - Grouped member methods under enclosing `impl <Type> { ... }`, `impl <Trait> for <Type> { ... }`, `class <Class>:`, and `class <Class> { ... }` blocks with 4-space indentation and exact source line comments.
