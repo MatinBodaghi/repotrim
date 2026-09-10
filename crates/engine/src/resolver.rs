@@ -358,6 +358,8 @@ mod tests {
             docstring: None,
             token_cost: 5,
             ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
         }
     }
 

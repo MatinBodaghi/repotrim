@@ -20,6 +20,8 @@ fn test_intent_resolver_bm25_and_fuzzy() {
         ),
         token_cost: 15,
         ast_hash: [0u8; 32],
+        container_name: None,
+        trait_name: None,
     };
 
     let s1 = SymbolNode {
@@ -32,6 +34,8 @@ fn test_intent_resolver_bm25_and_fuzzy() {
         docstring: Some("Validates JWT token and extracts user identity.".to_string()),
         token_cost: 25,
         ast_hash: [1u8; 32],
+        container_name: None,
+        trait_name: None,
     };
 
     let s2 = SymbolNode {
@@ -44,6 +48,8 @@ fn test_intent_resolver_bm25_and_fuzzy() {
         docstring: Some("Compressed Sparse Row sparse matrix representation.".to_string()),
         token_cost: 20,
         ast_hash: [2u8; 32],
+        container_name: None,
+        trait_name: None,
     };
 
     let symbols = vec![s0, s1, s2];
@@ -105,6 +111,8 @@ index 789..abc 100644
         docstring: None,
         token_cost: 20,
         ast_hash: [0u8; 32],
+        container_name: None,
+        trait_name: None,
     };
 
     let s1 = SymbolNode {
@@ -117,6 +125,8 @@ index 789..abc 100644
         docstring: None,
         token_cost: 10,
         ast_hash: [1u8; 32],
+        container_name: None,
+        trait_name: None,
     };
 
     let symbols = vec![s0, s1];

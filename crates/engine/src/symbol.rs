@@ -69,6 +69,12 @@ pub struct SymbolNode {
     pub docstring: Option<String>,
     pub token_cost: usize,
     pub ast_hash: [u8; 32],
+    /// Name of the enclosing class, struct, or container if this symbol is a member/method.
+    #[serde(default)]
+    pub container_name: Option<String>,
+    /// Name of the trait implemented by the enclosing block (e.g. `Clone` in `impl Clone for Foo`).
+    #[serde(default)]
+    pub trait_name: Option<String>,
 }
 
 /// Kind of relationship represented by a reference edge.

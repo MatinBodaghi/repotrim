@@ -280,6 +280,8 @@ mod tests {
             docstring: None,
             token_cost: cost,
             ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
         }
     }
 

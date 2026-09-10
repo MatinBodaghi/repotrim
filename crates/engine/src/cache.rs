@@ -9,7 +9,7 @@ use crate::import::FileImport;
 use crate::symbol::{ReferenceEdge, SymbolId, SymbolNode};
 
 /// Current cache schema version. Incremented whenever the binary structure changes.
-pub const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 
 /// Extracted AST symbol and edge metadata cached per individual source file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,6 +202,8 @@ mod tests {
             docstring: None,
             token_cost: 5,
             ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
         }
     }
 

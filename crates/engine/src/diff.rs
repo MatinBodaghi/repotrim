@@ -278,6 +278,8 @@ index 111..222 100644
             docstring: None,
             token_cost: 20,
             ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
         };
 
         let s1 = SymbolNode {
@@ -290,6 +292,8 @@ index 111..222 100644
             docstring: None,
             token_cost: 15,
             ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
         };
 
         let mut diff_map = HashMap::new();

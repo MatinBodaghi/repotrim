@@ -246,6 +246,9 @@ impl AstExtractor {
 
                     fn_node_to_symbol_id.insert(node.id(), id);
 
+                    let mut container_name = None;
+                    let mut trait_name = None;
+
                     // Link method to enclosing class/struct/impl via AstParent edge
                     match lang {
                         SupportedLanguage::Rust => {
@@ -253,16 +256,18 @@ impl AstExtractor {
                                 if let Some(impl_type) = find_enclosing_impl_type(node, source) {
                                     edges.push(ReferenceEdge {
                                         source: id,
-                                        target_ident: impl_type,
+                                        target_ident: impl_type.clone(),
                                         kind: EdgeKind::AstParent,
                                     });
+                                    container_name = Some(impl_type);
                                 }
                                 if let Some(impl_trait) = find_enclosing_impl_trait(node, source) {
                                     edges.push(ReferenceEdge {
                                         source: id,
-                                        target_ident: impl_trait,
+                                        target_ident: impl_trait.clone(),
                                         kind: EdgeKind::TypeRef,
                                     });
+                                    trait_name = Some(impl_trait);
                                 }
                             }
                         }
@@ -272,18 +277,20 @@ impl AstExtractor {
                             if let Some(enclosing_class) = find_enclosing_class_name(node, source) {
                                 edges.push(ReferenceEdge {
                                     source: id,
-                                    target_ident: enclosing_class,
+                                    target_ident: enclosing_class.clone(),
                                     kind: EdgeKind::AstParent,
                                 });
+                                container_name = Some(enclosing_class);
                             }
                         }
                         SupportedLanguage::Go => {
                             if let Some(receiver_type) = find_go_receiver_type(node, source) {
                                 edges.push(ReferenceEdge {
                                     source: id,
-                                    target_ident: receiver_type,
+                                    target_ident: receiver_type.clone(),
                                     kind: EdgeKind::AstParent,
                                 });
+                                container_name = Some(receiver_type);
                             }
                         }
                     }
@@ -316,6 +323,8 @@ impl AstExtractor {
                         docstring,
                         token_cost,
                         ast_hash,
+                        container_name,
+                        trait_name,
                     });
                 } else if Some(capture.index) == struct_capture_idx {
                     if !seen_symbol_nodes.insert(node.id()) {
@@ -402,6 +411,8 @@ impl AstExtractor {
                         docstring,
                         token_cost,
                         ast_hash,
+                        container_name: None,
+                        trait_name: None,
                     });
                 } else if Some(capture.index) == enum_capture_idx {
                     if !seen_symbol_nodes.insert(node.id()) {
@@ -452,6 +463,8 @@ impl AstExtractor {
                         docstring,
                         token_cost,
                         ast_hash,
+                        container_name: None,
+                        trait_name: None,
                     });
                 } else if Some(capture.index) == trait_capture_idx {
                     if !seen_symbol_nodes.insert(node.id()) {
@@ -504,6 +517,8 @@ impl AstExtractor {
                         docstring,
                         token_cost,
                         ast_hash,
+                        container_name: None,
+                        trait_name: None,
                     });
                 }
             }
