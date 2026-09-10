@@ -45,7 +45,7 @@ pub use resolver::ScopedResolver;
 pub use selector::{AutoBudgetReport, ContextSelector};
 pub use slicer::AstSlicer;
 pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
-pub use tokens::estimate_tokens;
+pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
 pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
 
 #[cfg(test)]
