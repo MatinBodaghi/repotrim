@@ -30,6 +30,8 @@ enum Commands {
     Inspect(commands::inspect::InspectArgs),
     /// Clear incremental AST Merkle cache (.repotrim directory)
     Clean(commands::clean::CleanArgs),
+    /// Trace semantic blast radius, ripple effects, and affected test targets of code changes
+    Impact(commands::impact::ImpactArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -46,6 +48,7 @@ fn main() {
         Commands::Stats(args) => commands::stats::execute(args),
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),
+        Commands::Impact(args) => commands::impact::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
     };

@@ -221,6 +221,32 @@ impl DiffResolver {
             ))),
         }
     }
+
+    /// Executes `git diff <revision>` in the specified directory to extract changes against a branch or commit.
+    pub fn get_git_diff_against(working_dir: &Path, revision: &str) -> Result<String, EngineError> {
+        let output = Command::new("git")
+            .args(["diff", revision])
+            .current_dir(working_dir)
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).to_string()),
+            Ok(out) => {
+                let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
+                Err(EngineError::GitError(format!(
+                    "git diff {} exited with code {:?}: {}",
+                    revision,
+                    out.status.code(),
+                    err_msg
+                )))
+            }
+            Err(e) => Err(EngineError::GitError(format!(
+                "Failed to execute git in '{}': {}",
+                working_dir.display(),
+                e
+            ))),
+        }
+    }
 }
 
 #[cfg(test)]
