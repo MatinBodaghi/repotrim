@@ -40,7 +40,7 @@ pub use knee::{KneePoint, KneedleDetector};
 pub use loader::{CacheReport, LoadedRepository};
 pub use model::ModelProfile;
 pub use parser::{AstExtractor, SupportedLanguage};
-pub use ppr::{PprConfig, PprSolver};
+pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use resolver::ScopedResolver;
 pub use selector::{AutoBudgetReport, ContextSelector};
 pub use slicer::AstSlicer;

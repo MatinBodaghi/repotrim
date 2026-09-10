@@ -25,6 +25,51 @@ impl Default for PprConfig {
     }
 }
 
+/// Detailed output from the Andersen-Chung-Lang (ACL) Forward-Push PPR solver,
+/// including point-wise relevance scores, unallocated residuals, and theoretical error bounds.
+///
+/// # Mathematical Error Bounds (Andersen, Chung & Lang, 2006)
+/// The stationary Personalized PageRank vector $p^*$ satisfies the matrix invariant:
+/// $$p^* = p + (I - (1 - \alpha) P^T)^{-1} r$$
+/// Because remaining residuals $r(u) \ge 0$ for all $u \in V$, the computed PageRank
+/// vector $p$ is a strict monotone lower bound on the true stationary distribution ($p \le p^*$).
+///
+/// For any node $v \in V$, the point-wise approximation error $|p^*(v) - p(v)|$ is bounded by:
+/// $$\delta(v) \le \frac{\max(\varepsilon, r_{\max})}{\alpha} \cdot \max(1.0, d_{\text{in}}(v))$$
+/// where $r_{\max} = \max_{u \in V} r(u)$, $\alpha$ is the teleportation damping factor, and
+/// $d_{\text{in}}(v)$ is the in-degree of $v$ in the graph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PprResult {
+    /// Personalized PageRank relevance scores p(v) for symbols with score > 0.
+    pub scores: HashMap<SymbolId, f32>,
+    /// Remaining unpushed residuals r(v) at algorithm termination.
+    pub residuals: HashMap<SymbolId, f32>,
+    /// Theoretical maximum point-wise error bounds delta(v) = |p*(v) - p(v)|.
+    pub error_bounds: HashMap<SymbolId, f32>,
+    /// Maximum residual across all nodes at termination: max_{u} r(u).
+    pub max_residual: f32,
+    /// Sum of all remaining residuals (unallocated probability mass): sum_{u} r(u).
+    pub total_residual: f32,
+    /// Total number of push iterations performed.
+    pub iterations: usize,
+    /// Whether the solver reached max_iterations before full convergence.
+    pub truncated: bool,
+}
+
+impl Default for PprResult {
+    fn default() -> Self {
+        Self {
+            scores: HashMap::new(),
+            residuals: HashMap::new(),
+            error_bounds: HashMap::new(),
+            max_residual: 0.0,
+            total_residual: 0.0,
+            iterations: 0,
+            truncated: false,
+        }
+    }
+}
+
 /// High-performance local Personalized PageRank (PPR) solver using the Andersen-Chung-Lang (ACL)
 /// Forward-Push algorithm.
 ///
@@ -51,9 +96,17 @@ impl PprSolver {
         graph: &MultiplexGraph,
         seeds: &[(SymbolId, f32)],
     ) -> HashMap<SymbolId, f32> {
+        self.compute_detailed(graph, seeds).scores
+    }
+
+    /// Computes Personalized PageRank diffusion scores and detailed error bounds seeded at `(SymbolId, weight)`.
+    ///
+    /// Evaluates the Andersen-Chung-Lang (2006) forward-push algorithm and computes point-wise
+    /// theoretical error bounds $\delta(v) \le \frac{\max(\varepsilon, r_{\max})}{\alpha} \max(1, d_{\text{in}}(v))$.
+    pub fn compute_detailed(&self, graph: &MultiplexGraph, seeds: &[(SymbolId, f32)]) -> PprResult {
         let n = graph.num_symbols();
         if n == 0 || seeds.is_empty() {
-            return HashMap::new();
+            return PprResult::default();
         }
 
         let alpha = self.config.alpha;
@@ -68,7 +121,7 @@ impl PprSolver {
         // Normalize seed distribution
         let total_seed_weight: f32 = seeds.iter().map(|s| s.1.max(0.0)).sum();
         if total_seed_weight <= 0.0 {
-            return HashMap::new();
+            return PprResult::default();
         }
 
         let inv_seed_sum = 1.0 / total_seed_weight;
@@ -85,6 +138,7 @@ impl PprSolver {
         }
 
         let mut iterations = 0;
+        let mut truncated = false;
 
         // Forward-Push iteration loop
         while let Some(u) = queue.pop_front() {
@@ -98,6 +152,7 @@ impl PprSolver {
 
             iterations += 1;
             if iterations >= self.config.max_iterations {
+                truncated = true;
                 break;
             }
 
@@ -126,15 +181,52 @@ impl PprSolver {
             }
         }
 
-        // Return non-zero scores mapped to SymbolId
-        let mut result = HashMap::with_capacity(p.iter().filter(|&&score| score > 0.0).count());
-        for (i, &score) in p.iter().enumerate() {
-            if score > 0.0 {
-                result.insert(SymbolId(i as u32), score);
+        // Compute in-degrees in O(|E|) time for error bounding
+        let mut in_degrees = vec![0usize; n];
+        for row in 0..n {
+            for &target in csr.neighbors(row as u32) {
+                if (target as usize) < n {
+                    in_degrees[target as usize] += 1;
+                }
             }
         }
 
-        result
+        let max_residual = r.iter().copied().fold(0.0_f32, f32::max);
+        let total_residual: f32 = r.iter().copied().sum();
+        let effective_eps = if truncated {
+            max_residual.max(epsilon)
+        } else {
+            epsilon
+        };
+
+        let mut scores = HashMap::with_capacity(p.iter().filter(|&&score| score > 0.0).count());
+        let mut residuals = HashMap::new();
+        let mut error_bounds = HashMap::with_capacity(n);
+
+        for (i, &score) in p.iter().enumerate() {
+            let id = SymbolId(i as u32);
+            if score > 0.0 {
+                scores.insert(id, score);
+            }
+            let res = r[i];
+            if res > 0.0 {
+                residuals.insert(id, res);
+            }
+            // Andersen-Chung-Lang (2006) theorem: |p*(v) - p(v)| <= (eps / alpha) * max(1, deg_in(v))
+            let deg_in = in_degrees[i] as f32;
+            let bound = (effective_eps / alpha) * deg_in.max(1.0);
+            error_bounds.insert(id, bound);
+        }
+
+        PprResult {
+            scores,
+            residuals,
+            error_bounds,
+            max_residual,
+            total_residual,
+            iterations,
+            truncated,
+        }
     }
 }
 
@@ -267,5 +359,95 @@ mod tests {
 
         assert_eq!(ppr.len(), 1);
         assert_eq!(ppr.get(&SymbolId(0)), Some(&1.0));
+    }
+
+    #[test]
+    fn test_ppr_detailed_residuals_and_bounds() {
+        let symbols = vec![
+            make_test_node(0, "root", "a.rs"),
+            make_test_node(1, "middle", "a.rs"),
+            make_test_node(2, "leaf", "a.rs"),
+        ];
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "middle".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "leaf".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph = MultiplexGraph::build(symbols, &edges, LayerWeights::default());
+        let solver = PprSolver::new(PprConfig {
+            alpha: 0.15,
+            epsilon: 1e-4,
+            max_iterations: 10_000,
+        });
+
+        let res = solver.compute_detailed(&graph, &[(SymbolId(0), 1.0)]);
+        assert!(!res.truncated);
+        assert!(res.iterations > 0);
+        assert!(res.max_residual < 1e-4);
+        assert!(res.total_residual >= 0.0);
+        assert_eq!(res.error_bounds.len(), 3);
+
+        // Every node must have a positive theoretical error bound
+        for &bound in res.error_bounds.values() {
+            assert!(bound > 0.0, "Theoretical error bound must be > 0.0");
+        }
+
+        // Middle has in-degree 1, root has in-degree 0
+        let root_bound = res.error_bounds.get(&SymbolId(0)).copied().unwrap();
+        let middle_bound = res.error_bounds.get(&SymbolId(1)).copied().unwrap();
+        assert!(root_bound > 0.0);
+        assert!(middle_bound > 0.0);
+    }
+
+    #[test]
+    fn test_ppr_detailed_iteration_truncation() {
+        let symbols = vec![
+            make_test_node(0, "loop_a", "a.rs"),
+            make_test_node(1, "loop_b", "a.rs"),
+        ];
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "loop_b".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "loop_a".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph = MultiplexGraph::build(symbols, &edges, LayerWeights::default());
+        // Configure only 1 iteration so truncation triggers
+        let solver = PprSolver::new(PprConfig {
+            alpha: 0.15,
+            epsilon: 1e-8,
+            max_iterations: 1,
+        });
+
+        let res = solver.compute_detailed(&graph, &[(SymbolId(0), 1.0)]);
+        assert!(res.truncated);
+        assert_eq!(res.iterations, 1);
+        assert!(res.max_residual >= 1e-8);
+    }
+
+    #[test]
+    fn test_ppr_detailed_empty_graph_and_seeds() {
+        let solver = PprSolver::default();
+        let graph = MultiplexGraph::build(vec![], &[], LayerWeights::default());
+
+        let res = solver.compute_detailed(&graph, &[]);
+        assert_eq!(res, PprResult::default());
     }
 }
