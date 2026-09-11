@@ -8,11 +8,13 @@
 //! equipped with causal paths and transparent omission diagnostics.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::cost::CostBreakdown;
-use crate::symbol::{LodLevel, NodeType, RelationType, SymbolId, SymbolKind, TextSpan};
+use crate::symbol::{LodLevel, NodeType, RelationType, SymbolId, SymbolKind, SymbolNode, TextSpan};
 use crate::task::TaskContext;
+use crate::tokens::TokenizerModel;
 
 /// A structured, self-contained symbol node in the context selection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -199,6 +201,62 @@ impl StructuredContext {
         self.symbols.iter().any(|s| s.id == id)
     }
 
+    /// Manually records a single omission diagnostic.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_omission(
+        &mut self,
+        symbol_id: SymbolId,
+        name: impl Into<String>,
+        file_path: PathBuf,
+        token_cost: usize,
+        relevance_score: f32,
+        marginal_utility: f32,
+        reason: OmissionReason,
+        explanation: impl Into<String>,
+    ) {
+        self.omissions.push(OmissionDiagnostic {
+            symbol_id,
+            name: name.into(),
+            file_path,
+            token_cost,
+            relevance_score,
+            marginal_utility,
+            reason,
+            explanation: explanation.into(),
+        });
+    }
+
+    /// Computes and sets the aggregate confidence score $\in [0, 1]$ measuring context sufficiency.
+    ///
+    /// Combines relevance mass preservation ratio, budget saturation, and causal path completeness.
+    pub fn update_confidence_score(&mut self, total_relevance: f32) {
+        let selected_relevance: f32 = self.symbols.iter().map(|s| s.score).sum();
+        let relevance_ratio = if total_relevance > 1e-6 {
+            (selected_relevance / total_relevance).clamp(0.0, 1.0)
+        } else if !self.symbols.is_empty() {
+            1.0
+        } else {
+            0.0
+        };
+
+        let budget_efficiency = if self.budget_limit > 0 {
+            ((self.tokens_used as f32) / (self.budget_limit as f32)).min(1.0)
+        } else {
+            0.0
+        };
+
+        let path_factor = if !self.paths.is_empty() {
+            let avg_prob: f32 =
+                self.paths.iter().map(|p| p.probability).sum::<f32>() / (self.paths.len() as f32);
+            0.10 * avg_prob.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        self.confidence_score =
+            (0.70 * relevance_ratio + 0.20 * budget_efficiency + path_factor).clamp(0.0, 1.0);
+    }
+
     /// Serializes this structured context to a JSON string.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
@@ -212,6 +270,99 @@ impl StructuredContext {
     /// Deserializes a `StructuredContext` from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
+    }
+}
+
+/// Diagnostician analyzing omitted candidates after budgeted knapsack selection.
+pub struct OmissionDiagnostician;
+
+impl OmissionDiagnostician {
+    /// Evaluates and categorizes candidate symbols that were not selected into the context.
+    ///
+    /// # Diagnostic Criteria:
+    /// 1. `BelowCutoffThreshold`: Candidate initial relevance $r(v) < \tau_{\min}$.
+    /// 2. `BudgetExhausted`: Candidate token cost $c(v)$ exceeds the remaining token budget
+    ///    $B - \sum_{u \in S} c(u)$ or standalone budget limit $B$.
+    /// 3. `RedundancySuppressed`: Candidate marginal utility gain $\Delta(v \mid S)$ was heavily
+    ///    discounted ($\le 0.15 \cdot r(v)$ or $\le 0$) due to mutual overlap with already selected symbols.
+    /// 4. `MarginalUtilityDepleted`: Candidate was viable and fits budget, but had lower marginal
+    ///    utility per token than the selected candidates.
+    #[allow(clippy::too_many_arguments)]
+    pub fn diagnose(
+        candidates: &[SymbolNode],
+        selected_ids: &HashSet<SymbolId>,
+        ppr_scores: &HashMap<SymbolId, f32>,
+        marginal_gains: &HashMap<SymbolId, f32>,
+        remaining_budget: usize,
+        budget_limit: usize,
+        min_relevance_threshold: f32,
+        tokenizer: TokenizerModel,
+    ) -> Vec<OmissionDiagnostic> {
+        let mut omissions = Vec::new();
+
+        for sym in candidates {
+            if selected_ids.contains(&sym.id) {
+                continue;
+            }
+
+            let score = ppr_scores.get(&sym.id).copied().unwrap_or(0.0);
+            let cost = crate::tokens::count_tokens(&sym.signature, tokenizer).max(1);
+            let marginal_gain = marginal_gains.get(&sym.id).copied().unwrap_or(0.0);
+
+            let (reason, explanation) = if score < min_relevance_threshold {
+                (
+                    OmissionReason::BelowCutoffThreshold,
+                    format!(
+                        "Relevance score ({:.6}) fell below discovery cutoff threshold ({:.6})",
+                        score, min_relevance_threshold
+                    ),
+                )
+            } else if cost > remaining_budget || cost > budget_limit {
+                (
+                    OmissionReason::BudgetExhausted,
+                    format!(
+                        "Candidate token cost ({} tokens) exceeds remaining budget ({} tokens available)",
+                        cost, remaining_budget
+                    ),
+                )
+            } else if marginal_gain <= 0.15 * score || marginal_gain <= 0.0 {
+                (
+                    OmissionReason::RedundancySuppressed,
+                    format!(
+                        "Marginal gain ({:.4}) suppressed due to redundant overlap with already selected symbols in {:?}",
+                        marginal_gain, sym.file_path
+                    ),
+                )
+            } else {
+                (
+                    OmissionReason::MarginalUtilityDepleted,
+                    format!(
+                        "Marginal utility density ({:.4}/tok) outranked by higher-priority candidates",
+                        marginal_gain / (cost as f32)
+                    ),
+                )
+            };
+
+            omissions.push(OmissionDiagnostic {
+                symbol_id: sym.id,
+                name: sym.name.clone(),
+                file_path: sym.file_path.clone(),
+                token_cost: cost,
+                relevance_score: score,
+                marginal_utility: marginal_gain,
+                reason,
+                explanation,
+            });
+        }
+
+        // Sort omissions by initial relevance score in descending order
+        omissions.sort_by(|a, b| {
+            b.relevance_score
+                .partial_cmp(&a.relevance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        omissions
     }
 }
 
@@ -282,5 +433,156 @@ mod tests {
         assert_eq!(deserialized.num_paths(), 1);
         assert_eq!(deserialized.num_omissions(), 1);
         assert_eq!(deserialized.confidence_score, 0.92);
+    }
+
+    #[test]
+    fn test_omission_diagnostician_categorization() {
+        let sym1 = SymbolNode {
+            id: SymbolId(1),
+            name: "pruned_by_budget".to_string(),
+            file_path: PathBuf::from("src/heavy.rs"),
+            span: TextSpan::new(0, 50, 1, 5),
+            kind: SymbolKind::Function,
+            signature: "pub fn pruned_by_budget_with_extensive_parameter_list(a: usize, b: String, c: Vec<u8>, d: HashMap<String, Value>) -> Result<(), Error>".to_string(),
+            docstring: None,
+            token_cost: 30,
+            ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
+        };
+        let sym2 = SymbolNode {
+            id: SymbolId(2),
+            name: "pruned_by_redundancy".to_string(),
+            file_path: PathBuf::from("src/dup.rs"),
+            span: TextSpan::new(0, 50, 1, 5),
+            kind: SymbolKind::Function,
+            signature: "fn g()".to_string(),
+            docstring: None,
+            token_cost: 3,
+            ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
+        };
+        let sym3 = SymbolNode {
+            id: SymbolId(3),
+            name: "pruned_by_cutoff".to_string(),
+            file_path: PathBuf::from("src/irrelevant.rs"),
+            span: TextSpan::new(0, 50, 1, 5),
+            kind: SymbolKind::Function,
+            signature: "fn h()".to_string(),
+            docstring: None,
+            token_cost: 3,
+            ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
+        };
+        let sym4 = SymbolNode {
+            id: SymbolId(4),
+            name: "pruned_by_marginal_gain".to_string(),
+            file_path: PathBuf::from("src/low_gain.rs"),
+            span: TextSpan::new(0, 50, 1, 5),
+            kind: SymbolKind::Function,
+            signature: "fn i()".to_string(),
+            docstring: None,
+            token_cost: 3,
+            ast_hash: [0u8; 32],
+            container_name: None,
+            trait_name: None,
+        };
+
+        let candidates = vec![sym1, sym2, sym3, sym4];
+        let selected_ids = HashSet::new(); // none selected
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(1), 0.80);
+        ppr_scores.insert(SymbolId(2), 0.70);
+        ppr_scores.insert(SymbolId(3), 0.000001); // below cutoff
+        ppr_scores.insert(SymbolId(4), 0.60);
+
+        let mut marginal_gains = HashMap::new();
+        marginal_gains.insert(SymbolId(1), 0.75);
+        marginal_gains.insert(SymbolId(2), 0.02); // redundancy suppressed
+        marginal_gains.insert(SymbolId(3), 0.00);
+        marginal_gains.insert(SymbolId(4), 0.50); // marginal utility depleted
+
+        let remaining_budget = 10; // sym1 (cost > 10) will be budget exhausted; sym2 and sym4 fit
+        let budget_limit = 100;
+        let min_cutoff = 0.0001;
+
+        let omissions = OmissionDiagnostician::diagnose(
+            &candidates,
+            &selected_ids,
+            &ppr_scores,
+            &marginal_gains,
+            remaining_budget,
+            budget_limit,
+            min_cutoff,
+            TokenizerModel::FastHeuristic,
+        );
+
+        assert_eq!(omissions.len(), 4);
+
+        let o_budget = omissions
+            .iter()
+            .find(|o| o.symbol_id == SymbolId(1))
+            .unwrap();
+        assert_eq!(o_budget.reason, OmissionReason::BudgetExhausted);
+
+        let o_redundancy = omissions
+            .iter()
+            .find(|o| o.symbol_id == SymbolId(2))
+            .unwrap();
+        assert_eq!(o_redundancy.reason, OmissionReason::RedundancySuppressed);
+
+        let o_cutoff = omissions
+            .iter()
+            .find(|o| o.symbol_id == SymbolId(3))
+            .unwrap();
+        assert_eq!(o_cutoff.reason, OmissionReason::BelowCutoffThreshold);
+
+        let o_depleted = omissions
+            .iter()
+            .find(|o| o.symbol_id == SymbolId(4))
+            .unwrap();
+        assert_eq!(o_depleted.reason, OmissionReason::MarginalUtilityDepleted);
+    }
+
+    #[test]
+    fn test_confidence_score_calculation() {
+        let mut ctx = StructuredContext::new(1000);
+        ctx.tokens_used = 800;
+
+        let sym = StructuredSymbol {
+            id: SymbolId(0),
+            name: "core_func".to_string(),
+            file_path: PathBuf::from("src/core.rs"),
+            span: TextSpan::new(1, 10, 1, 2),
+            kind: SymbolKind::Function,
+            node_type: NodeType::Function,
+            lod: LodLevel::FullBody,
+            token_cost: 800,
+            score: 0.90,
+            container_name: None,
+            trait_name: None,
+            code: "fn core_func() {}".to_string(),
+        };
+        ctx.symbols.push(sym);
+
+        // When total relevance was 1.0 and selected is 0.90
+        ctx.update_confidence_score(1.0);
+        // 0.70 * 0.90 + 0.20 * (800/1000) = 0.63 + 0.16 = 0.79
+        assert!((ctx.confidence_score - 0.79).abs() < 1e-4);
+
+        // Add a high probability path
+        ctx.paths.push(PathTrace {
+            nodes: vec![SymbolId(0)],
+            relations: Vec::new(),
+            trace: "core_func".to_string(),
+            probability: 0.95,
+            rationale: "Self trace".to_string(),
+        });
+        ctx.update_confidence_score(1.0);
+        // 0.79 + 0.10 * 0.95 = 0.885
+        assert!((ctx.confidence_score - 0.885).abs() < 1e-3);
     }
 }

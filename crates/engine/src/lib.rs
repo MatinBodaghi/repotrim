@@ -50,8 +50,8 @@ pub use community::{
     CommunityResult,
 };
 pub use context_object::{
-    OmissionDiagnostic, OmissionReason, PathTrace, StructuredContext, StructuredEdge,
-    StructuredSymbol,
+    OmissionDiagnostic, OmissionDiagnostician, OmissionReason, PathTrace, StructuredContext,
+    StructuredEdge, StructuredSymbol,
 };
 pub use cost::{CostBreakdown, TokenCostConfig, TokenCostEstimator};
 pub use csr::CsrMatrix;
