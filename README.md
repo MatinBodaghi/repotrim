@@ -590,6 +590,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 25. **Multi-Objective Submodular Utility & Knapsack Cost Models:**
     - Hui Lin, Jeff Bilmes. *"A Class of Submodular Functions for Document Summarization"*. In *Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies (ACL/HLT 2011)*, pp. 510–520, 2011. [ACL Anthology](https://aclanthology.org/P11-1052/).
     - Maxim Sviridenko. *"A note on maximizing a submodular set function subject to a knapsack constraint"*. In *Operations Research Letters*, 32(1): 41–43, 2004. [DOI: 10.1016/S0167-6377(03)00062-2](https://doi.org/10.1016/S0167-6377(03)00062-2).
+26. **Constrained Submodular Knapsack Optimization & Approximation Guarantees:**
+    - Samir Khuller, Anna Moss, Joseph (Seffi) Naor. *"The budgeted maximum coverage problem"*. In *Information Processing Letters*, 70(1): 39–45, 1999. [DOI: 10.1016/S0020-0190(99)00031-9](https://doi.org/10.1016/S0020-0190(99)00031-9).
+    - Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *Proceedings of the 13th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD '07)*, pp. 420–429, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
 
 ---
 
