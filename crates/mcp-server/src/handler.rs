@@ -1116,19 +1116,68 @@ impl McpHandler {
             Err(e) => return ToolCallResult::error(e),
         };
 
-        let top_seeds = IntentResolver::resolve_query(&repo.symbols, task, 6);
+        let top_seeds = IntentResolver::resolve_query(&repo.symbols, task, 12);
 
         let mut seed_files = Vec::new();
         let mut seen_files = std::collections::HashSet::new();
         let mut symbol_targets = Vec::new();
+        let mut seen_symbols = std::collections::HashSet::new();
 
         for (sym_id, confidence) in &top_seeds {
             if let Some(sym) = repo.symbols.iter().find(|s| s.id == *sym_id) {
-                let file_str = sym.file_path.display().to_string();
+                let file_str = sym.file_path.display().to_string().replace('\\', "/");
                 if seen_files.insert(file_str.clone()) {
                     seed_files.push(file_str);
                 }
-                symbol_targets.push((sym.clone(), *confidence));
+                if seen_symbols.insert(sym.id) {
+                    symbol_targets.push((sym.clone(), *confidence));
+                }
+            }
+        }
+
+        // Direct task keyword matching: ensure symbols and files directly matching task terms
+        // (such as "tokens.rs", "estimate_tokens", "count_tokens", "TokenizerModel" for "token estimation")
+        // are prioritized in the blueprint anchors.
+        let task_lower = task.to_lowercase();
+        let task_words: Vec<&str> = task_lower
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|w| w.len() >= 3)
+            .collect();
+
+        for sym in &repo.symbols {
+            let file_str_norm = sym.file_path.display().to_string().replace('\\', "/");
+            let file_lower = file_str_norm.to_lowercase();
+            let name_lower = sym.name.to_lowercase();
+
+            if file_lower.contains("/tests/")
+                || file_lower.contains("/test_")
+                || name_lower.starts_with("test_")
+            {
+                continue;
+            }
+
+            let matches_word = task_words
+                .iter()
+                .any(|&w| name_lower.contains(w) || file_lower.contains(w));
+            if matches_word && !seen_symbols.contains(&sym.id) {
+                let is_core = matches!(
+                    sym.kind,
+                    SymbolKind::Function
+                        | SymbolKind::Struct
+                        | SymbolKind::Enum
+                        | SymbolKind::Trait
+                        | SymbolKind::Method
+                );
+                if is_core {
+                    if seen_files.insert(file_str_norm.clone()) {
+                        seed_files.push(file_str_norm);
+                    }
+                    seen_symbols.insert(sym.id);
+                    symbol_targets.push((sym.clone(), 0.90));
+                    if symbol_targets.len() >= 20 {
+                        break;
+                    }
+                }
             }
         }
 
@@ -1162,7 +1211,7 @@ impl McpHandler {
                     "- `{}` ({:?}) - `{}:L{}` | Inferred relevance: {:.0}%\n",
                     sym.name,
                     sym.kind,
-                    sym.file_path.display(),
+                    sym.file_path.display().to_string().replace('\\', "/"),
                     sym.span.start_row + 1,
                     conf * 100.0
                 ));

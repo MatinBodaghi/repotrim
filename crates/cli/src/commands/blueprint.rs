@@ -80,11 +80,55 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     for (sym_id, confidence) in &top_seeds {
         if let Some(sym) = repo.symbols.iter().find(|s| s.id == *sym_id) {
-            let file_str = sym.file_path.display().to_string();
+            let file_str = sym.file_path.display().to_string().replace('\\', "/");
             if seen_files.insert(file_str.clone()) {
                 seed_files.push(file_str);
             }
             symbol_targets.push((sym.clone(), *confidence));
+        }
+    }
+
+    // Direct task keyword matching: ensure symbols and files directly matching task terms
+    // are prioritized as anchors if hybrid retrieval ranked them lower.
+    let task_lower = args.task.to_lowercase();
+    let task_words: Vec<&str> = task_lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|w| w.len() >= 3)
+        .collect();
+
+    for sym in &repo.symbols {
+        let file_str_norm = sym.file_path.display().to_string().replace('\\', "/");
+        let file_lower = file_str_norm.to_lowercase();
+        let name_lower = sym.name.to_lowercase();
+
+        if file_lower.contains("/tests/")
+            || file_lower.contains("/test_")
+            || name_lower.starts_with("test_")
+        {
+            continue;
+        }
+
+        let matches_word = task_words
+            .iter()
+            .any(|&w| name_lower.contains(w) || file_lower.contains(w));
+        if matches_word && !symbol_targets.iter().any(|(s, _)| s.id == sym.id) {
+            let is_core = matches!(
+                sym.kind,
+                repotrim_engine::SymbolKind::Function
+                    | repotrim_engine::SymbolKind::Struct
+                    | repotrim_engine::SymbolKind::Enum
+                    | repotrim_engine::SymbolKind::Trait
+                    | repotrim_engine::SymbolKind::Method
+            );
+            if is_core {
+                if seen_files.insert(file_str_norm.clone()) {
+                    seed_files.push(file_str_norm);
+                }
+                symbol_targets.push((sym.clone(), 0.90));
+                if symbol_targets.len() >= 20 {
+                    break;
+                }
+            }
         }
     }
 
@@ -198,7 +242,7 @@ pub fn generate_blueprint_text(
                 "- `{}` ({:?}) - `{}:L{}` | Inferred relevance: {:.0}%\n",
                 sym.name,
                 sym.kind,
-                sym.file_path.display(),
+                sym.file_path.display().to_string().replace('\\', "/"),
                 sym.span.start_row + 1,
                 conf * 100.0
             ));
