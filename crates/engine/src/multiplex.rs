@@ -215,6 +215,22 @@ impl MultiplexCsrGraph {
         }
     }
 
+    /// Constructs a `MultiplexCsrGraph` from a unified `CsrMatrix`, placing all edges in `RelationType::Calls`.
+    pub fn from_csr(symbols: Vec<SymbolNode>, csr: CsrMatrix) -> Self {
+        let n = symbols.len();
+        let mut slices = Vec::with_capacity(RelationType::COUNT);
+        for _ in 0..RelationType::COUNT {
+            slices.push(CsrMatrix::empty(n, n));
+        }
+        let total_edges = csr.num_edges();
+        slices[RelationType::Calls.index()] = csr;
+        Self {
+            symbols,
+            slices,
+            total_edges,
+        }
+    }
+
     /// Constructs a `MultiplexCsrGraph` from raw reference edges.
     pub fn build(symbols: Vec<SymbolNode>, raw_edges: &[ReferenceEdge]) -> Self {
         Self::build_with_imports(symbols, raw_edges, &[])
@@ -530,7 +546,10 @@ mod tests {
 
         // Empty slice check
         assert_eq!(graph.num_edges_for(RelationType::Imports), 0);
-        assert_eq!(graph.neighbors_for(SymbolId(0), RelationType::Imports), &[]);
+        assert_eq!(
+            graph.neighbors_for(SymbolId(0), RelationType::Imports),
+            &[] as &[u32]
+        );
 
         // Typed neighbors iterator
         let neighbors_0: Vec<(RelationType, u32, f32)> =

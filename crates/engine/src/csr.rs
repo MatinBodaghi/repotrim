@@ -236,8 +236,8 @@ mod tests {
 
         // Node 2 (sink)
         assert_eq!(csr.out_degree(2), 0);
-        assert_eq!(csr.neighbors(2), &[]);
-        assert_eq!(csr.weights(2), &[]);
+        assert_eq!(csr.neighbors(2), &[] as &[u32]);
+        assert_eq!(csr.weights(2), &[] as &[f32]);
 
         // Node 3
         assert_eq!(csr.out_degree(3), 2);
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(w1.len(), 1);
         assert!((w1[0] - 1.0).abs() < 1e-6);
 
-        assert_eq!(norm.weights(2), &[]);
+        assert_eq!(norm.weights(2), &[] as &[f32]);
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod tests {
         // 1 -> 0 (1.0)
         // 2 -> 0 (2.0)
         // 0 -> none
-        assert_eq!(t.neighbors(0), &[]);
+        assert_eq!(t.neighbors(0), &[] as &[u32]);
         assert_eq!(t.neighbors(1), &[0]);
         assert_eq!(t.weights(1), &[1.0]);
         assert_eq!(t.neighbors(2), &[0]);

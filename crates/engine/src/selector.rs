@@ -1,14 +1,20 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::celf::{CelfConfig, CelfOptimizer, MckpResult, SensitivityReport};
 use crate::community::{CommunityConfig, CommunityDetector};
+use crate::context_object::{
+    OmissionDiagnostician, PathTrace, StructuredContext, StructuredEdge, StructuredSymbol,
+};
+use crate::cost::CostBreakdown;
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::knee::KneedleDetector;
 use crate::model::ModelProfile;
+use crate::path::{PathFinder, PathFinderConfig, PathScorer, PathScorerConfig};
 use crate::ppr::{PprConfig, PprSolver};
-use crate::symbol::{SymbolId, SymbolNode};
+use crate::symbol::{LodLevel, RelationType, SymbolId, SymbolNode};
+use crate::task::TaskContext;
 use crate::tokens::{count_tokens, TokenizerModel};
 
 /// Diagnostic report produced when auto-budgeting context selection.
@@ -569,6 +575,210 @@ impl ContextSelector {
         };
 
         (surviving_symbols, markdown, updated_mckp)
+    }
+
+    /// Selects mathematically optimal symbols and synthesizes an explainable,
+    /// fully structured context graph object with causal paths and omission diagnostics.
+    pub fn select_structured_context(
+        &self,
+        graph: &MultiplexGraph,
+        seed_ids: &[SymbolId],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        task: Option<TaskContext>,
+    ) -> StructuredContext {
+        let seeds: Vec<(SymbolId, f32)> = seed_ids.iter().map(|&id| (id, 1.0)).collect();
+        self.select_structured_context_weighted(graph, &seeds, budget, file_sources, task)
+    }
+
+    /// Selects mathematically optimal symbols with weighted seeds and synthesizes an explainable,
+    /// fully structured context graph object with causal paths and omission diagnostics.
+    pub fn select_structured_context_weighted(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        file_sources: &HashMap<PathBuf, String>,
+        task: Option<TaskContext>,
+    ) -> StructuredContext {
+        let mut ctx = StructuredContext::new(budget);
+        ctx.task = task.clone();
+
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
+            return ctx;
+        }
+
+        // 1. Compute PPR relevance diffusion with weighted seeds
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        // 2. Submodular knapsack optimization with trace
+        let (selected_ids, trace) = self.celf.optimize_with_trace(graph, &ppr_scores, budget);
+
+        // 3. Collect and canonically sort selected symbols
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        // 4. Assign dynamic Level-of-Detail
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let lod_map = ContextFormatter::assign_lod_with_model(
+            &selected_symbols,
+            &ppr_scores,
+            &seed_id_list,
+            budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+
+        let (surviving_symbols, _markdown, final_lods) = ContextFormatter::format_markdown_budgeted(
+            &selected_symbols,
+            &lod_map,
+            file_sources,
+            budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
+        );
+
+        let surviving_set: HashSet<SymbolId> = surviving_symbols.iter().map(|s| s.id).collect();
+
+        // 5. Build StructuredSymbols
+        let mut total_symbol_tokens = 0usize;
+        for sym in &surviving_symbols {
+            let lod = final_lods
+                .get(&sym.id)
+                .copied()
+                .unwrap_or(LodLevel::SignatureOnly);
+            let file_src = file_sources.get(&sym.file_path).map(|s| s.as_str());
+            let rendered_code = ContextFormatter::render_symbol(sym, lod, file_src);
+            let token_cost = crate::tokens::count_tokens(&rendered_code, self.tokenizer_model);
+            total_symbol_tokens += token_cost;
+
+            let score = ppr_scores.get(&sym.id).copied().unwrap_or(0.0);
+
+            ctx.symbols.push(StructuredSymbol {
+                id: sym.id,
+                name: sym.name.clone(),
+                file_path: sym.file_path.clone(),
+                span: sym.span,
+                kind: sym.kind,
+                node_type: sym.node_type(),
+                lod,
+                token_cost,
+                score,
+                container_name: sym.container_name.clone(),
+                trait_name: sym.trait_name.clone(),
+                code: rendered_code,
+            });
+        }
+        ctx.tokens_used = total_symbol_tokens;
+
+        // 6. Build StructuredEdges among surviving symbols
+        for sym in &ctx.symbols {
+            let neighbors = graph.neighbors(sym.id);
+            let weights = graph.transition_probabilities(sym.id);
+            for (&dst_idx, &weight) in neighbors.iter().zip(weights.iter()) {
+                let target_id = SymbolId(dst_idx);
+                if surviving_set.contains(&target_id) {
+                    ctx.edges.push(StructuredEdge {
+                        source: sym.id,
+                        target: target_id,
+                        relation: RelationType::Calls,
+                        weight,
+                    });
+                }
+            }
+        }
+
+        // 7. Discover Causal Paths connecting seeds to selected symbols
+        let csr = graph.to_multiplex_csr();
+        let path_finder = PathFinder::new(PathFinderConfig {
+            max_depth: 4,
+            max_paths_per_target: 2,
+            max_total_paths: 10,
+            ..Default::default()
+        });
+
+        let target_ids: Vec<SymbolId> = surviving_symbols
+            .iter()
+            .map(|s| s.id)
+            .filter(|id| !seed_id_list.contains(id))
+            .collect();
+
+        let mut paths = path_finder.find_paths(&csr, &seed_id_list, &target_ids);
+        let mut rel_scores = vec![0.0; graph.num_symbols()];
+        for (id, &score) in &ppr_scores {
+            if (id.0 as usize) < rel_scores.len() {
+                rel_scores[id.0 as usize] = score;
+            }
+        }
+        let rel_weights = match &task {
+            Some(t) => crate::multiplex::RelationWeights::from_task(t),
+            None => crate::multiplex::RelationWeights::default(),
+        };
+        let path_scorer = PathScorer::new(PathScorerConfig::default())
+            .with_relation_weights(rel_weights)
+            .with_relevance_scores(rel_scores);
+        path_scorer.score_and_normalize(&mut paths);
+
+        for p in paths {
+            let trace_str = p.format_trace(graph.symbols());
+            let rationale = format!(
+                "Causal dependency path from seed to target (prob: {:.3})",
+                p.probability
+            );
+            ctx.paths.push(PathTrace {
+                nodes: p.nodes,
+                relations: p.relations,
+                trace: trace_str,
+                probability: p.probability,
+                rationale,
+            });
+        }
+
+        // 8. Omission diagnostics for unselected candidates
+        let mut marginal_gains = HashMap::new();
+        for step in trace {
+            marginal_gains.insert(step.symbol_id, step.marginal_gain);
+        }
+
+        let remaining_budget = budget.saturating_sub(ctx.tokens_used);
+        let min_relevance = self.celf.config().min_relevance_threshold;
+        ctx.omissions = OmissionDiagnostician::diagnose(
+            graph.symbols(),
+            &surviving_set,
+            &ppr_scores,
+            &marginal_gains,
+            remaining_budget,
+            budget,
+            min_relevance,
+            self.tokenizer_model,
+        );
+
+        // 9. Cost breakdown
+        ctx.cost_breakdown = CostBreakdown::new(
+            ctx.tokens_used,
+            ctx.symbols.len() * 5,
+            ctx.edges.len() * 3,
+            ctx.symbols.len() * 10,
+        );
+
+        // 10. Update confidence score
+        let total_relevance: f32 = ppr_scores.values().sum();
+        ctx.update_confidence_score(total_relevance);
+
+        ctx
     }
 
     /// End-to-end pipeline with auto-budgeting using Multiple-Choice Knapsack (MCKP)
@@ -1179,5 +1389,55 @@ mod tests {
                 assert!(!syms.is_empty());
             }
         }
+    }
+
+    #[test]
+    fn test_select_structured_context_end_to_end() {
+        let s0 = make_test_symbol(0, "entry", "src/entry.rs", 1, 30);
+        let s1 = make_test_symbol(1, "service", "src/service.rs", 1, 30);
+        let s2 = make_test_symbol(2, "db", "src/db.rs", 1, 30);
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "service".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "db".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let mut sources = HashMap::new();
+        sources.insert(
+            PathBuf::from("src/entry.rs"),
+            "fn entry() { service(); }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/service.rs"),
+            "fn service() { db(); }".to_string(),
+        );
+        sources.insert(PathBuf::from("src/db.rs"), "fn db() {}".to_string());
+
+        let task = TaskContext::from_query("invoke backend service");
+        let ctx =
+            selector.select_structured_context(&graph, &[SymbolId(0)], 200, &sources, Some(task));
+
+        assert!(!ctx.is_empty());
+        assert!(ctx.num_symbols() >= 1);
+        assert!(ctx.confidence_score > 0.0);
+        assert!(ctx.tokens_used <= 200);
+
+        let md = ctx.to_markdown();
+        assert!(md.contains("# RepoTrim Structured Context Report"));
+        assert!(md.contains("## Token Cost Breakdown"));
+
+        let json = ctx.to_json().expect("Serialization should succeed");
+        assert!(json.contains("entry"));
     }
 }
