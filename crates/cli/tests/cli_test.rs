@@ -786,3 +786,78 @@ fn test_cli_select_with_retrieval_mode() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Inferred seeds from query 'token estimation' (mode: Hybrid)"));
 }
+
+#[test]
+fn test_cli_benchmark_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["benchmark", "--help"])
+        .output()
+        .expect("Failed to execute repotrim benchmark --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--budget"));
+    assert!(stdout.contains("--scenario"));
+    assert!(stdout.contains("--strategies"));
+    assert!(stdout.contains("--format"));
+    assert!(stdout.contains("--json"));
+
+    // Verify alias 'eval' also works
+    let eval_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["eval", "--help"])
+        .output()
+        .expect("Failed to execute repotrim eval --help");
+    assert!(eval_output.status.success());
+}
+
+#[test]
+fn test_cli_benchmark_table_scenario() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "benchmark",
+            "--scenario",
+            "context_selector",
+            "--strategies",
+            "aider,full",
+            "--budget",
+            "600",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim benchmark");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Scenario: ContextSelector"));
+    assert!(stdout.contains("Aider Repo Map"));
+    assert!(stdout.contains("RepoTrim Full"));
+    assert!(stdout.contains("Tokens"));
+    assert!(stdout.contains("Reduct%"));
+    assert!(stdout.contains("DirRec%"));
+    assert!(stdout.contains("Aggregate Benchmark Summary"));
+}
+
+#[test]
+fn test_cli_benchmark_json_output() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "eval",
+            "--scenario",
+            "ppr_solver",
+            "--strategies",
+            "vanilla,full",
+            "--json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim eval --json");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("Valid JSON report");
+    assert_eq!(v["scenarios_evaluated"], 1);
+    assert!(v["metrics"].as_array().unwrap().len() >= 2);
+    assert!(v["summary"].as_array().unwrap().len() >= 2);
+}

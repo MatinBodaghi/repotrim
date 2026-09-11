@@ -161,7 +161,7 @@ impl BenchmarkScenario {
 
 /// Empirical benchmark runner executing evaluations over code property graphs.
 pub struct BenchmarkRunner {
-    scenarios: Vec<BenchmarkScenario>,
+    pub scenarios: Vec<BenchmarkScenario>,
 }
 
 impl Default for BenchmarkRunner {

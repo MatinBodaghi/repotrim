@@ -325,6 +325,24 @@ repotrim query "token estimation" --json --limit 5
 repotrim query "knapsack" --explain
 ```
 
+### 12. Empirical Benchmark Suite & Comparative Study (`benchmark` / `eval`)
+
+Execute the built-in empirical evaluation harness to compare context selection strategies (Whole-File Dump, Naive Keyword/Grep, Aider Repo Map with Global PageRank, RepoTrim Vanilla, and RepoTrim Full) across quantitative IR and graph metrics:
+
+```bash
+# Run full empirical benchmark suite with ANSI table output
+repotrim benchmark
+
+# Run benchmark formatted as Markdown
+repotrim benchmark --format markdown
+
+# Evaluate a single scenario with custom token budget
+repotrim eval --scenario context_selector --budget 600
+
+# Compare specific strategies in JSON format
+repotrim eval --strategies aider,full --json
+```
+
 ---
 
 ## Model Context Protocol (MCP) Integration
@@ -391,6 +409,7 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 | **`query_graph_stats`** | `path?: string` | Retrieves syntax breakdown, edge density, and top PageRank hubs |
 | **`inspect_symbol`** | `symbol: string`, `path?: string` | Deeply inspects definitions, token costs, dependencies, and callers |
 | **`clean_cache`** | `path?: string` | Clears on-disk cache and resets in-memory daemon state |
+| **`run_benchmark`** | `scenario?: string`, `budget?: number`, `strategies?: string[]`, `format?: string`, `path?: string` | Executes empirical evaluation harness and Aider comparative benchmark across quantitative IR and graph metrics |
 
 ---
 
@@ -419,6 +438,7 @@ repotrim/
 │       └── SKILL.md            # Turn-key Antigravity / Claude Code agent skill
 ├── docs/
 │   ├── benchmarks/             # Comparative study, polyglot & dogfood benchmarks
+│   │   ├── aider_comparative_study.md
 │   │   ├── comparative_study.md
 │   │   ├── external_evaluations.md
 │   │   ├── dogfood.md
@@ -546,6 +566,10 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Gordon V. Cormack, Charles L. A. Clarke, Stefan Buettcher. *"Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods"*. In *Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR '09)*, pp. 758–759, 2009. [DOI: 10.1145/1571941.1572114](https://doi.org/10.1145/1571941.1572114).
     - J. J. Rocchio. *"Relevance feedback in information retrieval"*. In *The SMART Retrieval System — Experiments in Automatic Document Processing*, Prentice-Hall, pp. 313–323, 1971.
     - Empirical evaluation: [`docs/benchmarks/hybrid_retrieval.md`](docs/benchmarks/hybrid_retrieval.md).
+23. **Empirical Code Context Evaluation & Repository Map Architectures:**
+    - Aider AI. *"Repository Map: Global PageRank over Code Tags"*, 2023. [aider.chat/docs/repomap.html](https://aider.chat/docs/repomap.html).
+    - Christopher D. Manning, Prabhakar Raghavan, Hinrich Schütze. *"Introduction to Information Retrieval"*. Cambridge University Press, 2008. Chapters 8 & 21 (Evaluation in Information Retrieval). [DOI: 10.1017/CBO9780511809071](https://doi.org/10.1017/CBO9780511809071).
+    - Empirical evaluation & comparative study: [`docs/benchmarks/aider_comparative_study.md`](docs/benchmarks/aider_comparative_study.md).
 
 ---
 

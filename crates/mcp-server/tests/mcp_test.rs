@@ -76,7 +76,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 11);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -539,4 +539,58 @@ fn test_mcp_search_symbols() {
     assert_eq!(resp5["result"]["isError"], false);
     let trim_text = resp5["result"]["content"][0]["text"].as_str().unwrap();
     assert!(trim_text.contains("### File:"));
+}
+
+#[test]
+fn test_mcp_run_benchmark() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. run_benchmark (markdown, scenario filter, custom strategies)
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"run_benchmark","arguments":{{"scenario":"context_selector","strategies":["aider_repo_map","repo_trim_full"],"budget":600,"path":"{}"}}}}}}"#,
+            "\n",
+            // 3. run_benchmark (json)
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"run_benchmark","arguments":{{"scenario":"ppr_solver","format":"json","path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 3);
+
+    // 2. markdown response
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md.contains("# RepoTrim Empirical Benchmark Report"));
+    assert!(md.contains("ContextSelector"));
+    assert!(md.contains("Aider Repo Map"));
+    assert!(md.contains("RepoTrim Full"));
+
+    // 3. json response
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let val: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert_eq!(val["scenarios_evaluated"], 1);
+    assert!(val["metrics"].as_array().unwrap().len() >= 2);
+    assert!(val["summary"].as_array().unwrap().len() >= 2);
 }

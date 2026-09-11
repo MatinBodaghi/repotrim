@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    count_tokens, ArchitectureReport, CoeditCache, CoeditConfig, CommunityConfig,
-    CommunityDetector, ContextSelector, DiffResolver, EdgeWeightLearner, GitCommitMiner,
-    HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
-    ModelProfile, PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind,
+    count_tokens, ArchitectureReport, BenchmarkMetrics, BenchmarkRunner, BenchmarkSummary,
+    CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector, ContextSelector,
+    ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner, HybridRetriever,
+    ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile,
+    PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind,
     TokenizerModel,
 };
 
@@ -429,6 +430,40 @@ impl McpHandler {
                     "required": ["query"]
                 }),
             },
+            ToolDefinition {
+                name: "run_benchmark".to_string(),
+                description: "Execute rigorous empirical evaluation harness and Aider comparative benchmark. Evaluates context selection strategies (Whole-File Dump, Naive Keyword/Grep, Aider Repo Map with Global PageRank, RepoTrim Vanilla, and RepoTrim Full with multiplex CPG, learned layer weights, co-edit edges, forward-push diffusion, CELF knapsack, community cohesion, and MCKP joint LOD) across token budget adherence, token reduction %, 1st-order direct dependency recall, 2nd-order transitive recall, context precision, community cohesion, orphan symbol rate, and execution latency.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "scenario": {
+                            "type": "string",
+                            "description": "Specific benchmark scenario name or ID filter (e.g. 'context_selector', 'ppr_solver', 'diff_resolver', 'multi_seed_subsystem', 'query_intent_random_walk')"
+                        },
+                        "budget": {
+                            "type": "integer",
+                            "description": "Override token budget for the benchmark scenarios"
+                        },
+                        "strategies": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["whole_file", "naive_grep", "aider_repo_map", "repo_trim_vanilla", "repo_trim_full"]
+                            },
+                            "description": "List of context strategies to benchmark (default: all 5 strategies)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format ('markdown' or 'json', default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    }
+                }),
+            },
         ]
     }
 
@@ -445,6 +480,7 @@ impl McpHandler {
             "mine_coedits" => self.tool_mine_coedits(arguments),
             "detect_communities" => self.tool_detect_communities(arguments),
             "search_symbols" => self.tool_search_symbols(arguments),
+            "run_benchmark" => self.tool_run_benchmark(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -1639,6 +1675,185 @@ impl McpHandler {
                     );
                 }
             }
+            ToolCallResult::success(md)
+        }
+    }
+
+    fn tool_run_benchmark(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let path = self.resolve_path(&args);
+        let mut repo = match self.get_or_load_repo(&path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(format!("Failed to load repository: {}", e)),
+        };
+        let _ = repo.load_all_sources();
+        let mut runner = BenchmarkRunner::new();
+
+        if let Some(scenario_filter) = args.get("scenario").and_then(|s| s.as_str()) {
+            let filter_lower = scenario_filter.to_lowercase();
+            runner.scenarios.retain(|s| {
+                s.id.to_lowercase().contains(&filter_lower)
+                    || s.name.to_lowercase().contains(&filter_lower)
+            });
+            if runner.scenarios.is_empty() {
+                return ToolCallResult::error(format!(
+                    "No benchmark scenarios matched filter: '{}'",
+                    scenario_filter
+                ));
+            }
+        }
+
+        if let Some(budget) = args.get("budget").and_then(|b| b.as_u64()) {
+            for s in &mut runner.scenarios {
+                s.budget = budget as usize;
+            }
+        }
+
+        let strategies = if let Some(strat_arr) = args.get("strategies").and_then(|s| s.as_array())
+        {
+            let mut list = Vec::new();
+            for item in strat_arr {
+                if let Some(name) = item.as_str() {
+                    match name.to_lowercase().as_str() {
+                        "whole_file" => list.push(ContextStrategy::WholeFile),
+                        "naive_grep" => list.push(ContextStrategy::NaiveGrep),
+                        "aider_repo_map" => list.push(ContextStrategy::AiderRepoMap),
+                        "repo_trim_vanilla" => list.push(ContextStrategy::RepoTrimVanilla),
+                        "repo_trim_full" => list.push(ContextStrategy::RepoTrimFull),
+                        other => {
+                            return ToolCallResult::error(format!("Unknown strategy: '{}'", other))
+                        }
+                    }
+                }
+            }
+            if list.is_empty() {
+                ContextStrategy::all().to_vec()
+            } else {
+                list.dedup();
+                list
+            }
+        } else {
+            ContextStrategy::all().to_vec()
+        };
+
+        let mut all_metrics = Vec::new();
+        for scenario in &runner.scenarios {
+            let metrics = runner.evaluate_scenario(&repo, scenario, &strategies);
+            all_metrics.extend(metrics);
+        }
+
+        let summary = BenchmarkSummary::summarize(&all_metrics);
+        let format = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        if format.eq_ignore_ascii_case("json") {
+            let json_val = serde_json::json!({
+                "repository": path.display().to_string(),
+                "scenarios_evaluated": runner.scenarios.len(),
+                "strategies_evaluated": strategies,
+                "metrics": all_metrics,
+                "summary": summary,
+            });
+            match serde_json::to_string_pretty(&json_val) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
+        } else {
+            let mut md = String::new();
+            let _ = writeln!(md, "# RepoTrim Empirical Benchmark Report\n");
+            let _ = writeln!(md, "- **Repository:** `{}`", path.display());
+            let _ = writeln!(md, "- **Scenarios Evaluated:** {}", runner.scenarios.len());
+            let _ = writeln!(md, "- **Strategies Evaluated:** {}\n", strategies.len());
+
+            for scenario in &runner.scenarios {
+                let scenario_metrics: Vec<&BenchmarkMetrics> = all_metrics
+                    .iter()
+                    .filter(|m| m.scenario == scenario.name)
+                    .collect();
+
+                let _ = writeln!(md, "## Scenario: {}", scenario.name);
+                let _ = writeln!(md, "- **Budget:** {} tokens", scenario.budget);
+                if !scenario.seeds.is_empty() {
+                    let _ = writeln!(md, "- **Seeds:** `{}`", scenario.seeds.join("`, `"));
+                }
+                if let Some(ref q) = scenario.query {
+                    let _ = writeln!(md, "- **Query:** \"{}\"", q);
+                }
+                let _ = writeln!(md, "- **Description:** {}\n", scenario.description);
+
+                let _ = writeln!(
+                    md,
+                    "| Strategy | Tokens | Reduction | Direct Recall | Transitive Recall | Precision | Cohesion | Orphans | Symbols | Latency |"
+                );
+                let _ = writeln!(
+                    md,
+                    "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+                );
+                for m in &scenario_metrics {
+                    let latency_display = if m.execution_latency_us >= 1000 {
+                        format!("{:.2}ms", m.execution_latency_us as f64 / 1000.0)
+                    } else {
+                        format!("{}µs", m.execution_latency_us)
+                    };
+                    let strategy_str = if m.strategy == ContextStrategy::RepoTrimFull {
+                        format!("**{}**", m.strategy_name)
+                    } else {
+                        m.strategy_name.clone()
+                    };
+                    let _ = writeln!(
+                        md,
+                        "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {} | {} |",
+                        strategy_str,
+                        m.tokens_used,
+                        m.token_reduction_pct,
+                        m.direct_dep_recall_pct,
+                        m.transitive_dep_recall_pct,
+                        m.context_precision_pct,
+                        m.community_cohesion_pct,
+                        m.orphan_rate_pct,
+                        m.symbol_count,
+                        latency_display
+                    );
+                }
+                let _ = writeln!(md);
+            }
+
+            let _ = writeln!(md, "## Aggregate Benchmark Summary\n");
+            let _ = writeln!(
+                md,
+                "| Strategy | Mean Tokens | Token Reduction | Direct Recall | Transitive Recall | Precision | Cohesion | Orphans | Mean Latency |"
+            );
+            let _ = writeln!(
+                md,
+                "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+            );
+            for s in &summary {
+                let latency_display = if s.mean_latency_us >= 1000 {
+                    format!("{:.2}ms", s.mean_latency_us as f64 / 1000.0)
+                } else {
+                    format!("{}µs", s.mean_latency_us)
+                };
+                let strategy_str = if s.strategy == ContextStrategy::RepoTrimFull {
+                    format!("**{}**", s.strategy_name)
+                } else {
+                    s.strategy_name.clone()
+                };
+                let _ = writeln!(
+                    md,
+                    "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {} |",
+                    strategy_str,
+                    s.mean_tokens,
+                    s.mean_token_reduction_pct,
+                    s.mean_direct_recall_pct,
+                    s.mean_transitive_recall_pct,
+                    s.mean_precision_pct,
+                    s.mean_cohesion_pct,
+                    s.mean_orphan_rate_pct,
+                    latency_display
+                );
+            }
+
             ToolCallResult::success(md)
         }
     }

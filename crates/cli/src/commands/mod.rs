@@ -1,4 +1,5 @@
 pub mod architecture;
+pub mod benchmark;
 pub mod blueprint;
 pub mod clean;
 pub mod coedit;

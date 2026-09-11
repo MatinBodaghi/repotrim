@@ -42,6 +42,9 @@ enum Commands {
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
     Watch(commands::watch::WatchArgs),
+    /// Run empirical evaluation harness and Aider comparative benchmark
+    #[command(alias = "eval")]
+    Benchmark(commands::benchmark::BenchmarkArgs),
 }
 
 fn main() {
@@ -60,6 +63,7 @@ fn main() {
         Commands::Query(args) => commands::query::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
+        Commands::Benchmark(args) => commands::benchmark::execute(args),
     };
 
     if let Err(e) = result {
