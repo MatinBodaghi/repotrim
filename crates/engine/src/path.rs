@@ -19,8 +19,9 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use crate::multiplex::MultiplexCsrGraph;
+use crate::multiplex::{MultiplexCsrGraph, RelationWeights};
 use crate::symbol::{RelationType, SymbolId, SymbolNode};
+use crate::task::TaskContext;
 
 /// An ordered sequence of symbols and typed relations representing an execution or dependency path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -427,6 +428,164 @@ impl PathFinder {
     }
 }
 
+/// Configuration for Boltzmann path energy evaluation and probabilistic distribution.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PathScorerConfig {
+    /// Boltzmann thermodynamic temperature $T > 0$ controlling entropy vs exploitation.
+    pub temperature: f32,
+    /// Path length penalty coefficient $\kappa \ge 0$ penalizing overly long hop chains.
+    pub length_penalty: f32,
+}
+
+impl Default for PathScorerConfig {
+    fn default() -> Self {
+        Self {
+            temperature: 1.0,
+            length_penalty: 0.25,
+        }
+    }
+}
+
+/// Evaluator computing energy scores and Boltzmann probability distributions over execution paths.
+///
+/// # Theoretical Formulation (Boltzmann, 1868; Ziebart et al., 2008; Kappen, 2005)
+/// The path energy score combines additive node relevance, task-conditioned edge weights,
+/// and a length penalty:
+/// $$\mathrm{Score}(p \mid q) = \sum_{v \in p} r(v \mid q) + \sum_{e \in p} \omega_{\tau(e)}(q) \cdot w_e - \kappa \cdot \mathrm{Length}(p)$$
+///
+/// The probability distribution over candidate paths $\mathcal{P}_q$ follows the Boltzmann/Gibbs law:
+/// $$P(p \mid q, G) = \frac{\exp((\mathrm{Score}(p \mid q) - M) / T)}{\sum_{p' \in \mathcal{P}_q} \exp((\mathrm{Score}(p' \mid q) - M) / T)}$$
+/// where $M = \max_{p'} \mathrm{Score}(p')$ enforces numerical stability.
+#[derive(Debug, Clone)]
+pub struct PathScorer {
+    config: PathScorerConfig,
+    relation_weights: RelationWeights,
+    relevance_scores: Vec<f32>,
+}
+
+impl Default for PathScorer {
+    fn default() -> Self {
+        Self::new(PathScorerConfig::default())
+    }
+}
+
+impl PathScorer {
+    /// Creates a new `PathScorer` with default uniform relation weights and zero relevance scores.
+    pub fn new(config: PathScorerConfig) -> Self {
+        Self {
+            config,
+            relation_weights: RelationWeights::default(),
+            relevance_scores: Vec::new(),
+        }
+    }
+
+    /// Creates a `PathScorer` conditioned on the operational intent of a `TaskContext`.
+    pub fn with_task(config: PathScorerConfig, task: &TaskContext) -> Self {
+        Self {
+            config,
+            relation_weights: RelationWeights::from_task(task),
+            relevance_scores: Vec::new(),
+        }
+    }
+
+    /// Sets the task-conditioned relation weights $\boldsymbol{\omega}(q)$.
+    pub fn with_relation_weights(mut self, weights: RelationWeights) -> Self {
+        self.relation_weights = weights;
+        self
+    }
+
+    /// Sets the symbol relevance vector $r(v \mid q)$ indexed by `SymbolId`.
+    pub fn with_relevance_scores(mut self, scores: Vec<f32>) -> Self {
+        self.relevance_scores = scores;
+        self
+    }
+
+    /// Returns a reference to the active scorer configuration.
+    pub fn config(&self) -> &PathScorerConfig {
+        &self.config
+    }
+
+    /// Evaluates the unnormalized path energy score $\mathrm{Score}(p \mid q)$.
+    pub fn score_path(&self, path: &ExecutionPath) -> f32 {
+        if path.is_empty() {
+            return 0.0;
+        }
+
+        let node_relevance: f32 = path
+            .nodes
+            .iter()
+            .map(|&sym| {
+                let idx = sym.0 as usize;
+                self.relevance_scores.get(idx).copied().unwrap_or(0.0)
+            })
+            .sum();
+
+        let edge_score: f32 = path
+            .relations
+            .iter()
+            .zip(path.edge_weights.iter())
+            .map(|(&rel, &weight)| {
+                let rel_w = self.relation_weights.weight_for(rel);
+                rel_w * weight
+            })
+            .sum();
+
+        let hops = path.num_hops() as f32;
+        let length_pen = self.config.length_penalty * hops;
+
+        node_relevance + edge_score - length_pen
+    }
+
+    /// Computes path scores and normalized Boltzmann probabilities $P(p \mid q)$ in-place.
+    pub fn score_and_normalize(&self, paths: &mut [ExecutionPath]) {
+        if paths.is_empty() {
+            return;
+        }
+
+        for path in paths.iter_mut() {
+            path.score = self.score_path(path);
+        }
+
+        let temp = self.config.temperature.max(1e-5);
+        let max_score = paths
+            .iter()
+            .map(|p| p.score)
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        let mut exp_weights = Vec::with_capacity(paths.len());
+        let mut sum_exp = 0.0_f32;
+
+        for path in paths.iter() {
+            let unnorm = ((path.score - max_score) / temp).exp();
+            exp_weights.push(unnorm);
+            sum_exp += unnorm;
+        }
+
+        if sum_exp > 0.0 && !sum_exp.is_nan() {
+            for (path, &unnorm) in paths.iter_mut().zip(exp_weights.iter()) {
+                path.probability = unnorm / sum_exp;
+            }
+        } else {
+            let uniform = 1.0 / (paths.len() as f32);
+            for path in paths.iter_mut() {
+                path.probability = uniform;
+            }
+        }
+    }
+
+    /// Scores all candidate paths, computes normalized Boltzmann probabilities, and returns
+    /// them sorted in descending order of probability.
+    pub fn score_paths(&self, mut paths: Vec<ExecutionPath>) -> Vec<ExecutionPath> {
+        self.score_and_normalize(&mut paths);
+        paths.sort_by(|a, b| {
+            b.probability
+                .partial_cmp(&a.probability)
+                .unwrap_or(Ordering::Equal)
+        });
+        paths
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,5 +693,86 @@ mod tests {
         let paths = finder.find_paths_between(&graph, SymbolId(0), SymbolId(2));
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].nodes, vec![SymbolId(0), SymbolId(1), SymbolId(2)]);
+    }
+
+    #[test]
+    fn test_path_scorer_boltzmann_normalization() {
+        let mut paths = vec![
+            ExecutionPath::new(
+                vec![SymbolId(0), SymbolId(1)],
+                vec![RelationType::Calls],
+                vec![0.9],
+            ),
+            ExecutionPath::new(
+                vec![SymbolId(0), SymbolId(2), SymbolId(3)],
+                vec![RelationType::References, RelationType::Calls],
+                vec![0.7, 0.8],
+            ),
+            ExecutionPath::new(
+                vec![SymbolId(0), SymbolId(4)],
+                vec![RelationType::Imports],
+                vec![0.4],
+            ),
+        ];
+
+        let scorer = PathScorer::new(PathScorerConfig {
+            temperature: 1.0,
+            length_penalty: 0.25,
+        })
+        .with_relevance_scores(vec![0.5, 0.8, 0.4, 0.3, 0.1]);
+
+        scorer.score_and_normalize(&mut paths);
+
+        let sum_prob: f32 = paths.iter().map(|p| p.probability).sum();
+        assert!(
+            (sum_prob - 1.0).abs() < 1e-5,
+            "Boltzmann probabilities must sum to 1.0, got {}",
+            sum_prob
+        );
+
+        // Path 0 has high relevance and strong edge, should have highest probability
+        assert!(paths[0].probability > paths[1].probability);
+        assert!(paths[1].probability > paths[2].probability);
+    }
+
+    #[test]
+    fn test_path_scorer_temperature_scaling() {
+        let paths_template = vec![
+            ExecutionPath::new(
+                vec![SymbolId(0), SymbolId(1)],
+                vec![RelationType::Calls],
+                vec![0.9],
+            ),
+            ExecutionPath::new(
+                vec![SymbolId(0), SymbolId(2)],
+                vec![RelationType::Calls],
+                vec![0.5],
+            ),
+        ];
+
+        // Low temperature (exploitation / sharp argmax)
+        let cold_scorer = PathScorer::new(PathScorerConfig {
+            temperature: 0.05,
+            length_penalty: 0.0,
+        });
+        let mut cold_paths = paths_template.clone();
+        cold_scorer.score_and_normalize(&mut cold_paths);
+        assert!(
+            cold_paths[0].probability > 0.99,
+            "Low temperature should concentrate probability on max score"
+        );
+
+        // High temperature (exploration / uniform)
+        let hot_scorer = PathScorer::new(PathScorerConfig {
+            temperature: 100.0,
+            length_penalty: 0.0,
+        });
+        let mut hot_paths = paths_template;
+        hot_scorer.score_and_normalize(&mut hot_paths);
+        let diff = (hot_paths[0].probability - hot_paths[1].probability).abs();
+        assert!(
+            diff < 0.05,
+            "High temperature should approach uniform distribution"
+        );
     }
 }
