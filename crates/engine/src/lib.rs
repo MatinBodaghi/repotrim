@@ -22,6 +22,7 @@ pub mod retrieval;
 pub mod selector;
 pub mod slicer;
 pub mod symbol;
+pub mod task;
 pub mod tokens;
 pub mod watcher;
 pub mod weight_learning;
@@ -68,6 +69,7 @@ pub use symbol::{
     EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,
     TextSpan,
 };
+pub use task::{TaskContext, TaskKind, TaskMetadata};
 pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
 pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
 pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningReport};

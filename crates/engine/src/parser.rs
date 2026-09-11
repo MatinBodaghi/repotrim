@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
@@ -17,7 +18,7 @@ const TYPESCRIPT_QUERY_SOURCE: &str = include_str!("../queries/typescript.scm");
 const GO_QUERY_SOURCE: &str = include_str!("../queries/go.scm");
 
 /// Programming languages supported for AST symbol and reference extraction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SupportedLanguage {
     Rust,
     Python,
