@@ -584,6 +584,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Aider AI. *"Repository Map: Global PageRank over Code Tags"*, 2023. [aider.chat/docs/repomap.html](https://aider.chat/docs/repomap.html).
     - Christopher D. Manning, Prabhakar Raghavan, Hinrich Schütze. *"Introduction to Information Retrieval"*. Cambridge University Press, 2008. Chapters 8 & 21 (Evaluation in Information Retrieval). [DOI: 10.1017/CBO9780511809071](https://doi.org/10.1017/CBO9780511809071).
     - Empirical evaluation & comparative study: [`docs/benchmarks/aider_comparative_study.md`](docs/benchmarks/aider_comparative_study.md).
+24. **Multilayer Code Property Graphs & Probabilistic Evidence Coverage:**
+    - Manlio De Domenico, Albert Solé-Ribalta, Emanuele Cozzo, Mikko Kivelä, Yamir Moreno, Mason A. Porter, Sergio Gómez, Alex Arenas. *"Mathematical Formulation of Multilayer Networks"*. In *Physical Review X*, 3(4): 041022, 2013. [DOI: 10.1103/PhysRevX.3.041022](https://doi.org/10.1103/PhysRevX.3.041022).
+    - Andreas Krause, Daniel Golovin. *"Submodular Function Maximization"*. In *Tractability: Practical Approaches to Hard Problems*, Cambridge University Press, pp. 71–104, 2014. [DOI: 10.1017/CBO9781139177800.004](https://doi.org/10.1017/CBO9781139177800.004).
 
 ---
 
