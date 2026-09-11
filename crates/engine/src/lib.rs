@@ -3,6 +3,7 @@ pub mod cache;
 pub mod celf;
 pub mod coedit;
 pub mod community;
+pub mod cost;
 pub mod csr;
 pub mod diff;
 pub mod error;
@@ -44,6 +45,7 @@ pub use community::{
     ArchitecturalDrift, Community, CommunityConfig, CommunityDetector, CommunityHierarchy,
     CommunityResult,
 };
+pub use cost::{CostBreakdown, TokenCostConfig, TokenCostEstimator};
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;
