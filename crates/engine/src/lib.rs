@@ -69,7 +69,10 @@ pub use model::ModelProfile;
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 pub use parser::{AstExtractor, SupportedLanguage};
-pub use path::{ExecutionPath, PathFinder, PathFinderConfig, PathScorer, PathScorerConfig};
+pub use path::{
+    ExecutionPath, PathCoverage, PathCoverageState, PathFinder, PathFinderConfig, PathScorer,
+    PathScorerConfig,
+};
 pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use resolver::ScopedResolver;
 pub use retrieval::{

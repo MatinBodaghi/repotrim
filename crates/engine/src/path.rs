@@ -586,6 +586,209 @@ impl PathScorer {
     }
 }
 
+/// Numerical epsilon for soft path coverage saturation.
+const PATH_EPSILON: f32 = 0.05;
+
+/// Dynamic state maintaining log-uncovered potentials for continuous execution path coverage.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathCoverageState {
+    /// Accumulated uncoverage log-potentials for each path.
+    pub log_uncovered: Vec<f32>,
+    /// Current evaluated total path coverage value $\mathrm{Path}(S; q, G) \in [0, 1]$.
+    pub total_coverage: f32,
+    /// Chronological list of selected symbols.
+    pub selected: Vec<SymbolId>,
+}
+
+impl PathCoverageState {
+    /// Creates a fresh path coverage state for an empty selection set $S = \emptyset$.
+    pub fn empty(num_paths: usize) -> Self {
+        Self {
+            log_uncovered: vec![0.0; num_paths],
+            total_coverage: 0.0,
+            selected: Vec::new(),
+        }
+    }
+
+    /// Returns the current total evaluated path coverage.
+    #[inline]
+    pub fn total_coverage(&self) -> f32 {
+        self.total_coverage
+    }
+
+    /// Returns the slice of selected symbol identifiers in $S$.
+    #[inline]
+    pub fn selected(&self) -> &[SymbolId] {
+        &self.selected
+    }
+
+    /// Returns the individual coverage fraction of path $m \in [0, 1]$.
+    #[inline]
+    pub fn coverage_of_path(&self, m: usize) -> f32 {
+        if m >= self.log_uncovered.len() {
+            return 0.0;
+        }
+        let unnorm = 1.0 - self.log_uncovered[m].exp();
+        (unnorm / (1.0 - PATH_EPSILON)).clamp(0.0, 1.0)
+    }
+}
+
+/// Continuous execution path coverage evaluator.
+///
+/// Models code context utility over multi-hop causal dependency paths connecting
+/// entrypoints to implementations.
+#[derive(Debug, Clone)]
+pub struct PathCoverage {
+    /// List of evaluated execution paths.
+    paths: Vec<ExecutionPath>,
+    /// Inverted index from SymbolId to list of path indices visiting that symbol.
+    symbol_to_paths: Vec<Vec<usize>>,
+    /// Precomputed node-to-path step log-deltas: (step_log, step_k) indexed by path index.
+    path_node_steps: Vec<HashMap<SymbolId, (f32, f32)>>,
+    /// Total path probability mass (normally 1.0).
+    total_weight: f32,
+}
+
+impl PathCoverage {
+    /// Constructs a `PathCoverage` evaluator from a set of scored paths.
+    pub fn new(num_symbols: usize, paths: Vec<ExecutionPath>) -> Self {
+        let mut symbol_to_paths = vec![Vec::new(); num_symbols];
+        let mut path_node_steps = Vec::with_capacity(paths.len());
+        let mut total_weight = 0.0_f32;
+
+        for (path_idx, path) in paths.iter().enumerate() {
+            total_weight += path.probability;
+            let mut steps_map = HashMap::new();
+            let num_nodes = path.nodes.len().max(1);
+            let base = PATH_EPSILON.powf(1.0 / num_nodes as f32);
+            let k = (1.0 - base).clamp(0.01, 0.99);
+            let log_delta = (1.0 - k).ln();
+
+            for &sym in &path.nodes {
+                let sym_idx = sym.0 as usize;
+                if sym_idx < num_symbols {
+                    if !symbol_to_paths[sym_idx].contains(&path_idx) {
+                        symbol_to_paths[sym_idx].push(path_idx);
+                    }
+                    steps_map.insert(sym, (log_delta, k));
+                }
+            }
+            path_node_steps.push(steps_map);
+        }
+
+        Self {
+            paths,
+            symbol_to_paths,
+            path_node_steps,
+            total_weight: if total_weight > 0.0 { total_weight } else { 1.0 },
+        }
+    }
+
+    /// Creates an empty `PathCoverage` instance with zero paths.
+    pub fn empty(num_symbols: usize) -> Self {
+        Self {
+            paths: Vec::new(),
+            symbol_to_paths: vec![Vec::new(); num_symbols],
+            path_node_steps: Vec::new(),
+            total_weight: 1.0,
+        }
+    }
+
+    /// Returns the number of tracked execution paths.
+    #[inline]
+    pub fn num_paths(&self) -> usize {
+        self.paths.len()
+    }
+
+    /// Returns a slice of all tracked execution paths.
+    #[inline]
+    pub fn paths(&self) -> &[ExecutionPath] {
+        &self.paths
+    }
+
+    /// Returns the total weight of all paths in this coverage evaluator.
+    #[inline]
+    pub fn total_weight(&self) -> f32 {
+        self.total_weight
+    }
+
+    /// Creates a fresh empty `PathCoverageState`.
+    pub fn new_state(&self) -> PathCoverageState {
+        PathCoverageState::empty(self.paths.len())
+    }
+
+    /// Computes the exact marginal gain $\Delta_{\mathrm{Path}}(x \mid S) = \mathrm{Path}(S \cup \{x\}) - \mathrm{Path}(S)$.
+    pub fn marginal_gain(&self, state: &PathCoverageState, candidate: SymbolId) -> f32 {
+        let sym_idx = candidate.0 as usize;
+        if sym_idx >= self.symbol_to_paths.len() || self.paths.is_empty() {
+            return 0.0;
+        }
+
+        if state.selected.contains(&candidate) {
+            return 0.0;
+        }
+
+        let mut gain = 0.0_f32;
+        let scale = 1.0 - PATH_EPSILON;
+
+        for &path_idx in &self.symbol_to_paths[sym_idx] {
+            if path_idx >= self.paths.len() {
+                continue;
+            }
+            let path = &self.paths[path_idx];
+            let w_m = path.probability;
+            if w_m <= 0.0 {
+                continue;
+            }
+
+            if let Some(&(log_delta, _)) = self.path_node_steps[path_idx].get(&candidate) {
+                let current_log = state.log_uncovered[path_idx];
+                let current_cov = (1.0 - current_log.exp()) / scale;
+                let new_log = current_log + log_delta;
+                let new_cov = (1.0 - new_log.exp()) / scale;
+                let path_marginal = (new_cov - current_cov).max(0.0);
+                gain += w_m * path_marginal;
+            }
+        }
+
+        gain
+    }
+
+    /// Adds a symbol to the path coverage state, updating log potentials and accumulated total coverage.
+    pub fn add_candidate(&self, state: &mut PathCoverageState, candidate: SymbolId) {
+        let sym_idx = candidate.0 as usize;
+        if sym_idx >= self.symbol_to_paths.len() || self.paths.is_empty() {
+            return;
+        }
+
+        if state.selected.contains(&candidate) {
+            return;
+        }
+
+        let scale = 1.0 - PATH_EPSILON;
+
+        for &path_idx in &self.symbol_to_paths[sym_idx] {
+            if path_idx >= self.paths.len() {
+                continue;
+            }
+            let path = &self.paths[path_idx];
+            let w_m = path.probability;
+
+            if let Some(&(log_delta, _)) = self.path_node_steps[path_idx].get(&candidate) {
+                let current_log = state.log_uncovered[path_idx];
+                let current_cov = ((1.0 - current_log.exp()) / scale).clamp(0.0, 1.0);
+                state.log_uncovered[path_idx] += log_delta;
+                let new_cov =
+                    ((1.0 - state.log_uncovered[path_idx].exp()) / scale).clamp(0.0, 1.0);
+                let delta = (new_cov - current_cov).max(0.0);
+                state.total_coverage += w_m * delta;
+            }
+        }
+
+        state.selected.push(candidate);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,6 +976,78 @@ mod tests {
         assert!(
             diff < 0.05,
             "High temperature should approach uniform distribution"
+        );
+    }
+
+    #[test]
+    fn test_path_coverage_submodularity_and_accumulation() {
+        let mut path1 = ExecutionPath::new(
+            vec![SymbolId(0), SymbolId(1), SymbolId(2)],
+            vec![RelationType::Calls, RelationType::Calls],
+            vec![0.9, 0.9],
+        );
+        path1.probability = 0.7;
+
+        let mut path2 = ExecutionPath::new(
+            vec![SymbolId(0), SymbolId(3)],
+            vec![RelationType::References],
+            vec![0.8],
+        );
+        path2.probability = 0.3;
+
+        let pc = PathCoverage::new(4, vec![path1, path2]);
+        assert_eq!(pc.num_paths(), 2);
+        assert!((pc.total_weight() - 1.0).abs() < 1e-5);
+
+        let mut state = pc.new_state();
+        assert_eq!(state.total_coverage(), 0.0);
+
+        // Submodularity: marginal gain of SymbolId(1) with S = \emptyset
+        let gain_empty = pc.marginal_gain(&state, SymbolId(1));
+        assert!(gain_empty > 0.0);
+
+        // Add SymbolId(0) first
+        pc.add_candidate(&mut state, SymbolId(0));
+        assert!(state.total_coverage() > 0.0);
+
+        // Marginal gain of SymbolId(1) with S = {0}
+        let gain_with_0 = pc.marginal_gain(&state, SymbolId(1));
+        assert!(gain_with_0 > 0.0);
+
+        // Diminishing returns: \Delta(1 \mid \emptyset) >= \Delta(1 \mid {0})
+        assert!(
+            gain_empty >= gain_with_0 - 1e-6,
+            "Marginal gain must be diminishing: gain_empty={} vs gain_with_0={}",
+            gain_empty,
+            gain_with_0
+        );
+
+        // Add remaining nodes of path1
+        pc.add_candidate(&mut state, SymbolId(1));
+        pc.add_candidate(&mut state, SymbolId(2));
+
+        // Path 1 is completely selected, coverage of path 1 should be 1.0
+        assert!(
+            (state.coverage_of_path(0) - 1.0).abs() < 1e-4,
+            "Complete path should have ~1.0 coverage, got {}",
+            state.coverage_of_path(0)
+        );
+
+        // Path 2 only has SymbolId(0), not SymbolId(3)
+        assert!(state.coverage_of_path(1) < 1.0);
+        assert!(state.coverage_of_path(1) > 0.0);
+
+        // Complete path 2 as well
+        pc.add_candidate(&mut state, SymbolId(3));
+        assert!(
+            (state.coverage_of_path(1) - 1.0).abs() < 1e-4,
+            "Complete path 2 should have ~1.0 coverage, got {}",
+            state.coverage_of_path(1)
+        );
+        assert!(
+            (state.total_coverage() - 1.0).abs() < 1e-4,
+            "Total coverage should be ~1.0 when all paths complete, got {}",
+            state.total_coverage()
         );
     }
 }
