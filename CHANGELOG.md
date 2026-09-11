@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-11
+
+### Added
+- **Probabilistic Evidence Coverage & Submodular Kernel Engine (Phase 33)**:
+  - Implemented `EvidenceKernel` and `SparseKernelMatrix` computing pairwise contextual mutual information $K(v, u; q) \in [0, 1]$ across multiplex graph topologies with distance decay and containment boosts.
+  - Implemented `ProbabilisticCoverage` and `CoverageState` evaluating monotone submodular evidence coverage $\mathrm{Cov}(S; q, G) = \sum_{u \in V} \omega(u, q) [1 - \prod_{v \in S} (1 - K(v, u))]$.
+  - Fast log-space uncoverage potentials $L_u(S) = \sum_{v \in S} \ln(1 - K(v, u))$ enabling exact marginal gain evaluation $\Delta_{\mathrm{Cov}}(x \mid S)$ in $O(|\mathrm{Supp}(K(x, \cdot))|)$ sparse time.
+  - Added property verification suite in `tests/submodular_coverage_test.rs` proving submodularity diminishing returns $\Delta(x \mid A) \ge \Delta(x \mid B)$ for $A \subseteq B$.
+- **Multi-Objective Utility Function & Realistic Cost Accounting (Phase 34)**:
+  - Implemented `CostBreakdown` and `TokenCostEstimator` accurately pricing multi-factor token consumption $c(v) = c_{\text{text}}(v) + c_{\text{meta}}(v) + c_{\text{rel}}(v) + c_{\text{format}}(v)$ across discrete resolution LODs.
+  - Implemented `SubmodularUtility` and `UtilityState` formulating the unified multi-objective objective $F(S; q, G) = \alpha \mathrm{Rel}(S, q) + \beta \mathrm{Cov}(S, q, G) + \delta \mathrm{Test}(S, q, G) - \lambda \mathrm{Red}(S)$.
+  - Added unit and property verification in `tests/submodular_utility_test.rs` proving non-decreasing utility monotonicity and pairwise redundancy discounting.
+- **Dual-Mode Knapsack Solvers & Research Oracle Gap Analysis (Phase 35)**:
+  - Implemented `ExactKnapsackOracle` using Depth-First Branch-and-Bound with submodular linear relaxation upper-bound pruning to compute provably optimal ground-truth sets $S^*$ for instances with $|V_{\text{cand}}| \le 32$.
+  - Upgraded `CelfOptimizer` with `optimize_submodular` implementing Lazy CELF with Khuller-Sviridenko best-singleton knapsack correction, guaranteeing a $\frac{1}{2}(1 - 1/e) \approx 0.316$ theoretical lower bound.
+  - Added `tests/knapsack_oracle_gap_test.rs` benchmarking the approximation ratio $F(S_{\text{celf}}) / F(S^*)$, proving empirical performance exceeds $\ge 0.85$ on realistic code property graphs.
+
+---
+
 ## [0.6.0] - 2026-09-11
 
 ### Added
