@@ -16,6 +16,8 @@ pub struct LayerWeights {
     pub type_ref: f32,
     /// Module import dependency weight (use statements).
     pub import: f32,
+    /// Mined Git commit co-edit / logical coupling weight.
+    pub co_edit: f32,
 }
 
 impl Default for LayerWeights {
@@ -25,6 +27,7 @@ impl Default for LayerWeights {
             call: 1.0,
             type_ref: 0.6,
             import: 0.3,
+            co_edit: 0.5,
         }
     }
 }
@@ -38,6 +41,7 @@ impl LayerWeights {
             EdgeKind::Call => self.call,
             EdgeKind::TypeRef => self.type_ref,
             EdgeKind::Import => self.import,
+            EdgeKind::CoEdit => self.co_edit,
         }
     }
 }
@@ -46,7 +50,7 @@ impl LayerWeights {
 ///
 /// Combines dense symbol declarations (`SymbolNode`) with a high-performance Compressed
 /// Sparse Row (CSR) matrix representation. Edges across multiple layers (AST containment,
-/// call graph, type dependencies, imports) are resolved via Bayesian scoping and weighted
+/// call graph, type dependencies, imports, Git co-edits) are resolved via Bayesian scoping and weighted
 /// into a unified row-stochastic transition matrix for Personalized PageRank diffusion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiplexGraph {
@@ -82,11 +86,26 @@ impl MultiplexGraph {
         imports: &[FileImport],
         weights: LayerWeights,
     ) -> Self {
+        Self::build_with_all(symbols, raw_edges, imports, &[], weights)
+    }
+
+    /// Constructs a `MultiplexGraph` from extracted symbols, raw reference edges, explicit AST imports,
+    /// mined Git co-edit edges, and layer weights.
+    ///
+    /// Injects fine-grained logical coupling edges `(source, target, confidence)` mined from
+    /// historical commit changesets (Zimmermann et al., 2005; Gall et al., 1998).
+    pub fn build_with_all(
+        symbols: Vec<SymbolNode>,
+        raw_edges: &[ReferenceEdge],
+        imports: &[FileImport],
+        coedit_edges: &[(SymbolId, SymbolId, f32)],
+        weights: LayerWeights,
+    ) -> Self {
         let num_nodes = symbols.len();
         let resolver = ScopedResolver::with_imports(&symbols, imports);
 
         let mut directed_edges: Vec<(u32, u32, f32)> =
-            Vec::with_capacity(raw_edges.len() + imports.len());
+            Vec::with_capacity(raw_edges.len() + imports.len() + coedit_edges.len());
 
         for edge in raw_edges {
             let src_idx = edge.source.0 as usize;
@@ -109,6 +128,18 @@ impl MultiplexGraph {
                 // containment edge (struct -> method) so struct seeds diffuse to their member methods.
                 if edge.kind == EdgeKind::AstParent {
                     directed_edges.push((target_id.0, edge.source.0, combined_w));
+                }
+            }
+        }
+
+        // Inject mined historical Git co-edit edges
+        for &(src_id, target_id, confidence) in coedit_edges {
+            let src_idx = src_id.0 as usize;
+            let tgt_idx = target_id.0 as usize;
+            if src_idx < num_nodes && tgt_idx < num_nodes && src_id != target_id {
+                let coedit_w = weights.co_edit * confidence;
+                if coedit_w > 0.0 {
+                    directed_edges.push((src_id.0, target_id.0, coedit_w));
                 }
             }
         }

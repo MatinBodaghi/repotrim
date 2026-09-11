@@ -84,6 +84,7 @@ pub enum EdgeKind {
     Call,
     TypeRef,
     Import,
+    CoEdit,
 }
 
 /// Directed reference from an extracted symbol to a target identifier.

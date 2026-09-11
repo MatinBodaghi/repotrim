@@ -215,6 +215,31 @@ impl LoadedRepository {
         )
     }
 
+    /// Constructs the in-memory MultiplexGraph using custom layer weights.
+    pub fn build_graph_with_weights(&self, weights: LayerWeights) -> MultiplexGraph {
+        MultiplexGraph::build_with_imports(
+            self.symbols.clone(),
+            &self.edges,
+            &self.imports,
+            weights,
+        )
+    }
+
+    /// Constructs the in-memory MultiplexGraph fusing mined Git co-edit edges and layer weights.
+    pub fn build_graph_with_coedits(
+        &self,
+        coedit_edges: &[(crate::symbol::SymbolId, crate::symbol::SymbolId, f32)],
+        weights: LayerWeights,
+    ) -> MultiplexGraph {
+        MultiplexGraph::build_with_all(
+            self.symbols.clone(),
+            &self.edges,
+            &self.imports,
+            coedit_edges,
+            weights,
+        )
+    }
+
     /// Converts an absolute or relative path to a repository-relative path,
     /// resolving symlinks and canonical paths (e.g. macOS /var -> /private/var).
     pub fn to_relative_path(&self, path: &Path) -> Option<PathBuf> {

@@ -1,6 +1,7 @@
 pub mod architecture;
 pub mod cache;
 pub mod celf;
+pub mod coedit;
 pub mod csr;
 pub mod diff;
 pub mod error;
@@ -20,6 +21,7 @@ pub mod slicer;
 pub mod symbol;
 pub mod tokens;
 pub mod watcher;
+pub mod weight_learning;
 
 pub use architecture::{
     ArchitecturalHub, ArchitecturalLayer, ArchitectureReport, PublicApiSymbol, SubsystemCommunity,
@@ -31,6 +33,7 @@ pub use celf::{
     BorderlinePair, CelfConfig, CelfOptimizer, CelfTraceStep, LodOption, LodWeights, MckpResult,
     MckpTraceStep, SensitivityReport,
 };
+pub use coedit::{CoeditCache, CoeditConfig, CoeditGraph, CoeditPair, GitCommitMiner};
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;
@@ -50,6 +53,7 @@ pub use slicer::AstSlicer;
 pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
 pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
 pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
+pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningReport};
 
 #[cfg(test)]
 mod tests {
