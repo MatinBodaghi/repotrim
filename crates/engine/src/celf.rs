@@ -180,7 +180,8 @@ pub fn build_pareto_frontier(
     let mut last_cost = 0;
     for &lvl in &levels {
         let cost = if framing_aware {
-            ContextFormatter::rendered_symbol_tokens(sym, lvl, file_source, in_container, model).max(1)
+            ContextFormatter::rendered_symbol_tokens(sym, lvl, file_source, in_container, model)
+                .max(1)
         } else {
             let text = ContextFormatter::render_symbol(sym, lvl, file_source);
             count_tokens(&text, model).max(1)
@@ -515,7 +516,8 @@ impl CelfOptimizer {
                 continue;
             }
 
-            let initial_cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
+            let initial_cost =
+                self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
             if initial_cost > budget {
                 continue;
             }
@@ -655,7 +657,8 @@ impl CelfOptimizer {
             if score < self.config.min_relevance_threshold && !ppr_scores.is_empty() {
                 continue;
             }
-            let initial_cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
+            let initial_cost =
+                self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
             if initial_cost > budget {
                 continue;
             }
@@ -700,7 +703,8 @@ impl CelfOptimizer {
                     Some(s) => s,
                     None => continue,
                 };
-                let cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
+                let cost =
+                    self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
                 if current_tokens + cost > budget {
                     continue;
                 }
@@ -1116,7 +1120,11 @@ impl CelfOptimizer {
 
             let singleton_framing = if self.config.framing_aware {
                 let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
-                let mut f = ContextFormatter::file_framing_tokens(&sym.file_path, lang_tag, tokenizer_model);
+                let mut f = ContextFormatter::file_framing_tokens(
+                    &sym.file_path,
+                    lang_tag,
+                    tokenizer_model,
+                );
                 if let Some(ref c_name) = sym.container_name {
                     f += ContextFormatter::container_framing_tokens(
                         lang_tag,
@@ -1153,7 +1161,8 @@ impl CelfOptimizer {
                         match &best_singleton {
                             Some((_, _, _, best_val)) if *best_val >= standalone_util => {}
                             _ => {
-                                best_singleton = Some((sym.id, level, total_opt_cost, standalone_util));
+                                best_singleton =
+                                    Some((sym.id, level, total_opt_cost, standalone_util));
                             }
                         }
                     }
@@ -1221,7 +1230,11 @@ impl CelfOptimizer {
             if self.config.framing_aware && j == 0 {
                 if !opened_files.contains(&sym.file_path) {
                     let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
-                    delta_c += ContextFormatter::file_framing_tokens(&sym.file_path, lang_tag, tokenizer_model);
+                    delta_c += ContextFormatter::file_framing_tokens(
+                        &sym.file_path,
+                        lang_tag,
+                        tokenizer_model,
+                    );
                 }
                 if let Some(ref c_name) = sym.container_name {
                     if !opened_containers.contains(&(sym.file_path.clone(), c_name.clone())) {

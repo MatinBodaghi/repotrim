@@ -550,15 +550,16 @@ impl ContextSelector {
 
         // 5. Format into Markdown using the exact MCKP-selected LOD mapping with strict budget enforcement
         let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
-        let (surviving_symbols, markdown, surviving_lods) = ContextFormatter::format_markdown_budgeted(
-            &selected_symbols,
-            &mckp_result.selected_lods,
-            file_sources,
-            budget,
-            self.tokenizer_model,
-            &ppr_scores,
-            &seed_id_list,
-        );
+        let (surviving_symbols, markdown, surviving_lods) =
+            ContextFormatter::format_markdown_budgeted(
+                &selected_symbols,
+                &mckp_result.selected_lods,
+                file_sources,
+                budget,
+                self.tokenizer_model,
+                &ppr_scores,
+                &seed_id_list,
+            );
         let final_tokens = count_tokens(&markdown, self.tokenizer_model);
         let updated_mckp = MckpResult {
             selected_lods: surviving_lods,
@@ -686,15 +687,16 @@ impl ContextSelector {
         });
 
         let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
-        let (surviving_symbols, markdown, surviving_lods) = ContextFormatter::format_markdown_budgeted(
-            &selected_symbols,
-            &mckp_result.selected_lods,
-            file_sources,
-            optimal_budget,
-            self.tokenizer_model,
-            &ppr_scores,
-            &seed_id_list,
-        );
+        let (surviving_symbols, markdown, surviving_lods) =
+            ContextFormatter::format_markdown_budgeted(
+                &selected_symbols,
+                &mckp_result.selected_lods,
+                file_sources,
+                optimal_budget,
+                self.tokenizer_model,
+                &ppr_scores,
+                &seed_id_list,
+            );
         let final_tokens = count_tokens(&markdown, self.tokenizer_model);
         let updated_mckp = MckpResult {
             selected_lods: surviving_lods,
@@ -801,11 +803,11 @@ impl ContextSelector {
 
         Self::apply_community_boost(graph, &mut ppr_scores, weighted_seeds, community_boost);
 
-        let selected_ids = self
-            .celf
-            .clone()
-            .with_framing(true)
-            .optimize(graph, &ppr_scores, budget);
+        let selected_ids =
+            self.celf
+                .clone()
+                .with_framing(true)
+                .optimize(graph, &ppr_scores, budget);
 
         let mut selected_symbols: Vec<SymbolNode> = selected_ids
             .into_iter()
@@ -1149,13 +1151,23 @@ mod tests {
         let selector = ContextSelector::default();
 
         let mut sources = HashMap::new();
-        sources.insert(PathBuf::from("src/entry.rs"), "fn entry() { service(); }".to_string());
-        sources.insert(PathBuf::from("src/service.rs"), "fn service() { db(); }".to_string());
-        sources.insert(PathBuf::from("src/db.rs"), "fn db() { query(); }".to_string());
+        sources.insert(
+            PathBuf::from("src/entry.rs"),
+            "fn entry() { service(); }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/service.rs"),
+            "fn service() { db(); }".to_string(),
+        );
+        sources.insert(
+            PathBuf::from("src/db.rs"),
+            "fn db() { query(); }".to_string(),
+        );
 
         // Test across a sweep of budgets
         for budget in [30, 45, 60, 100, 200] {
-            let (syms, md) = selector.select_and_format_context(&graph, &[SymbolId(0)], budget, &sources);
+            let (syms, md) =
+                selector.select_and_format_context(&graph, &[SymbolId(0)], budget, &sources);
             let actual_tokens = count_tokens(&md, selector.tokenizer_model());
             assert!(
                 actual_tokens <= budget,

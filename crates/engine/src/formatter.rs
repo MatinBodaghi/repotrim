@@ -813,7 +813,11 @@ impl ContextFormatter {
     }
 
     /// Estimates the token cost of file framing (header and closing code fence).
-    pub fn file_framing_tokens(path: &std::path::Path, lang_tag: &str, model: TokenizerModel) -> usize {
+    pub fn file_framing_tokens(
+        path: &std::path::Path,
+        lang_tag: &str,
+        model: TokenizerModel,
+    ) -> usize {
         let sample = format!("### File: `{}`\n```{}\n```\n\n", path.display(), lang_tag);
         count_tokens(&sample, model)
     }
@@ -825,7 +829,8 @@ impl ContextFormatter {
         trait_name: Option<&str>,
         model: TokenizerModel,
     ) -> usize {
-        let (header, footer) = Self::container_header_and_footer(lang_tag, container_name, trait_name);
+        let (header, footer) =
+            Self::container_header_and_footer(lang_tag, container_name, trait_name);
         let sample = if let Some(footer) = footer {
             format!("{}\n{}\n", header, footer)
         } else {
@@ -835,7 +840,11 @@ impl ContextFormatter {
     }
 
     /// Estimates the token cost of line comment and indentation overhead for a symbol.
-    pub fn symbol_framing_tokens(sym: &SymbolNode, in_container: bool, model: TokenizerModel) -> usize {
+    pub fn symbol_framing_tokens(
+        sym: &SymbolNode,
+        in_container: bool,
+        model: TokenizerModel,
+    ) -> usize {
         let comment_prefix = if sym.file_path.extension().and_then(|e| e.to_str()) == Some("py") {
             "#"
         } else {
@@ -1333,7 +1342,8 @@ mod tests {
     #[test]
     fn test_framing_token_helpers() {
         let path = PathBuf::from("crates/engine/src/celf.rs");
-        let file_tokens = ContextFormatter::file_framing_tokens(&path, "rust", TokenizerModel::FastHeuristic);
+        let file_tokens =
+            ContextFormatter::file_framing_tokens(&path, "rust", TokenizerModel::FastHeuristic);
         assert!(file_tokens > 0);
 
         let container_tokens = ContextFormatter::container_framing_tokens(
@@ -1344,8 +1354,15 @@ mod tests {
         );
         assert!(container_tokens > 0);
 
-        let sym = make_test_symbol(1, "optimize", SymbolKind::Method, TextSpan::new(0, 50, 10, 15), None);
-        let sym_tokens = ContextFormatter::symbol_framing_tokens(&sym, true, TokenizerModel::FastHeuristic);
+        let sym = make_test_symbol(
+            1,
+            "optimize",
+            SymbolKind::Method,
+            TextSpan::new(0, 50, 10, 15),
+            None,
+        );
+        let sym_tokens =
+            ContextFormatter::symbol_framing_tokens(&sym, true, TokenizerModel::FastHeuristic);
         assert!(sym_tokens > 0);
     }
 
@@ -1358,7 +1375,8 @@ mod tests {
         let path = PathBuf::from("src/lib.rs");
         sources.insert(
             path.clone(),
-            "pub fn f1() {}\npub fn f2() {}\npub fn f3() {}\npub fn f4() {}\npub fn f5() {}".to_string(),
+            "pub fn f1() {}\npub fn f2() {}\npub fn f3() {}\npub fn f4() {}\npub fn f5() {}"
+                .to_string(),
         );
 
         for i in 1..=5 {
@@ -1367,7 +1385,12 @@ mod tests {
                 &format!("f{}", i),
                 SymbolKind::Function,
                 "src/lib.rs",
-                TextSpan::new((i as usize - 1) * 15, i as usize * 15, (i as usize - 1) * 2, i as usize * 2 + 1),
+                TextSpan::new(
+                    (i as usize - 1) * 15,
+                    i as usize * 15,
+                    (i as usize - 1) * 2,
+                    i as usize * 2 + 1,
+                ),
                 &format!("pub fn f{}()", i),
                 Some("Some docstring for testing"),
                 None,
