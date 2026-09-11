@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **606** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **2432** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.142** | High cross-boundary integration |
+| **Total AST Symbols** | **657** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **2617** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.147** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -21,17 +21,19 @@ The following diagram illustrates the directed dependency flow between architect
 ```mermaid
 flowchart TD
     subgraph Presentation["Layer 1: Presentation & Entrypoints"]
-        subsys_crates_cli["crates-cli (58 syms)"]
-        subsys_crates_mcp_server["crates-mcp-server (52 syms)"]
+        subsys_crates_cli["crates-cli (70 syms)"]
+        subsys_crates_mcp_server["crates-mcp-server (54 syms)"]
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (496 syms)"]
+        subsys_crates_engine["crates-engine (533 syms)"]
     end
 
-    subsys_crates_cli -->|"141 refs"| subsys_crates_engine
+    subsys_crates_cli -->|"162 refs"| subsys_crates_engine
     subsys_crates_cli -->|"2 refs"| subsys_crates_mcp_server
-    subsys_crates_mcp_server -->|"98 refs"| subsys_crates_engine
+    subsys_crates_mcp_server -->|"3 refs"| subsys_crates_cli
+    subsys_crates_mcp_server -->|"110 refs"| subsys_crates_engine
+    subsys_crates_engine -->|"28 refs"| subsys_crates_cli
     subsys_crates_engine -->|"4 refs"| subsys_crates_mcp_server
 ```
 
@@ -41,9 +43,9 @@ flowchart TD
 
 | Subsystem | Layer | Root Directory | Symbols | Tokens | Coupling (Out $\to$ In) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **crates-cli** | `Presentation` | `crates/cli` | 58 | 3707 | crates-engine (141), crates-mcp-server (2) |
-| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 52 | 1189 | crates-engine (98) |
-| **crates-engine** | `Domain` | `crates/engine` | 496 | 16783 | crates-mcp-server (4) |
+| **crates-cli** | `Presentation` | `crates/cli` | 70 | 4422 | crates-engine (162), crates-mcp-server (2) |
+| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 54 | 1222 | crates-cli (3), crates-engine (110) |
+| **crates-engine** | `Domain` | `crates/engine` | 533 | 18180 | crates-cli (28), crates-mcp-server (4) |
 
 ---
 
@@ -53,19 +55,20 @@ flowchart TD
 
 *Ingress entrypoints, CLI commands, MCP protocol dispatchers, and UI components.*
 
-- **`crates-cli`** (at `crates/cli`): 58 symbols (3707 tokens).
-  - Depends on: `crates-engine` (141 refs), `crates-mcp-server` (2 refs)
-- **`crates-mcp-server`** (at `crates/mcp-server`): 52 symbols (1189 tokens).
-  - Depends on: `crates-engine` (98 refs)
+- **`crates-cli`** (at `crates/cli`): 70 symbols (4422 tokens).
+  - Depends on: `crates-engine` (162 refs), `crates-mcp-server` (2 refs)
+  - Consumed by: `crates-engine` (28 callers), `crates-mcp-server` (3 callers)
+- **`crates-mcp-server`** (at `crates/mcp-server`): 54 symbols (1222 tokens).
+  - Depends on: `crates-cli` (3 refs), `crates-engine` (110 refs)
   - Consumed by: `crates-cli` (2 callers), `crates-engine` (4 callers)
 
 ### Layer 2: Domain & Business Logic
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 496 symbols (16783 tokens).
-  - Depends on: `crates-mcp-server` (4 refs)
-  - Consumed by: `crates-cli` (141 callers), `crates-mcp-server` (98 callers)
+- **`crates-engine`** (at `crates/engine`): 533 symbols (18180 tokens).
+  - Depends on: `crates-cli` (28 refs), `crates-mcp-server` (4 refs)
+  - Consumed by: `crates-cli` (162 callers), `crates-mcp-server` (110 callers)
 
 ---
 
@@ -75,21 +78,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 147 | 1 | 0.06986 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 112 | 1 | 0.01408 | `crates/engine/src/cache.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 75 | 2 | 0.00650 | `crates/engine/src/cache.rs` |
-| **`from`** | `Method` | `Domain` | 70 | 1 | 0.04223 | `crates/engine/src/error.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 63 | 18 | 0.00923 | `crates/engine/src/graph.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 63 | 3 | 0.00696 | `crates/engine/src/symbol.rs` |
-| **`as_str`** | `Method` | `Domain` | 50 | 1 | 0.01112 | `crates/engine/src/impact.rs` |
-| **`build`** | `Method` | `Domain` | 47 | 5 | 0.00160 | `crates/engine/src/graph.rs` |
-| **`is_empty`** | `Method` | `Domain` | 44 | 1 | 0.00601 | `crates/engine/src/coedit.rs` |
-| **`default`** | `Method` | `Infrastructure` | 41 | 2 | 0.00349 | `crates/engine/src/cache.rs` |
-| **`new`** | `Method` | `Domain` | 34 | 1 | 0.02053 | `crates/engine/src/symbol.rs` |
-| **`symbol`** | `Method` | `Core` | 28 | 3 | 0.00127 | `crates/engine/src/graph.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 24 | 4 | 0.00093 | `crates/engine/src/loader.rs` |
-| **`EngineError`** | `Enum` | `Core` | 20 | 1 | 0.03919 | `crates/engine/src/error.rs` |
-| **`repo_root`** | `Function` | `Presentation` | 23 | 1 | 0.00389 | `crates/cli/tests/cli_test.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 151 | 1 | 0.06925 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 122 | 1 | 0.01387 | `crates/engine/src/cache.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 76 | 2 | 0.00636 | `crates/engine/src/cache.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 69 | 3 | 0.00695 | `crates/engine/src/symbol.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 63 | 18 | 0.00849 | `crates/engine/src/graph.rs` |
+| **`as_str`** | `Method` | `Domain` | 54 | 1 | 0.01658 | `crates/engine/src/impact.rs` |
+| **`is_empty`** | `Method` | `Domain` | 50 | 1 | 0.00687 | `crates/engine/src/coedit.rs` |
+| **`build`** | `Method` | `Domain` | 47 | 5 | 0.00148 | `crates/engine/src/graph.rs` |
+| **`default`** | `Method` | `Infrastructure` | 43 | 2 | 0.00338 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 38 | 1 | 0.01917 | `crates/engine/src/error.rs` |
+| **`new`** | `Method` | `Domain` | 33 | 1 | 0.01916 | `crates/engine/src/symbol.rs` |
+| **`from`** | `Method` | `Presentation` | 34 | 2 | 0.00734 | `crates/cli/src/commands/query.rs` |
+| **`repo_root`** | `Function` | `Presentation` | 29 | 1 | 0.00429 | `crates/cli/tests/cli_test.rs` |
+| **`symbol`** | `Method` | `Core` | 28 | 3 | 0.00117 | `crates/engine/src/graph.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 24 | 4 | 0.00084 | `crates/engine/src/loader.rs` |
 
 ---
 
@@ -137,6 +140,11 @@ pub fn execute(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>>
 - **`execute`** (`Function` in `crates/cli/src/commands/mcp.rs`):
 ```text
 pub fn execute(args: McpArgs) -> Result<(), Box<dyn std::error::Error>>
+```
+
+- **`execute`** (`Function` in `crates/cli/src/commands/query.rs`):
+```text
+pub fn execute(args: QueryArgs) -> Result<(), Box<dyn std::error::Error>>
 ```
 
 - **`execute`** (`Function` in `crates/cli/src/commands/select.rs`):
@@ -221,6 +229,14 @@ pub struct BlueprintArgs {
     /// Include mined Git commit co-edits in seed identification and blueprint scaffolding
     #[arg(long = "coedit", alias = "use-coedit")]
     pub coedit: bool,
+
+    /// Retrieval modality for task anchor resolution: hybrid (default), lexical, or dense
+    #[arg(long = "retrieval-mode", value_enum, default_value_t = crate::commands::query::QueryModeCli::Hybrid)]
+    pub retrieval_mode: crate::commands::query::QueryModeCli,
+
+    /// Enable Rocchio pseudo-relevance feedback query expansion
+    #[arg(long = "query-expand", alias = "expand")]
+    pub query_expand: bool,
 }
 ```
 
@@ -393,6 +409,53 @@ pub struct McpArgs {
 }
 ```
 
+- **`QueryArgs`** (`Struct` in `crates/cli/src/commands/query.rs`):
+```text
+pub struct QueryArgs {
+    /// Natural language query, symbol name, or search description
+    pub query: String,
+
+    /// Maximum number of search results to return
+    #[arg(short = 'n', long = "limit", default_value = "10")]
+    pub limit: usize,
+
+    /// Retrieval modality: hybrid (BM25+ and Dense RRF), lexical (BM25+), or dense (subword embeddings)
+    #[arg(short = 'm', long = "mode", value_enum, default_value_t = QueryModeCli::Hybrid)]
+    pub mode: QueryModeCli,
+
+    /// Enable Rocchio pseudo-relevance feedback (PRF) query expansion
+    #[arg(long = "expand")]
+    pub expand: bool,
+
+    /// Display detailed score breakdown (BM25, Dense Cosine, RRF, and matched terms)
+    #[arg(long = "explain")]
+    pub explain: bool,
+
+    /// Target codebase directory to search
+    #[arg(short = 'p', long = "path", default_value = ".")]
+    pub path: PathBuf,
+
+    /// Disable incremental AST caching and force full re-parsing
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
+
+    /// Output results in machine-readable JSON format
+    #[arg(long = "json")]
+    pub json: bool,
+}
+```
+
+- **`QueryCliReport`** (`Struct` in `crates/cli/src/commands/query.rs`):
+```text
+struct QueryCliReport {
+    query: String,
+    mode: QueryModeCli,
+    query_expansion: bool,
+    total_symbols: usize,
+    results: Vec<SearchResult>,
+}
+```
+
 - **`SelectArgs`** (`Struct` in `crates/cli/src/commands/select.rs`):
 ```text
 pub struct SelectArgs {
@@ -455,6 +518,14 @@ pub struct SelectArgs {
     /// Apply intra-community cohesion boost to focus seeds to reduce external hub drift
     #[arg(long = "community-boost", alias = "community", default_value = "0.0")]
     pub community_boost: f32,
+
+    /// Retrieval modality for query resolution: hybrid (default), lexical, or dense
+    #[arg(long = "retrieval-mode", value_enum, default_value_t = crate::commands::query::QueryModeCli::Hybrid)]
+    pub retrieval_mode: crate::commands::query::QueryModeCli,
+
+    /// Enable Rocchio pseudo-relevance feedback query expansion
+    #[arg(long = "query-expand", alias = "expand")]
+    pub query_expand: bool,
 }
 ```
 
@@ -505,6 +576,8 @@ enum Commands {
     Coedit(commands::coedit::CoeditArgs),
     /// Detect multi-resolution topological communities, hierarchy, and architectural drift
     Community(commands::community::CommunityArgs),
+    /// Search codebase symbols via hybrid BM25+ and dense subword semantic retrieval
+    Query(commands::query::QueryArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -518,31 +591,6 @@ pub enum OutputFormat {
     Markdown,
     Json,
 }
-```
-
-### Subsystem: `crates-engine`
-
-- **`build_pareto_frontier`** (`Function` in `crates/engine/src/celf.rs`):
-> Builds the Pareto-efficient upper convex hull of Level-of-Detail options for a symbol.
-```text
-pub fn build_pareto_frontier(
-    sym: &SymbolNode,
-    file_source: Option<&str>,
-    model: TokenizerModel,
-    weights: LodWeights,
-) -> Vec<LodOption>
-```
-
-- **`compute_blake3_hash`** (`Function` in `crates/engine/src/cache.rs`):
-> Computes the 32-byte BLAKE3 cryptographic hash of a byte slice.
-```text
-pub fn compute_blake3_hash(bytes: &[u8]) -> [u8; 32]
-```
-
-- **`compute_path_distance`** (`Function` in `crates/engine/src/resolver.rs`):
-> Computes the relative module/path distance between two file paths.
-```text
-pub fn compute_path_distance(p1: &Path, p2: &Path) -> usize
 ```
 
 ---

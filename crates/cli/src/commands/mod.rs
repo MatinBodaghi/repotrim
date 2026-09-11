@@ -6,6 +6,7 @@ pub mod community;
 pub mod impact;
 pub mod inspect;
 pub mod mcp;
+pub mod query;
 pub mod select;
 pub mod stats;
 pub mod watch;

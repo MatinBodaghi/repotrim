@@ -128,7 +128,7 @@ mod tests {
         let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(resp3["id"], 3);
         let tools = resp3["result"]["tools"].as_array().expect("Tools array");
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(tool_names.contains(&"trim_context"));
         assert!(tool_names.contains(&"query_graph_stats"));
@@ -139,5 +139,6 @@ mod tests {
         assert!(tool_names.contains(&"analyze_impact"));
         assert!(tool_names.contains(&"mine_coedits"));
         assert!(tool_names.contains(&"detect_communities"));
+        assert!(tool_names.contains(&"search_symbols"));
     }
 }

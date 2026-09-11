@@ -1,6 +1,5 @@
 use clap::Args;
 use colored::Colorize;
-use repotrim_engine::IntentResolver;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
@@ -40,6 +39,14 @@ pub struct BlueprintArgs {
     /// Include mined Git commit co-edits in seed identification and blueprint scaffolding
     #[arg(long = "coedit", alias = "use-coedit")]
     pub coedit: bool,
+
+    /// Retrieval modality for task anchor resolution: hybrid (default), lexical, or dense
+    #[arg(long = "retrieval-mode", value_enum, default_value_t = crate::commands::query::QueryModeCli::Hybrid)]
+    pub retrieval_mode: crate::commands::query::QueryModeCli,
+
+    /// Enable Rocchio pseudo-relevance feedback query expansion
+    #[arg(long = "query-expand", alias = "expand")]
+    pub query_expand: bool,
 }
 
 pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -54,7 +61,18 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut repo = LoadedRepository::load_with_options(&args.path, !args.no_cache)?;
     repo.load_all_sources()?;
 
-    let top_seeds = IntentResolver::resolve_query(&repo.symbols, &args.task, 6);
+    let retrieval_cfg = repotrim_engine::RetrievalConfig {
+        mode: args.retrieval_mode.into(),
+        top_k: 6,
+        query_expansion: args.query_expand,
+        ..Default::default()
+    };
+    let top_results = repotrim_engine::HybridRetriever::with_config(retrieval_cfg)
+        .search(&repo.symbols, &args.task);
+    let top_seeds: Vec<(repotrim_engine::SymbolId, f32)> = top_results
+        .into_iter()
+        .map(|r| (r.symbol_id, r.score))
+        .collect();
 
     let mut seed_files = Vec::new();
     let mut seen_files = HashSet::new();

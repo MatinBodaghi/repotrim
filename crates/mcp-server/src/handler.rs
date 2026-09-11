@@ -6,8 +6,9 @@ use std::sync::{Arc, RwLock, RwLockWriteGuard};
 use repotrim_engine::{
     count_tokens, ArchitectureReport, CoeditCache, CoeditConfig, CommunityConfig,
     CommunityDetector, ContextSelector, DiffResolver, EdgeWeightLearner, GitCommitMiner,
-    ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile,
-    PprSolver, RepositoryWatcher, SymbolId, SymbolKind, TokenizerModel,
+    HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
+    ModelProfile, PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind,
+    TokenizerModel,
 };
 
 use crate::protocol::{
@@ -195,6 +196,15 @@ impl McpHandler {
                         "communityBoost": {
                             "type": "number",
                             "description": "Optional intra-community cohesion boost multiplier (e.g. 0.35) to focus context selection on seeds' topological communities"
+                        },
+                        "retrievalMode": {
+                            "type": "string",
+                            "enum": ["hybrid", "lexical", "dense"],
+                            "description": "Query seed retrieval scoring mode ('hybrid' RRF, 'lexical' BM25+, 'dense' cosine; default: 'hybrid')"
+                        },
+                        "queryExpand": {
+                            "type": "boolean",
+                            "description": "Optional flag to enable Rocchio Pseudo-Relevance Feedback (PRF) query expansion for natural language queries"
                         }
                     }
                 }),
@@ -383,6 +393,42 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "search_symbols".to_string(),
+                description: "Perform hybrid lexical (BM25+) and dense semantic (subword feature hashing) symbol retrieval across the repository.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query or natural language description (e.g. 'PPR solver', 'select context', 'knapsack')"
+                        },
+                        "limit": {
+                            "type": "number",
+                            "description": "Maximum number of symbols to retrieve (default: 10)"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["hybrid", "lexical", "dense"],
+                            "description": "Retrieval scoring mode ('hybrid' RRF, 'lexical' BM25+, 'dense' cosine; default: 'hybrid')"
+                        },
+                        "expand": {
+                            "type": "boolean",
+                            "description": "Enable Rocchio Pseudo-Relevance Feedback (PRF) query expansion (default: false)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format ('markdown' or 'json', default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            },
         ]
     }
 
@@ -398,6 +444,7 @@ impl McpHandler {
             "analyze_impact" => self.tool_analyze_impact(arguments),
             "mine_coedits" => self.tool_mine_coedits(arguments),
             "detect_communities" => self.tool_detect_communities(arguments),
+            "search_symbols" => self.tool_search_symbols(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -510,6 +557,14 @@ impl McpHandler {
             .get("communityBoost")
             .and_then(|d| d.as_f64())
             .unwrap_or(0.0) as f32;
+        let retrieval_mode_str = args
+            .get("retrievalMode")
+            .and_then(|m| m.as_str())
+            .unwrap_or("hybrid");
+        let query_expand = args
+            .get("queryExpand")
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false);
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -538,11 +593,23 @@ impl McpHandler {
             }
         }
 
-        // 2. Query seeds via BM25 + trigram fuzzy intent resolution
+        // 2. Query seeds via BM25+ and dense semantic intent resolution
         if let Some(ref q) = query_opt {
-            let query_seeds = IntentResolver::resolve_query(&repo.symbols, q, 5);
-            for (id, confidence) in query_seeds {
-                *weighted_seeds.entry(id).or_default() += confidence;
+            let search_mode = match retrieval_mode_str.to_lowercase().as_str() {
+                "lexical" | "bm25" => SearchMode::LexicalOnly,
+                "dense" | "semantic" => SearchMode::DenseOnly,
+                _ => SearchMode::Hybrid,
+            };
+            let ret_config = RetrievalConfig {
+                mode: search_mode,
+                top_k: 5,
+                query_expansion: query_expand,
+                ..Default::default()
+            };
+            let query_seeds =
+                IntentResolver::resolve_query_with_config(&repo.symbols, q, &ret_config);
+            for r in query_seeds {
+                *weighted_seeds.entry(r.symbol_id).or_default() += r.score;
             }
         }
 
@@ -1460,6 +1527,119 @@ impl McpHandler {
                 }
                 ToolCallResult::success(md)
             }
+        }
+    }
+
+    fn tool_search_symbols(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let query = match args.get("query").and_then(|q| q.as_str()) {
+            Some(q) if !q.trim().is_empty() => q.trim().to_string(),
+            _ => return ToolCallResult::error("Missing or empty 'query' parameter"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(10) as usize;
+        let mode_str = args
+            .get("mode")
+            .and_then(|m| m.as_str())
+            .unwrap_or("hybrid");
+        let search_mode = match mode_str.to_lowercase().as_str() {
+            "lexical" | "bm25" => SearchMode::LexicalOnly,
+            "dense" | "semantic" => SearchMode::DenseOnly,
+            _ => SearchMode::Hybrid,
+        };
+        let expand = args
+            .get("expand")
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false);
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let ret_config = RetrievalConfig {
+            mode: search_mode,
+            top_k: limit,
+            query_expansion: expand,
+            ..Default::default()
+        };
+
+        let retriever = HybridRetriever::with_config(ret_config);
+        let results = retriever.search(&repo.symbols, &query);
+
+        if format_str == "json" {
+            let json_val = serde_json::json!({
+                "query": query,
+                "mode": format!("{:?}", search_mode).to_lowercase(),
+                "expanded": expand,
+                "total_results": results.len(),
+                "results": results.iter().map(|r| {
+                    let sym = &repo.symbols[r.symbol_id.0 as usize];
+                    serde_json::json!({
+                        "id": r.symbol_id.0,
+                        "name": sym.name,
+                        "kind": format!("{:?}", sym.kind),
+                        "file": sym.file_path.display().to_string().replace('\\', "/"),
+                        "lines": [sym.span.start_row + 1, sym.span.end_row + 1],
+                        "score": r.score,
+                        "bm25_score": r.bm25_score,
+                        "dense_score": r.dense_score,
+                        "rrf_score": r.rrf_score,
+                        "matched_terms": r.matched_terms,
+                    })
+                }).collect::<Vec<_>>(),
+            });
+            match serde_json::to_string_pretty(&json_val) {
+                Ok(json_str) => ToolCallResult::success(json_str),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
+        } else {
+            let mut md = String::new();
+            let _ = writeln!(md, "# Symbol Retrieval Results for `{}`\n", query);
+            let _ = writeln!(md, "- **Mode:** {:?}", search_mode);
+            let _ = writeln!(md, "- **Pseudo-Relevance Expansion:** {}", expand);
+            let _ = writeln!(md, "- **Matches:** {}\n", results.len());
+
+            if results.is_empty() {
+                let _ = writeln!(md, "No matching symbols found.");
+            } else {
+                let _ = writeln!(
+                    md,
+                    "| Rank | Symbol | Kind | File | Score | BM25+ | Dense | RRF | Matches |"
+                );
+                let _ = writeln!(
+                    md,
+                    "| :---: | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :--- |"
+                );
+                for (i, r) in results.iter().enumerate() {
+                    let sym = &repo.symbols[r.symbol_id.0 as usize];
+                    let file_str = sym.file_path.display().to_string().replace('\\', "/");
+                    let matches_str = if r.matched_terms.is_empty() {
+                        "-".to_string()
+                    } else {
+                        r.matched_terms.join(", ")
+                    };
+                    let _ = writeln!(
+                        md,
+                        "| {} | `{}` | `{:?}` | `{}:{}` | {:.4} | {:.2} | {:.4} | {:.4} | {} |",
+                        i + 1,
+                        sym.name,
+                        sym.kind,
+                        file_str,
+                        sym.span.start_row + 1,
+                        r.score,
+                        r.bm25_score,
+                        r.dense_score,
+                        r.rrf_score,
+                        matches_str,
+                    );
+                }
+            }
+            ToolCallResult::success(md)
         }
     }
 }

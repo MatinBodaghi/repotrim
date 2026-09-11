@@ -304,6 +304,27 @@ repotrim architecture --resolution 0.75 --output docs/ARCHITECTURE.md
 repotrim select --symbol ContextSelector --community-boost --budget 800
 ```
 
+### 11. Hybrid Lexical + Dense Semantic Symbol Query (`query`)
+
+Search and retrieve workspace symbols using multi-field BM25+ lexical scoring, zero-dependency subword feature hashing & concept taxonomy dense vectors, Reciprocal Rank Fusion (RRF), and Rocchio Pseudo-Relevance Feedback:
+
+```bash
+# Hybrid retrieval across workspace symbols with default RRF scoring
+repotrim query "PPR solver"
+
+# Lexical-only retrieval (field-weighted BM25+)
+repotrim query "ContextSelector" --mode lexical
+
+# Dense semantic retrieval with Rocchio PRF query expansion
+repotrim query "graph random walk" --mode dense --expand
+
+# Output structured JSON results
+repotrim query "token estimation" --json --limit 5
+
+# Display detailed score breakdowns (BM25+, Dense Cosine, RRF, matched terms)
+repotrim query "knapsack" --explain
+```
+
 ---
 
 ## Model Context Protocol (MCP) Integration
@@ -360,7 +381,8 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean`, `useCoedits?: boolean`, `learnWeights?: boolean`, `communityBoost?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, joint MCKP LOD optimization, Git co-edit fusion, and community boosting |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean`, `useCoedits?: boolean`, `learnWeights?: boolean`, `communityBoost?: boolean`, `retrievalMode?: string`, `queryExpand?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, joint MCKP LOD optimization, Git co-edit fusion, community boosting, and hybrid BM25+/dense retrieval |
+| **`search_symbols`** | `query: string`, `limit?: number`, `mode?: string`, `expand?: boolean`, `format?: string`, `path?: string` | Performs hybrid lexical (BM25+) and dense semantic (subword feature hashing) symbol retrieval across the repository |
 | **`detect_communities`** | `path?: string`, `resolution?: number`, `hierarchy?: boolean`, `drift?: boolean`, `format?: string` | Detects multi-resolution Potts communities across Macro ($\gamma=0.5$), Meso ($\gamma=1.0$), and Micro ($\gamma=2.5$) tiers, spots architectural drift, and outputs topological catalogs |
 | **`mine_coedits`** | `path?: string`, `limit?: number`, `minSupport?: number` | Mines fine-grained git commit history for co-edit patterns, computes association confidence, and returns top logical coupling pairs |
 | **`analyze_impact`** | `symbol?: string`, `diff?: string`, `diffAgainst?: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Computes architectural blast radius, 1st-order callers, transitive dependents, and recommended regression tests |
@@ -404,7 +426,8 @@ repotrim/
 │   │   ├── sensitivity_analysis.md
 │   │   ├── mckp_joint_selection.md
 │   │   ├── git_coedit_learning.md
-│   │   └── community_detection.md
+│   │   ├── community_detection.md
+│   │   └── hybrid_retrieval.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
 │       ├── FEATURE_BLUEPRINT_TEMPLATE.md
@@ -423,12 +446,13 @@ repotrim/
     │       ├── error.rs        # Engine error types
     │       ├── intent.rs       # BM25 + trigram + semantic hybrid query resolver
     │       ├── parser.rs       # Polyglot Tree-sitter AST symbol extractor
+    │       ├── retrieval.rs    # Hybrid BM25+, dense subword feature hashing, RRF & PRF
     │       ├── selector.rs     # CELF knapsack context selector
     │       ├── slicer.rs       # AST control-flow program slicer (Weiser 1981)
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
     │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
     │       └── weight_learning.rs # Bayesian multiplex edge weight learning & ranking calibration
-    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, coedit, community, mcp)
+    ├── cli/                    # repotrim: CLI binary (select, query, blueprint, stats, inspect, clean, coedit, community, mcp)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server
 ```
 
@@ -514,6 +538,14 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Vincent A. Traag, Ludo Waltman, Nees Jan van Eck. *"From Louvain to Leiden: guaranteeing well-connected communities"*. In *Scientific Reports*, 9(1): 5233, 2019. [DOI: 10.1038/s41598-019-41695-z](https://doi.org/10.1038/s41598-019-41695-z).
     - Alexander Strehl, Joydeep Ghosh. *"Cluster Ensembles — A Knowledge Reuse Framework for Combining Multiple Partitions"*. In *Journal of Machine Learning Research (JMLR)*, 3: 583–617, 2002. [JMLR](https://jmlr.org/papers/v3/strehl02a.html).
     - Empirical evaluation: [`docs/benchmarks/community_detection.md`](docs/benchmarks/community_detection.md).
+22. **Hybrid Lexical-Dense Information Retrieval, BM25+, Feature Hashing, & RRF:**
+    - Yuanhua Lv, ChengXiang Zhai. *"Lower-Bounding Term Frequency Normalization"*. In *Proceedings of the 20th ACM International Conference on Information and Knowledge Management (CIKM '11)*, pp. 7–16, 2011. [DOI: 10.1145/2063576.2063584](https://doi.org/10.1145/2063576.2063584).
+    - Stephen E. Robertson, Hugo Zaragoza. *"The Probabilistic Relevance Framework: BM25 and Beyond"*. In *Foundations and Trends in Information Retrieval*, 3(4): 333–389, 2009. [DOI: 10.1561/1500000019](https://doi.org/10.1561/1500000019).
+    - Kilian Weinberger, Anirban Dasgupta, John Langford, Alex Smola, Josh Attenberg. *"Feature Hashing for Large Scale Multitask Learning"*. In *Proceedings of the 26th International Conference on Machine Learning (ICML '09)*, pp. 1113–1120, 2009. [DOI: 10.1145/1553374.1553516](https://doi.org/10.1145/1553374.1553516).
+    - Piotr Bojanowski, Edouard Grave, Armand Joulin, Tomas Mikolov. *"Enriching Word Vectors with Subword Information"*. In *Transactions of the Association for Computational Linguistics (TACL)*, 5: 135–146, 2017. [DOI: 10.1162/tacl_a_00051](https://doi.org/10.1162/tacl_a_00051).
+    - Gordon V. Cormack, Charles L. A. Clarke, Stefan Buettcher. *"Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods"*. In *Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR '09)*, pp. 758–759, 2009. [DOI: 10.1145/1571941.1572114](https://doi.org/10.1145/1571941.1572114).
+    - J. J. Rocchio. *"Relevance feedback in information retrieval"*. In *The SMART Retrieval System — Experiments in Automatic Document Processing*, Prentice-Hall, pp. 313–323, 1971.
+    - Empirical evaluation: [`docs/benchmarks/hybrid_retrieval.md`](docs/benchmarks/hybrid_retrieval.md).
 
 ---
 

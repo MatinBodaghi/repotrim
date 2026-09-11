@@ -633,3 +633,156 @@ fn test_cli_architecture_with_resolution() {
     assert!(stdout.contains("# Repository Architecture & Subsystem Specification"));
     assert!(stdout.contains("Resolution"));
 }
+
+#[test]
+fn test_cli_query_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["query", "--help"])
+        .output()
+        .expect("Failed to execute repotrim query --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout
+        .contains("Search codebase symbols via hybrid BM25+ and dense subword semantic retrieval"));
+    assert!(stdout.contains("--mode"));
+    assert!(stdout.contains("--expand"));
+    assert!(stdout.contains("--explain"));
+}
+
+#[test]
+fn test_cli_query_basic_tabular() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["query", "estimate tokens bpe", "--limit", "3", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rank"));
+    assert!(stdout.contains("Score"));
+    assert!(stdout.contains("Symbol Name"));
+    assert!(stdout.contains("estimate_tokens"));
+}
+
+#[test]
+fn test_cli_query_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "query",
+            "estimate tokens",
+            "--limit",
+            "2",
+            "--json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query --json");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Valid JSON from repotrim query");
+    assert_eq!(parsed["query"], "estimate tokens");
+    assert_eq!(parsed["mode"], "hybrid");
+    assert!(parsed.get("results").is_some());
+    let results = parsed["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results[0].get("bm25_score").is_some());
+    assert!(results[0].get("dense_score").is_some());
+    assert!(results[0].get("rrf_score").is_some());
+}
+
+#[test]
+fn test_cli_query_explain() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "query",
+            "estimate tokens",
+            "--limit",
+            "2",
+            "--explain",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query --explain");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("BM25:"));
+    assert!(stdout.contains("Dense:"));
+    assert!(stdout.contains("RRF:"));
+    assert!(stdout.contains("Matched:"));
+}
+
+#[test]
+fn test_cli_query_lexical_and_dense_modes() {
+    // 1. Lexical Mode
+    let out_lex = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "query",
+            "estimate tokens",
+            "--mode",
+            "lexical",
+            "--limit",
+            "2",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query --mode lexical");
+    assert!(out_lex.status.success());
+
+    // 2. Dense Mode
+    let out_dense = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "query",
+            "estimate tokens",
+            "--mode",
+            "dense",
+            "--limit",
+            "2",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query --mode dense");
+    assert!(out_dense.status.success());
+}
+
+#[test]
+fn test_cli_query_with_expansion() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["query", "jwt token", "--expand", "--limit", "3", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim query --expand");
+
+    assert!(output.status.success());
+}
+
+#[test]
+fn test_cli_select_with_retrieval_mode() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--query",
+            "token estimation",
+            "--retrieval-mode",
+            "hybrid",
+            "--query-expand",
+            "--budget",
+            "500",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select with retrieval-mode");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Inferred seeds from query 'token estimation' (mode: Hybrid)"));
+}

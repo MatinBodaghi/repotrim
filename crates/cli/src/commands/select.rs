@@ -2,7 +2,7 @@ use clap::{Args, ValueEnum};
 use colored::Colorize;
 use repotrim_engine::{
     count_tokens, CoeditCache, CoeditConfig, ContextSelector, DiffResolver, EdgeWeightLearner,
-    GitCommitMiner, IntentResolver, LayerWeights, LodLevel, ModelProfile, SymbolId, TokenizerModel,
+    GitCommitMiner, LayerWeights, LodLevel, ModelProfile, SymbolId, TokenizerModel,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -80,6 +80,14 @@ pub struct SelectArgs {
     /// Apply intra-community cohesion boost to focus seeds to reduce external hub drift
     #[arg(long = "community-boost", alias = "community", default_value = "0.0")]
     pub community_boost: f32,
+
+    /// Retrieval modality for query resolution: hybrid (default), lexical, or dense
+    #[arg(long = "retrieval-mode", value_enum, default_value_t = crate::commands::query::QueryModeCli::Hybrid)]
+    pub retrieval_mode: crate::commands::query::QueryModeCli,
+
+    /// Enable Rocchio pseudo-relevance feedback query expansion
+    #[arg(long = "query-expand", alias = "expand")]
+    pub query_expand: bool,
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -184,27 +192,30 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Resolve natural language query seeds
     if let Some(query_str) = &args.query {
-        let query_seeds = IntentResolver::resolve_query(&repo.symbols, query_str, 5);
+        let retrieval_cfg = repotrim_engine::RetrievalConfig {
+            mode: args.retrieval_mode.into(),
+            top_k: 5,
+            query_expansion: args.query_expand,
+            ..Default::default()
+        };
+        let query_seeds = repotrim_engine::HybridRetriever::with_config(retrieval_cfg)
+            .search(&repo.symbols, query_str);
         if !query_seeds.is_empty() {
             let names: Vec<String> = query_seeds
                 .iter()
-                .filter_map(|(id, w)| {
-                    repo.symbols
-                        .iter()
-                        .find(|s| s.id == *id)
-                        .map(|s| format!("{} ({:.0}%)", s.name.bold(), w * 100.0))
-                })
+                .map(|r| format!("{} ({:.0}%)", r.symbol_name.bold(), r.score * 100.0))
                 .collect();
 
             eprintln!(
-                "{} Inferred seeds from query '{}': {}",
+                "{} Inferred seeds from query '{}' (mode: {:?}): {}",
                 "⚙".cyan().bold(),
                 query_str.bold(),
+                args.retrieval_mode,
                 names.join(", ")
             );
 
-            for (id, weight) in query_seeds {
-                *weighted_seeds.entry(id).or_default() += weight;
+            for r in query_seeds {
+                *weighted_seeds.entry(r.symbol_id).or_default() += r.score;
             }
         } else {
             eprintln!(

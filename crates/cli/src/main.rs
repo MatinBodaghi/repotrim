@@ -36,6 +36,8 @@ enum Commands {
     Coedit(commands::coedit::CoeditArgs),
     /// Detect multi-resolution topological communities, hierarchy, and architectural drift
     Community(commands::community::CommunityArgs),
+    /// Search codebase symbols via hybrid BM25+ and dense subword semantic retrieval
+    Query(commands::query::QueryArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -55,6 +57,7 @@ fn main() {
         Commands::Impact(args) => commands::impact::execute(args),
         Commands::Coedit(args) => commands::coedit::execute(args),
         Commands::Community(args) => commands::community::execute(args),
+        Commands::Query(args) => commands::query::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
     };

@@ -76,7 +76,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 10);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -121,7 +121,9 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert!(bp_text.contains("Feature Blueprint: token estimation"));
     assert!(
         bp_text.contains("tokens.rs")
-            && (bp_text.contains("estimate_tokens") || bp_text.contains("count_tokens"))
+            && (bp_text.contains("estimate_tokens")
+                || bp_text.contains("count_tokens")
+                || bp_text.contains("TokenizerModel"))
     );
 
     // 8. generate_architecture_docs
@@ -461,4 +463,80 @@ fn test_mcp_detect_communities() {
     assert_eq!(resp5["result"]["isError"], false);
     let trim_text = resp5["result"]["content"][0]["text"].as_str().unwrap();
     assert!(trim_text.contains("ContextSelector"));
+}
+
+#[test]
+fn test_mcp_search_symbols() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. tools/call: search_symbols (markdown, hybrid)
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"search_symbols","arguments":{{"query":"PprSolver","path":"{}"}}}}}}"#,
+            "\n",
+            // 3. tools/call: search_symbols (json, lexical)
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"search_symbols","arguments":{{"query":"ContextSelector","mode":"lexical","format":"json","path":"{}"}}}}}}"#,
+            "\n",
+            // 4. tools/call: search_symbols (dense, prf expand)
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"search_symbols","arguments":{{"query":"graph ranking","mode":"dense","expand":true,"format":"json","path":"{}"}}}}}}"#,
+            "\n",
+            // 5. tools/call: trim_context with retrievalMode and queryExpand
+            r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"query":"PageRank random walk","budget":500,"retrievalMode":"dense","queryExpand":true,"path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str, root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 5);
+
+    // 2. search_symbols (markdown)
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md_text.contains("# Symbol Retrieval Results for `PprSolver`"));
+    assert!(md_text.contains("PprSolver"));
+
+    // 3. search_symbols (json, lexical)
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert_eq!(parsed_json["query"], "ContextSelector");
+    assert_eq!(parsed_json["mode"], "lexicalonly");
+    let results = parsed_json["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(results[0]["name"], "ContextSelector");
+
+    // 4. search_symbols (dense, prf expand)
+    let resp4: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(resp4["id"], 4);
+    assert_eq!(resp4["result"]["isError"], false);
+    let json_text4 = resp4["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json4: serde_json::Value = serde_json::from_str(json_text4).unwrap();
+    assert_eq!(parsed_json4["expanded"], true);
+    assert_eq!(parsed_json4["mode"], "denseonly");
+
+    // 5. trim_context with retrievalMode and queryExpand
+    let resp5: serde_json::Value = serde_json::from_str(lines[4]).unwrap();
+    assert_eq!(resp5["id"], 5);
+    assert_eq!(resp5["result"]["isError"], false);
+    let trim_text = resp5["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(trim_text.contains("### File:"));
 }
