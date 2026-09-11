@@ -698,6 +698,7 @@ dependencies = [
  "notify",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror",
  "tiktoken-rs",
  "tree-sitter",

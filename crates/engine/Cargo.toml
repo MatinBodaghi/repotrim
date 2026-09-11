@@ -31,4 +31,5 @@ exact-tokens = ["dep:tiktoken-rs"]
 
 [dev-dependencies]
 proptest = "1.6"
+serde_json = "1.0"
 
