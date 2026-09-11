@@ -50,7 +50,9 @@ pub use error::EngineError;
 pub use eval::{
     BenchmarkMetrics, BenchmarkRunner, BenchmarkScenario, BenchmarkSummary, ContextStrategy,
 };
-pub use evidence::{EvidenceKernel, EvidenceKernelConfig, SparseKernelMatrix};
+pub use evidence::{
+    CoverageState, EvidenceKernel, EvidenceKernelConfig, ProbabilisticCoverage, SparseKernelMatrix,
+};
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use impact::{ImpactAnalyzer, ImpactReport, ImpactSummary, RiskLevel};

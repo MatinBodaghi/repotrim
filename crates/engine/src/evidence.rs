@@ -272,6 +272,186 @@ impl EvidenceKernel {
     }
 }
 
+/// Numerical epsilon for log-space clamping to prevent $\ln(0) = -\infty$.
+const LOG_EPSILON: f32 = 1e-7;
+
+/// Dynamic coverage state maintaining log-space uncoverage potentials for incremental updates.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoverageState {
+    /// Accumulated uncoverage log-products: $L_u(S) = \sum_{v \in S} \ln(1 - K(v, u; q))$.
+    log_uncovered: Vec<f32>,
+    /// Current evaluated coverage value $\mathrm{Cov}(S; q, G)$.
+    total_coverage: f32,
+    /// Indices of selected symbols in set $S$.
+    selected: Vec<SymbolId>,
+}
+
+impl CoverageState {
+    /// Creates a fresh coverage state for an empty selection set $S = \emptyset$.
+    pub fn empty(num_symbols: usize) -> Self {
+        Self {
+            log_uncovered: vec![0.0; num_symbols],
+            total_coverage: 0.0,
+            selected: Vec::new(),
+        }
+    }
+
+    /// Returns the current total evaluated coverage $\mathrm{Cov}(S)$.
+    #[inline]
+    pub fn total_coverage(&self) -> f32 {
+        self.total_coverage
+    }
+
+    /// Returns the slice of selected symbol identifiers in $S$.
+    #[inline]
+    pub fn selected(&self) -> &[SymbolId] {
+        &self.selected
+    }
+
+    /// Returns the log-space uncoverage potential for a specific entity $u$.
+    #[inline]
+    pub fn log_uncovered(&self, u: SymbolId) -> f32 {
+        let idx = u.0 as usize;
+        if idx < self.log_uncovered.len() {
+            self.log_uncovered[idx]
+        } else {
+            0.0
+        }
+    }
+
+    /// Returns the individual coverage probability of entity $u$: $1 - \exp(L_u(S))$.
+    #[inline]
+    pub fn coverage_of(&self, u: SymbolId) -> f32 {
+        let l = self.log_uncovered(u);
+        (1.0 - l.exp()).clamp(0.0, 1.0)
+    }
+}
+
+/// Monotone submodular probabilistic coverage evaluator.
+///
+/// Computes $\mathrm{Cov}(S; q, G) = \sum_{u \in V} \omega(u, q) [1 - \prod_{v \in S} (1 - K(v, u))]$
+/// with provable submodularity and $O(|\mathrm{Supp}(K(x, \cdot))|)$ incremental delta evaluations.
+#[derive(Debug, Clone)]
+pub struct ProbabilisticCoverage {
+    /// Sparse pairwise evidence distribution kernel matrix.
+    kernel: SparseKernelMatrix,
+    /// Entity importance weights $\omega(u, q) \ge 0$ (e.g. from task-conditioned PPR).
+    weights: Vec<f32>,
+    /// Sum of all entity weights $\sum_{u \in V} \omega(u, q)$.
+    total_weight: f32,
+}
+
+impl ProbabilisticCoverage {
+    /// Constructs a `ProbabilisticCoverage` evaluator from a sparse evidence kernel and node weights.
+    pub fn new(kernel: SparseKernelMatrix, weights: Vec<f32>) -> Self {
+        let n = kernel.num_symbols();
+        let mut aligned_weights = weights;
+        if aligned_weights.len() < n {
+            aligned_weights.resize(n, 1.0);
+        }
+        let total_weight: f32 = aligned_weights.iter().sum();
+
+        Self {
+            kernel,
+            weights: aligned_weights,
+            total_weight,
+        }
+    }
+
+    /// Returns the number of symbols in the evaluation domain.
+    #[inline]
+    pub fn num_symbols(&self) -> usize {
+        self.kernel.num_symbols()
+    }
+
+    /// Returns the sum of all entity weights $\sum_u \omega_u$.
+    #[inline]
+    pub fn total_weight(&self) -> f32 {
+        self.total_weight
+    }
+
+    /// Returns a reference to the sparse kernel matrix.
+    #[inline]
+    pub fn kernel(&self) -> &SparseKernelMatrix {
+        &self.kernel
+    }
+
+    /// Returns a reference to the entity importance weights.
+    #[inline]
+    pub fn weights(&self) -> &[f32] {
+        &self.weights
+    }
+
+    /// Initializes a new empty coverage state.
+    pub fn new_state(&self) -> CoverageState {
+        CoverageState::empty(self.num_symbols())
+    }
+
+    /// Computes the exact marginal gain $\Delta(x \mid S) = \mathrm{Cov}(S \cup \{x\}) - \mathrm{Cov}(S)$
+    /// in $O(|\mathrm{Supp}(K(x, \cdot))|)$ sparse time.
+    ///
+    /// Explores only nodes covered by candidate $x$ via log-space potentials:
+    /// $$\Delta(x \mid S) = \sum_{u \in \mathrm{Supp}(K(x, \cdot))} \omega_u \cdot \exp(L_u(S)) \cdot K(x, u)$$
+    pub fn marginal_gain(&self, state: &CoverageState, candidate: SymbolId) -> f32 {
+        let mut gain = 0.0_f32;
+
+        for (target, k_val) in self.kernel.row_entries(candidate) {
+            let t_idx = target.0 as usize;
+            if t_idx >= self.weights.len() {
+                continue;
+            }
+
+            let w_u = self.weights[t_idx];
+            if w_u <= 0.0 {
+                continue;
+            }
+
+            let l_u = state.log_uncovered(target);
+            let uncov_prob = l_u.exp();
+            let new_covered = uncov_prob * k_val;
+            gain += w_u * new_covered;
+        }
+
+        gain
+    }
+
+    /// Updates the `CoverageState` in-place by including the newly selected symbol $x \in V$.
+    ///
+    /// Executes in $O(|\mathrm{Supp}(K(x, \cdot))|)$ sparse time.
+    pub fn add_candidate(&self, state: &mut CoverageState, candidate: SymbolId) {
+        for (target, k_val) in self.kernel.row_entries(candidate) {
+            let t_idx = target.0 as usize;
+            if t_idx >= self.weights.len() {
+                continue;
+            }
+
+            let w_u = self.weights[t_idx];
+            let k_clamped = k_val.clamp(0.0, 1.0 - LOG_EPSILON);
+            let log_term = (1.0 - k_clamped).ln();
+
+            let old_l_u = state.log_uncovered[t_idx];
+            let new_l_u = old_l_u + log_term;
+            state.log_uncovered[t_idx] = new_l_u;
+
+            let old_cov = 1.0 - old_l_u.exp();
+            let new_cov = 1.0 - new_l_u.exp();
+            let delta = w_u * (new_cov - old_cov);
+            state.total_coverage += delta;
+        }
+
+        state.selected.push(candidate);
+    }
+
+    /// Evaluates the full coverage $\mathrm{Cov}(S)$ from scratch (batch evaluation).
+    pub fn evaluate_batch(&self, selected: &[SymbolId]) -> f32 {
+        let mut state = self.new_state();
+        for &sym in selected {
+            self.add_candidate(&mut state, sym);
+        }
+        state.total_coverage()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,5 +526,37 @@ mod tests {
             k_0_1 > k_1_2,
             "Same file + containment boost must exceed remote file link"
         );
+    }
+
+    #[test]
+    fn test_probabilistic_coverage_monotonicity_and_parity() {
+        let rows = vec![
+            vec![(SymbolId(0), 1.0), (SymbolId(1), 0.7), (SymbolId(2), 0.3)],
+            vec![(SymbolId(0), 0.5), (SymbolId(1), 1.0), (SymbolId(2), 0.6)],
+            vec![(SymbolId(0), 0.2), (SymbolId(1), 0.4), (SymbolId(2), 1.0)],
+        ];
+        let kernel = SparseKernelMatrix::from_row_entries(3, &rows);
+        let weights = vec![1.0, 1.0, 1.0];
+        let cov_eval = ProbabilisticCoverage::new(kernel, weights);
+
+        let mut state = cov_eval.new_state();
+        assert_eq!(state.total_coverage(), 0.0);
+
+        // Incremental vs batch parity
+        let gain0 = cov_eval.marginal_gain(&state, SymbolId(0));
+        assert!(gain0 > 0.0);
+        cov_eval.add_candidate(&mut state, SymbolId(0));
+        assert!((state.total_coverage() - cov_eval.evaluate_batch(&[SymbolId(0)])).abs() < 1e-6);
+
+        let gain1 = cov_eval.marginal_gain(&state, SymbolId(1));
+        assert!(gain1 > 0.0);
+        cov_eval.add_candidate(&mut state, SymbolId(1));
+        assert!(
+            (state.total_coverage() - cov_eval.evaluate_batch(&[SymbolId(0), SymbolId(1)])).abs()
+                < 1e-6
+        );
+
+        // Monotonicity: Cov(S union {x}) >= Cov(S)
+        assert!(state.total_coverage() >= gain0);
     }
 }
