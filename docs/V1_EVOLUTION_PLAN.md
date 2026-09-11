@@ -88,8 +88,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 | Milestone | Target Version | Scope & Focus | Associated Branches | Status |
 | :--- | :--- | :--- | :--- | :---: |
 | **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[COMPLETED]` |
-| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[READY]` |
-| **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `research/path-energy-model`<br>`feature/structured-context` | `[PLANNED]` |
+| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[COMPLETED]` |
+| **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `research/path-energy-model`<br>`feature/structured-context` | `[READY]` |
 | **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives`<br>`feature/intelligence-mcp` | `[PLANNED]` |
 | **Milestone 5** | `v0.10.0` | Sequential Exploration & Adaptive Navigation | `research/adaptive-navigation`<br>`feature/adaptive-navigator` | `[PLANNED]` |
 | **Milestone 6** | `v0.11.0` | 7-Tier Ablation Suite, Proofs & Engine Modularization | `experiment/ablation-suite`<br>`experiment/agent-harness-study`<br>`research/theory-proofs` | `[PLANNED]` |
@@ -249,8 +249,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 35: Dual-Mode Knapsack Solvers & Research Oracle Gap Analysis
-- **Branch:** `experiment/knapsack-oracle-gap`
+### Phase 35: Dual-Mode Knapsack Solvers & Research Oracle Gap Analysis `[COMPLETED]`
+- **Branch:** `experiment/knapsack-oracle-gap` (completed & merged into `dev`)
 - **Objective:** Introduce a dual-mode solver architecture: fast lazy CELF for production, and an exact branch-and-bound / IP oracle for small candidate sets to measure empirical approximation gaps.
 - **Math Formulation:**
   - Knapsack formulation: $\max_{S \subseteq V} F(S) \text{ s.t. } \sum_{v \in S} c(v) \le B$.
