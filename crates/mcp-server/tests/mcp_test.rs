@@ -76,7 +76,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 8);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -326,4 +326,64 @@ fn test_mcp_joint_lod() {
     let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
     assert!(parsed_json.get("joint_lod").is_some());
     assert!(parsed_json["joint_lod"]["total_tokens"].as_u64().unwrap() <= 400);
+}
+
+#[test]
+fn test_mcp_mine_coedits_and_use_coedits() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. tools/call: mine_coedits (markdown)
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"mine_coedits","arguments":{{"path":"{}","maxCommits":30}}}}}}"#,
+            "\n",
+            // 3. tools/call: mine_coedits (json)
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"mine_coedits","arguments":{{"path":"{}","maxCommits":30,"format":"json"}}}}}}"#,
+            "\n",
+            // 4. tools/call: trim_context with useCoedits and learnWeights
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":500,"useCoedits":true,"learnWeights":true,"path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 4);
+
+    // 2. mine_coedits (markdown)
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md_text.contains("Git Co-Edit Mining & Principled Weight Learning Report"));
+
+    // 3. mine_coedits (json)
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert!(parsed_json.get("commits_analyzed").is_some());
+    assert!(parsed_json.get("layer_stats").is_some());
+
+    // 4. trim_context with useCoedits
+    let resp4: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(resp4["id"], 4);
+    assert_eq!(resp4["result"]["isError"], false);
+    let trim_text = resp4["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(trim_text.contains("ContextSelector"));
 }

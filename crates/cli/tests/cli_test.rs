@@ -19,6 +19,7 @@ fn test_cli_help() {
     assert!(stdout.contains("stats"));
     assert!(stdout.contains("inspect"));
     assert!(stdout.contains("clean"));
+    assert!(stdout.contains("coedit"));
     assert!(stdout.contains("mcp"));
     assert!(stdout.contains("watch"));
 }
@@ -438,4 +439,77 @@ fn test_cli_select_with_joint_lod() {
     assert!(parsed.get("joint_lod").is_some());
     assert_eq!(parsed["joint_lod"]["enabled"], true);
     assert!(parsed["joint_lod"]["total_tokens"].as_u64().unwrap() <= 500);
+}
+
+#[test]
+fn test_cli_coedit_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["coedit", "--help"])
+        .output()
+        .expect("Failed to execute repotrim coedit --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--max-commits"));
+    assert!(stdout.contains("--half-life-days"));
+    assert!(stdout.contains("--min-support"));
+    assert!(stdout.contains("--min-confidence"));
+    assert!(stdout.contains("--json"));
+}
+
+#[test]
+fn test_cli_coedit_run() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["coedit", "--max-commits", "30", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim coedit");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("REPOTRIM GIT CO-EDIT MINING & WEIGHT LEARNING"));
+    assert!(stdout.contains("Commits Analyzed:"));
+    assert!(stdout.contains("Layer Empirical Correlation & Learned Weights:"));
+    assert!(stdout.contains("Empirical Ranking Validation (MRR):"));
+}
+
+#[test]
+fn test_cli_coedit_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["coedit", "--max-commits", "30", "--json", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim coedit --json");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Valid JSON from repotrim coedit");
+    assert!(parsed.get("head_hash").is_some());
+    assert!(parsed.get("commits_analyzed").is_some());
+    assert!(parsed.get("layer_stats").is_some());
+    assert!(parsed.get("learned_weights").is_some());
+}
+
+#[test]
+fn test_cli_select_with_coedit_and_learned_weights() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "ContextSelector",
+            "--budget",
+            "500",
+            "--coedit",
+            "--learn-weights",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select with coedit and learned weights");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ContextSelector"));
+    assert!(stdout.contains("### File:"));
 }

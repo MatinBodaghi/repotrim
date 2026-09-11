@@ -32,6 +32,8 @@ enum Commands {
     Clean(commands::clean::CleanArgs),
     /// Trace semantic blast radius, ripple effects, and affected test targets of code changes
     Impact(commands::impact::ImpactArgs),
+    /// Mine historical Git co-edits and learn empirical multiplex layer edge weights
+    Coedit(commands::coedit::CoeditArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -49,6 +51,7 @@ fn main() {
         Commands::Inspect(args) => commands::inspect::execute(args),
         Commands::Clean(args) => commands::clean::execute(args),
         Commands::Impact(args) => commands::impact::execute(args),
+        Commands::Coedit(args) => commands::coedit::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
     };

@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    count_tokens, ArchitectureReport, ContextSelector, DiffResolver, ImpactAnalyzer,
-    IntentResolver, LoadedRepository, LodLevel, ModelProfile, PprSolver, RepositoryWatcher,
-    SymbolId, SymbolKind, TokenizerModel,
+    count_tokens, ArchitectureReport, CoeditCache, CoeditConfig, ContextSelector, DiffResolver,
+    EdgeWeightLearner, GitCommitMiner, ImpactAnalyzer, IntentResolver, LayerWeights,
+    LoadedRepository, LodLevel, ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
+    TokenizerModel,
 };
 
 use crate::protocol::{
@@ -181,6 +182,14 @@ impl McpHandler {
                         "jointLod": {
                             "type": "boolean",
                             "description": "Optional flag to enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization"
+                        },
+                        "useCoedits": {
+                            "type": "boolean",
+                            "description": "Optional flag to include historical Git commit co-edit edges in the multiplex graph"
+                        },
+                        "learnWeights": {
+                            "type": "boolean",
+                            "description": "Optional flag to dynamically calibrate multiplex layer weights using empirical Git commit history"
                         }
                     }
                 }),
@@ -309,6 +318,32 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "mine_coedits".to_string(),
+                description: "Mine historical Git commit co-edits and logical couplings, analyze layer empirical co-change rates, and learn principled layer weights.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        },
+                        "maxCommits": {
+                            "type": "number",
+                            "description": "Maximum historical commits to analyze (default: 200)"
+                        },
+                        "minSupport": {
+                            "type": "number",
+                            "description": "Minimum co-edit occurrences required (default: 2)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output format ('markdown' or 'json', default: 'markdown')"
+                        }
+                    }
+                }),
+            },
         ]
     }
 
@@ -322,6 +357,7 @@ impl McpHandler {
             "generate_blueprint" => self.tool_generate_blueprint(arguments),
             "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
             "analyze_impact" => self.tool_analyze_impact(arguments),
+            "mine_coedits" => self.tool_mine_coedits(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -422,6 +458,14 @@ impl McpHandler {
             .get("jointLod")
             .and_then(|d| d.as_bool())
             .unwrap_or(false);
+        let use_coedits = args
+            .get("useCoedits")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false);
+        let learn_weights = args
+            .get("learnWeights")
+            .and_then(|d| d.as_bool())
+            .unwrap_or(false);
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -487,7 +531,44 @@ impl McpHandler {
         }
 
         let seed_pairs: Vec<(SymbolId, f32)> = weighted_seeds.into_iter().collect();
-        let graph = repo.build_graph();
+
+        let mut coedit_edges: Vec<(SymbolId, SymbolId, f32)> = Vec::new();
+        let mut layer_weights = LayerWeights::default();
+
+        if use_coedits || learn_weights {
+            if let Ok(head_hash) = GitCommitMiner::get_head_hash(&repo.root_path) {
+                let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+                let coedit_graph = if let Some(cached) =
+                    CoeditCache::load_from_file(&cache_file, &head_hash)
+                {
+                    cached
+                } else {
+                    let config = CoeditConfig::default();
+                    let mined =
+                        GitCommitMiner::mine_repository(&repo.root_path, &repo.symbols, &config)
+                            .unwrap_or_default();
+                    let _ = CoeditCache::save_to_file(&cache_file, &mined);
+                    mined
+                };
+
+                if use_coedits {
+                    coedit_edges = coedit_graph.to_directed_edges(0.15);
+                }
+
+                if learn_weights {
+                    let (learned, _) = EdgeWeightLearner::learn_weights(
+                        &repo.symbols,
+                        &repo.edges,
+                        &repo.imports,
+                        &coedit_graph,
+                        LayerWeights::default(),
+                    );
+                    layer_weights = learned;
+                }
+            }
+        }
+
+        let graph = repo.build_graph_with_coedits(&coedit_edges, layer_weights);
         let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
         let (selected, markdown, auto_report_opt, sensitivity_opt, mckp_opt) = if joint_lod {
             if let Some(ref model) = model_profile {
@@ -1082,6 +1163,98 @@ impl McpHandler {
             }
         } else {
             ToolCallResult::success(report.context_markdown)
+        }
+    }
+
+    fn tool_mine_coedits(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let max_commits = args
+            .get("maxCommits")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(200) as usize;
+        let min_support = args.get("minSupport").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let head_hash = match GitCommitMiner::get_head_hash(&repo.root_path) {
+            Ok(h) => h,
+            Err(e) => return ToolCallResult::error(format!("Git error: {}", e)),
+        };
+
+        let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+        let config = CoeditConfig {
+            max_commits,
+            min_support,
+            ..Default::default()
+        };
+
+        let coedit_graph = if let Some(cached) =
+            CoeditCache::load_from_file(&cache_file, &head_hash)
+        {
+            cached
+        } else {
+            let mined =
+                match GitCommitMiner::mine_repository(&repo.root_path, &repo.symbols, &config) {
+                    Ok(m) => m,
+                    Err(e) => return ToolCallResult::error(format!("Mining error: {}", e)),
+                };
+            let _ = CoeditCache::save_to_file(&cache_file, &mined);
+            mined
+        };
+
+        let (learned_weights, report) = EdgeWeightLearner::learn_weights(
+            &repo.symbols,
+            &repo.edges,
+            &repo.imports,
+            &coedit_graph,
+            LayerWeights::default(),
+        );
+
+        if format_str == "json" {
+            let top_pairs: Vec<serde_json::Value> = coedit_graph
+                .top_pairs(30)
+                .into_iter()
+                .map(|p| {
+                    let s_sym = repo.symbols.iter().find(|s| s.id == p.source);
+                    let t_sym = repo.symbols.iter().find(|s| s.id == p.target);
+                    serde_json::json!({
+                        "source": s_sym.map(|s| s.name.as_str()).unwrap_or("?"),
+                        "source_file": s_sym.map(|s| s.file_path.to_string_lossy().to_string()).unwrap_or_default(),
+                        "target": t_sym.map(|s| s.name.as_str()).unwrap_or("?"),
+                        "target_file": t_sym.map(|s| s.file_path.to_string_lossy().to_string()).unwrap_or_default(),
+                        "raw_count": p.raw_count,
+                        "support": p.support,
+                        "confidence": p.confidence,
+                        "jaccard": p.jaccard,
+                    })
+                })
+                .collect();
+
+            let res = serde_json::json!({
+                "head_hash": coedit_graph.head_hash,
+                "commits_analyzed": coedit_graph.total_commits_analyzed,
+                "valid_commits": coedit_graph.valid_commits,
+                "megacommits_filtered": coedit_graph.megacommits_filtered,
+                "total_coedit_pairs": coedit_graph.pairs.len(),
+                "top_couplings": top_pairs,
+                "layer_stats": report.layer_stats,
+                "default_weights": report.default_weights,
+                "learned_weights": learned_weights,
+                "baseline_mrr": report.baseline_mrr,
+                "learned_mrr": report.learned_mrr,
+                "mrr_improvement_pct": report.mrr_improvement_pct,
+            });
+            ToolCallResult::success(serde_json::to_string_pretty(&res).unwrap())
+        } else {
+            let md = report.to_markdown();
+            ToolCallResult::success(md)
         }
     }
 }

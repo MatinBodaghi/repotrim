@@ -99,6 +99,10 @@ Evaluated head-to-head across Rust, Python, and TypeScript codebases at both ent
   - $E_{\text{Call}}$: Explicit invocation call-graph edges.
   - $E_{\text{Type}}$: Type dependencies (inputs, return values, field types, class inheritance).
   - $E_{\text{Import}}$: Module paths and use/import statements.
+  - $E_{\text{CoEdit}}$: Mined historical commit co-changes and logical couplings.
+
+- **Git Commit Co-Edit Mining & Principled Edge Weight Learning**:
+  Discovers cross-cutting logical couplings from historical Git changesets using association rule mining (Zimmermann et al., 2005; Gall et al., 1998) with temporal half-life decay ($2^{-\Delta t / t_{\text{half}}}$) and megacommit noise filtering (Hassan, 2008). Automatically calibrates multiplex layer weights $\mathbf{w}^* = [w_{\text{ast}}, w_{\text{call}}, w_{\text{type}}, w_{\text{import}}, w_{\text{coedit}}]$ from empirical co-change likelihoods and supervised ranking loss (Backstrom & Leskovec, 2011), boosting context retrieval accuracy by **+112.8% MRR** (`repotrim coedit`, `--coedit`, `--learn-weights`).
 
 - **Bayesian Scoped Disambiguation**:
   Resolves call and type targets across files without requiring a slow compiler daemon, weighting lexical proximity, scope hierarchy, and receiver hints.
@@ -264,6 +268,21 @@ repotrim impact --diff
 repotrim impact --diff-against main --budget 3000
 ```
 
+### 9. Git Co-Edit Mining & Layer Weight Learning (`coedit`)
+
+Mine commit history for fine-grained symbol co-evolution patterns, fuse logical coupling edges into the multiplex graph, and calibrate empirical Bayesian layer weights:
+
+```bash
+# Mine repository commit history and display learned multiplex layer weights
+repotrim coedit
+
+# Filter by minimum support and output JSON
+repotrim coedit --min-support 3 --format json
+
+# Use mined co-edits and learned weights in context selection
+repotrim select --query "rate limit" --coedit --learn-weights --budget 1200
+```
+
 ---
 
 ## Model Context Protocol (MCP) Integration
@@ -320,7 +339,8 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, and joint MCKP LOD optimization |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean`, `useCoedits?: boolean`, `learnWeights?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, joint MCKP LOD optimization, and Git co-edit fusion |
+| **`mine_coedits`** | `path?: string`, `limit?: number`, `minSupport?: number` | Mines fine-grained git commit history for co-edit patterns, computes association confidence, and returns top logical coupling pairs |
 | **`analyze_impact`** | `symbol?: string`, `diff?: string`, `diffAgainst?: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Computes architectural blast radius, 1st-order callers, transitive dependents, and recommended regression tests |
 | **`generate_blueprint`** | `task: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors and target files |
 | **`generate_architecture_docs`** | `path?: string`, `output?: string` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
@@ -359,7 +379,9 @@ repotrim/
 │   │   ├── external_evaluations.md
 │   │   ├── dogfood.md
 │   │   ├── token_calibration.md
-│   │   └── sensitivity_analysis.md
+│   │   ├── sensitivity_analysis.md
+│   │   ├── mckp_joint_selection.md
+│   │   └── git_coedit_learning.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
 │       ├── FEATURE_BLUEPRINT_TEMPLATE.md
@@ -372,6 +394,7 @@ repotrim/
     │   └── src/
     │       ├── lib.rs
     │       ├── cache.rs        # Incremental BLAKE3 Merkle cache and bincode persistence
+    │       ├── coedit.rs       # Git co-edit commit mining, noise filtering, half-life decay
     │       ├── diff.rs         # Unified git diff parser and symbol mapping
     │       ├── error.rs        # Engine error types
     │       ├── intent.rs       # BM25 + trigram + semantic hybrid query resolver
@@ -379,8 +402,9 @@ repotrim/
     │       ├── selector.rs     # CELF knapsack context selector
     │       ├── slicer.rs       # AST control-flow program slicer (Weiser 1981)
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
-    │       └── tokens.rs       # In-engine allocation-free BPE token estimator
-    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, mcp)
+    │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
+    │       └── weight_learning.rs # Bayesian multiplex edge weight learning & ranking calibration
+    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, coedit, mcp)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server
 ```
 
@@ -451,6 +475,14 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Martin E. Dyer. *"An $O(n)$ algorithm for the multiple-choice knapsack linear program"*. In *Mathematical Programming*, 29(1): 58–63, 1984. [DOI: 10.1007/BF02591602](https://doi.org/10.1007/BF02591602).
     - Eitan Zemel. *"The linear multiple-choice knapsack problem"*. In *Operations Research*, 28(6): 1412–1419, 1980. [DOI: 10.1287/opre.28.6.1412](https://doi.org/10.1287/opre.28.6.1412).
     - Empirical evaluation: [`docs/benchmarks/mckp_joint_selection.md`](docs/benchmarks/mckp_joint_selection.md).
+19. **Mining Software Repositories for Logical Couplings & Evolutionary Association:**
+    - Thomas Zimmermann, Peter Weißgerber, Stephan Diehl, Andreas Zeller. *"Mining Version Histories to Guide Software Changes"*. In *IEEE Transactions on Software Engineering*, 31(6): 429–445, 2005. [DOI: 10.1109/TSE.2005.72](https://doi.org/10.1109/TSE.2005.72).
+    - Harald Gall, Karin Hajek, Mehdi Jazayeri. *"Detection of logical coupling based on change sets"*. In *Proceedings of the 1998 International Conference on Software Maintenance (ICSM '98)*, pp. 159–168, 1998. [DOI: 10.1109/ICSM.1998.738499](https://doi.org/10.1109/ICSM.1998.738499).
+    - Ahmed E. Hassan. *"The road ahead for Mining Software Repositories (MSR)"*. In *Frontiers of Software Maintenance (FoSM 2008)*, pp. 48–57, 2008. [DOI: 10.1109/FOSM.2008.4659248](https://doi.org/10.1109/FOSM.2008.4659248).
+    - Romain Robbes, David Röthlisberger, Michele Lanza. *"Refining logical couplings with fine-grained software change history"*. In *Proceedings of the 2008 IEEE International Conference on Software Maintenance*, pp. 416–425, 2008. [DOI: 10.1109/ICSM.2008.4658090](https://doi.org/10.1109/ICSM.2008.4658090).
+    - Empirical evaluation: [`docs/benchmarks/git_coedit_learning.md`](docs/benchmarks/git_coedit_learning.md).
+20. **Supervised Random Walks & Edge Weight Learning in Information Networks:**
+    - Lars Backstrom, Jure Leskovec. *"Supervised Random Walks: Predicting and Recommending Links in Social Networks"*. In *Proceedings of the 4th ACM International Conference on Web Search and Data Mining (WSDM '11)*, pp. 1–10, 2011. [DOI: 10.1145/1935826.1935832](https://doi.org/10.1145/1935826.1935832).
 
 ---
 

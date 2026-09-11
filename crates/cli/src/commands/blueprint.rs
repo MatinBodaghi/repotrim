@@ -36,6 +36,10 @@ pub struct BlueprintArgs {
     /// Disable incremental AST caching and force full re-parsing
     #[arg(long = "no-cache")]
     pub no_cache: bool,
+
+    /// Include mined Git commit co-edits in seed identification and blueprint scaffolding
+    #[arg(long = "coedit", alias = "use-coedit")]
+    pub coedit: bool,
 }
 
 pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -63,6 +67,46 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
                 seed_files.push(file_str);
             }
             symbol_targets.push((sym.clone(), *confidence));
+        }
+    }
+
+    if args.coedit {
+        if let Ok(head_hash) = repotrim_engine::GitCommitMiner::get_head_hash(&repo.root_path) {
+            let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+            let coedit_graph = if !args.no_cache {
+                repotrim_engine::CoeditCache::load_from_file(&cache_file, &head_hash)
+                    .unwrap_or_else(|| {
+                        let config = repotrim_engine::CoeditConfig::default();
+                        repotrim_engine::GitCommitMiner::mine_repository(
+                            &repo.root_path,
+                            &repo.symbols,
+                            &config,
+                        )
+                        .unwrap_or_default()
+                    })
+            } else {
+                let config = repotrim_engine::CoeditConfig::default();
+                repotrim_engine::GitCommitMiner::mine_repository(
+                    &repo.root_path,
+                    &repo.symbols,
+                    &config,
+                )
+                .unwrap_or_default()
+            };
+
+            for (seed_id, conf) in &top_seeds {
+                for coupling in coedit_graph.couplings_for(*seed_id) {
+                    if let Some(sym) = repo.symbols.iter().find(|s| s.id == coupling.target) {
+                        let file_str = sym.file_path.display().to_string();
+                        if seen_files.insert(file_str.clone()) {
+                            seed_files.push(file_str);
+                        }
+                        if !symbol_targets.iter().any(|(s, _)| s.id == sym.id) {
+                            symbol_targets.push((sym.clone(), conf * coupling.confidence));
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -1,8 +1,8 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
 use repotrim_engine::{
-    count_tokens, ContextSelector, DiffResolver, IntentResolver, LodLevel, ModelProfile, SymbolId,
-    TokenizerModel,
+    count_tokens, CoeditCache, CoeditConfig, ContextSelector, DiffResolver, EdgeWeightLearner,
+    GitCommitMiner, IntentResolver, LayerWeights, LodLevel, ModelProfile, SymbolId, TokenizerModel,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -68,6 +68,14 @@ pub struct SelectArgs {
     /// Enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization
     #[arg(long = "joint-lod", alias = "mckp")]
     pub joint_lod: bool,
+
+    /// Include mined Git commit co-edit logical coupling edges in the multiplex graph
+    #[arg(long = "coedit", alias = "use-coedit")]
+    pub coedit: bool,
+
+    /// Dynamically calibrate multiplex layer weights using empirical Git commit history
+    #[arg(long = "learn-weights", alias = "learned-weights")]
+    pub learn_weights: bool,
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -294,7 +302,64 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         TokenizerModel::FastHeuristic
     });
 
-    let graph = repo.build_graph();
+    let mut coedit_edges: Vec<(SymbolId, SymbolId, f32)> = Vec::new();
+    let mut layer_weights = LayerWeights::default();
+
+    if args.coedit || args.learn_weights {
+        if let Ok(head_hash) = GitCommitMiner::get_head_hash(&repo.root_path) {
+            let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+            let coedit_graph = if !args.no_cache {
+                if let Some(cached) = CoeditCache::load_from_file(&cache_file, &head_hash) {
+                    cached
+                } else {
+                    let config = CoeditConfig::default();
+                    let mined =
+                        GitCommitMiner::mine_repository(&repo.root_path, &repo.symbols, &config)
+                            .unwrap_or_default();
+                    let _ = CoeditCache::save_to_file(&cache_file, &mined);
+                    mined
+                }
+            } else {
+                let config = CoeditConfig::default();
+                let mined =
+                    GitCommitMiner::mine_repository(&repo.root_path, &repo.symbols, &config)
+                        .unwrap_or_default();
+                let _ = CoeditCache::save_to_file(&cache_file, &mined);
+                mined
+            };
+
+            if args.coedit {
+                coedit_edges = coedit_graph.to_directed_edges(0.15);
+                eprintln!(
+                    "{} Injected {} mined Git co-edit edges into multiplex graph",
+                    "⚙".cyan().bold(),
+                    coedit_edges.len().to_string().bold()
+                );
+            }
+
+            if args.learn_weights {
+                let (learned, _) = EdgeWeightLearner::learn_weights(
+                    &repo.symbols,
+                    &repo.edges,
+                    &repo.imports,
+                    &coedit_graph,
+                    LayerWeights::default(),
+                );
+                layer_weights = learned;
+                eprintln!(
+                    "{} Calibrated layer weights from commit history (AST: {:.2}, Call: {:.2}, Type: {:.2}, Import: {:.2}, CoEdit: {:.2})",
+                    "⚙".cyan().bold(),
+                    layer_weights.ast_parent,
+                    layer_weights.call,
+                    layer_weights.type_ref,
+                    layer_weights.import,
+                    layer_weights.co_edit
+                );
+            }
+        }
+    }
+
+    let graph = repo.build_graph_with_coedits(&coedit_edges, layer_weights);
     let selector = ContextSelector::default().with_tokenizer(tokenizer_model);
 
     let select_start = Instant::now();
