@@ -87,7 +87,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 | Milestone | Target Version | Scope & Focus | Associated Branches | Status |
 | :--- | :--- | :--- | :--- | :---: |
-| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[READY]` |
+| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[IN PROGRESS]` |
 | **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[PLANNED]` |
 | **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `research/path-energy-model`<br>`feature/structured-context` | `[PLANNED]` |
 | **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives`<br>`feature/intelligence-mcp` | `[PLANNED]` |
@@ -101,8 +101,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 4. Milestone 1 (`v0.6.0`): Typed Multiplex Graph & Task Priors
 
-### Phase 31: Formal Entity-Relation Vocabulary & Task Modeling
-- **Branch:** `research/typed-multiplex-graph`
+### Phase 31: Formal Entity-Relation Vocabulary & Task Modeling `[COMPLETED]`
+- **Branch:** `research/typed-multiplex-graph` (completed & merged into `dev`)
 - **Objective:** Establish the formal mathematical types for code entities $\tau_V$, edge relations $\tau_E$, and structured task representations $q = (x, z, m)$.
 - **Math Formulation:**
   - Node types: $\tau_V \in \{\text{Package}, \text{Module}, \text{File}, \text{Class}, \text{Struct}, \text{Interface}, \text{Function}, \text{Method}, \text{Test}, \text{Config}, \text{Endpoint}\}$.
@@ -609,9 +609,11 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ## 10. Execution Summary & Next Immediate Action
-
-| Step | Action | Command / Target |
-| :--- | :--- | :--- |
-| **1** | Verify current branch is `dev` | `git status` |
-| **2** | Create first research branch for Milestone 1 | `git checkout -b research/typed-multiplex-graph` |
-| **3** | Begin Phase 31 (Commit 31.1) | Define `NodeType` & `RelationType` schemas in `crates/engine` |
+ 
+| Step | Action | Command / Target | Status |
+| :--- | :--- | :--- | :---: |
+| **1** | Verify current branch is `dev` | `git status` | `[DONE]` |
+| **2** | Complete Phase 31 on `research/typed-multiplex-graph` | Commits 31.1, 31.2, 31.3 | `[DONE]` |
+| **3** | Merge Phase 31 into `dev` | `git merge research/typed-multiplex-graph --ff-only` | `[DONE]` |
+| **4** | Create feature branch for Phase 32 | `git checkout -b feature/typed-multiplex-csr` | `[READY]` |
+| **5** | Begin Phase 32 (Commit 32.1) | Implement `MultiplexCsrGraph` in `crates/engine` | `[NEXT]` |

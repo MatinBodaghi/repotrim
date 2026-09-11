@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Formal Entity-Relation Vocabulary & Task Modeling (Phase 31)**:
+  - Introduced formal `NodeType` enum representing 12 fine-grained code entity types ($\tau_V$: package, module, file, class, struct, interface, trait, function, method, variable, constant, test, endpoint, config).
+  - Introduced formal `RelationType` enum representing 14 directional edge semantics ($\tau_E$: call, import, type reference, inheritance, implementation, containment, def-use, co-change, test linkage, documentation, macro expansion, semantic similarity).
+  - Implemented `TaskContext` formalizing structured queries $q = (x, z, m)$ combining raw prompt $x$, inferred intent classification $z$ (feature additions, bug fixes, refactoring, performance, testing, docs, security, architecture), seed hints, and operational metadata.
+  - Implemented task-conditioned layer weight generation mapping task intents to edge weight distributions $\boldsymbol{\omega}(q)$.
+
 ### Fixed
 - **Strict Rendered Token Budget Adherence (Phase 30)**:
   - Eliminated the critical token budget violation where `repotrim select --budget N` produced rendered Markdown 1.5x–3.5x larger than `N` due to unpriced file headers, code fences, indentation, and container wrappers.
