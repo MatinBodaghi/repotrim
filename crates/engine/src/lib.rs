@@ -20,6 +20,7 @@ pub mod model;
 pub mod multiplex;
 pub mod oracle;
 pub mod parser;
+pub mod path;
 pub mod ppr;
 pub mod resolver;
 pub mod retrieval;
@@ -68,6 +69,10 @@ pub use model::ModelProfile;
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 pub use parser::{AstExtractor, SupportedLanguage};
+pub use path::{
+    ExecutionPath, PathCoverage, PathCoverageState, PathFinder, PathFinderConfig, PathScorer,
+    PathScorerConfig,
+};
 pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use resolver::ScopedResolver;
 pub use retrieval::{

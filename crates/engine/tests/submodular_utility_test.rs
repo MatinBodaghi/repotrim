@@ -88,6 +88,7 @@ fn test_submodular_utility_end_to_end() {
         alpha: 0.35,
         beta: 0.45,
         delta: 0.0,
+        gamma: 0.0,
         lambda: 0.10,
         budget: 4096,
         normalize_components: true,
@@ -261,6 +262,7 @@ proptest! {
             alpha: 0.35,
             beta: 0.50,
             delta: 0.0,
+            gamma: 0.0,
             lambda: 0.05, // Monotone non-negative guarantee holds via max(0.0)
             budget: 4096,
             normalize_components: true,
@@ -318,6 +320,7 @@ proptest! {
             alpha: 0.30,
             beta: 0.70,
             delta: 0.0,
+            gamma: 0.0,
             lambda: 0.0, // Monotone submodular regime
             budget: 4096,
             normalize_components: true,

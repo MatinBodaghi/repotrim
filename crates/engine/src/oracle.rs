@@ -308,6 +308,7 @@ mod tests {
             alpha: 0.4,
             beta: 0.6,
             delta: 0.0,
+            gamma: 0.0,
             lambda: 0.0,
             budget: 100,
             normalize_components: true,
