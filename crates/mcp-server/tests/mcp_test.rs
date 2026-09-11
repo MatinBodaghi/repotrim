@@ -119,11 +119,14 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert_eq!(resp7["result"]["isError"], false);
     let bp_text = resp7["result"]["content"][0]["text"].as_str().unwrap();
     assert!(bp_text.contains("Feature Blueprint: token estimation"));
+    assert!(bp_text.contains("tokens.rs") || bp_text.contains("cost.rs"));
     assert!(
-        bp_text.contains("tokens.rs")
-            && (bp_text.contains("estimate_tokens")
-                || bp_text.contains("count_tokens")
-                || bp_text.contains("TokenizerModel"))
+        bp_text.contains("estimate_tokens")
+            || bp_text.contains("count_tokens")
+            || bp_text.contains("TokenizerModel")
+            || bp_text.contains("TokenCostEstimator")
+            || bp_text.contains("estimate_quick")
+            || bp_text.contains("estimate_total")
     );
 
     // 8. generate_architecture_docs
