@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Introduced formal `RelationType` enum representing 14 directional edge semantics ($\tau_E$: call, import, type reference, inheritance, implementation, containment, def-use, co-change, test linkage, documentation, macro expansion, semantic similarity).
   - Implemented `TaskContext` formalizing structured queries $q = (x, z, m)$ combining raw prompt $x$, inferred intent classification $z$ (feature additions, bug fixes, refactoring, performance, testing, docs, security, architecture), seed hints, and operational metadata.
   - Implemented task-conditioned layer weight generation mapping task intents to edge weight distributions $\boldsymbol{\omega}(q)$.
+- **Multiplex CSR Graph Representation & Layered Transition Matrices (Phase 32)**:
+  - Implemented `MultiplexCsrGraph` storing per-relation isolated Compressed Sparse Row (CSR) edge slices across all 14 relation types.
+  - Added zero-allocation typed neighbor iterators (`typed_neighbors`, `neighbors_for_relations`) and per-relation degree lookups.
+  - Implemented `RelationWeights` mapping task contexts to dynamic edge-weight distributions $A = \sum_{r \in \mathcal{R}} \omega_r(q) A_r$.
+  - Added task-conditioned row-stochastic transition matrix builder $P_q = \text{Normalize}\left(\sum_{r} \omega_r(q) A_r\right)$.
+  - Adapted `PprSolver` to operate directly on arbitrary CSR transition matrices and `MultiplexCsrGraph` with task contexts while preserving $O(1/\epsilon)$ local push complexity.
+  - Added property verification suite in `tests/multiplex_test.rs` proving probability conservation, teleportation lower bounds, and intent-driven diffusion divergence.
 
 ### Fixed
 - **Strict Rendered Token Budget Adherence (Phase 30)**:

@@ -87,8 +87,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 | Milestone | Target Version | Scope & Focus | Associated Branches | Status |
 | :--- | :--- | :--- | :--- | :---: |
-| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[IN PROGRESS]` |
-| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[PLANNED]` |
+| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[COMPLETED]` |
+| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[READY]` |
 | **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `research/path-energy-model`<br>`feature/structured-context` | `[PLANNED]` |
 | **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives`<br>`feature/intelligence-mcp` | `[PLANNED]` |
 | **Milestone 5** | `v0.10.0` | Sequential Exploration & Adaptive Navigation | `research/adaptive-navigation`<br>`feature/adaptive-navigator` | `[PLANNED]` |
@@ -136,8 +136,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 32: Multiplex CSR Graph Representation & Layered Transition Matrices
-- **Branch:** `feature/typed-multiplex-csr`
+### Phase 32: Multiplex CSR Graph Representation & Layered Transition Matrices `[COMPLETED]`
+- **Branch:** `feature/typed-multiplex-csr` (completed & merged into `dev`)
 - **Objective:** Upgrade the graph storage to a typed multiplex Compressed Sparse Row (CSR) representation supporting layered adjacency matrices $A = \sum_{r \in \mathcal{R}} \omega_r(q) A_r$.
 - **Math Formulation:**
   $$P_q = \text{Normalize}\left(\sum_{r \in \mathcal{R}} \omega_r(q) A_r\right), \quad \mathbf{p}_q = (1 - \alpha)\mathbf{s}_q + \alpha P_q^T \mathbf{p}_q$$
@@ -612,8 +612,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
  
 | Step | Action | Command / Target | Status |
 | :--- | :--- | :--- | :---: |
-| **1** | Verify current branch is `dev` | `git status` | `[DONE]` |
-| **2** | Complete Phase 31 on `research/typed-multiplex-graph` | Commits 31.1, 31.2, 31.3 | `[DONE]` |
-| **3** | Merge Phase 31 into `dev` | `git merge research/typed-multiplex-graph --ff-only` | `[DONE]` |
-| **4** | Create feature branch for Phase 32 | `git checkout -b feature/typed-multiplex-csr` | `[READY]` |
-| **5** | Begin Phase 32 (Commit 32.1) | Implement `MultiplexCsrGraph` in `crates/engine` | `[NEXT]` |
+| **1** | Complete Phase 31 on `research/typed-multiplex-graph` | Commits 31.1, 31.2, 31.3 | `[DONE]` |
+| **2** | Complete Phase 32 on `feature/typed-multiplex-csr` | Commits 32.1, 32.2, 32.3, 32.4 | `[DONE]` |
+| **3** | Milestone 1 (`v0.6.0`) Complete & Merged to `dev` | Typed Multiplex CSR & Task Priors | `[DONE]` |
+| **4** | Create research branch for Phase 33 | `git checkout -b research/submodular-coverage` | `[READY]` |
+| **5** | Begin Phase 33 (Commit 33.1) | Implement `EvidenceKernel` in `crates/engine` | `[NEXT]` |
