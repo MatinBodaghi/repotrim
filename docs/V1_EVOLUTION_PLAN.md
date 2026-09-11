@@ -181,8 +181,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 5. Milestone 2 (`v0.7.0`): Monotone Submodular Coverage & Dual-Mode Solvers
 
-### Phase 33: Probabilistic Evidence Coverage & Submodular Kernel Engine
-- **Branch:** `research/submodular-coverage`
+### Phase 33: Probabilistic Evidence Coverage & Submodular Kernel Engine `[COMPLETED]`
+- **Branch:** `research/submodular-coverage` (completed & merged into `dev`)
 - **Objective:** Replace ad-hoc relevance scoring with a mathematically rigorous probabilistic coverage function exhibiting provable diminishing returns.
 - **Math Formulation:**
   - Evidence distribution kernel $K(v, u; q) \in [0, 1]$ measuring information $v$ provides regarding $u$.
