@@ -34,6 +34,8 @@ enum Commands {
     Impact(commands::impact::ImpactArgs),
     /// Mine historical Git co-edits and learn empirical multiplex layer edge weights
     Coedit(commands::coedit::CoeditArgs),
+    /// Detect multi-resolution topological communities, hierarchy, and architectural drift
+    Community(commands::community::CommunityArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -52,6 +54,7 @@ fn main() {
         Commands::Clean(args) => commands::clean::execute(args),
         Commands::Impact(args) => commands::impact::execute(args),
         Commands::Coedit(args) => commands::coedit::execute(args),
+        Commands::Community(args) => commands::community::execute(args),
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
     };

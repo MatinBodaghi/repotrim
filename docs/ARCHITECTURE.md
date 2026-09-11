@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **568** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **2237** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.140** | High cross-boundary integration |
+| **Total AST Symbols** | **606** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **2432** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.142** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -21,17 +21,17 @@ The following diagram illustrates the directed dependency flow between architect
 ```mermaid
 flowchart TD
     subgraph Presentation["Layer 1: Presentation & Entrypoints"]
-        subsys_crates_mcp_server["crates-mcp-server (50 syms)"]
-        subsys_crates_cli["crates-cli (47 syms)"]
+        subsys_crates_cli["crates-cli (58 syms)"]
+        subsys_crates_mcp_server["crates-mcp-server (52 syms)"]
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (471 syms)"]
+        subsys_crates_engine["crates-engine (496 syms)"]
     end
 
-    subsys_crates_mcp_server -->|"88 refs"| subsys_crates_engine
-    subsys_crates_cli -->|"120 refs"| subsys_crates_engine
+    subsys_crates_cli -->|"141 refs"| subsys_crates_engine
     subsys_crates_cli -->|"2 refs"| subsys_crates_mcp_server
+    subsys_crates_mcp_server -->|"98 refs"| subsys_crates_engine
     subsys_crates_engine -->|"4 refs"| subsys_crates_mcp_server
 ```
 
@@ -41,9 +41,9 @@ flowchart TD
 
 | Subsystem | Layer | Root Directory | Symbols | Tokens | Coupling (Out $\to$ In) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 50 | 1156 | crates-engine (88) |
-| **crates-cli** | `Presentation` | `crates/cli` | 47 | 3141 | crates-engine (120), crates-mcp-server (2) |
-| **crates-engine** | `Domain` | `crates/engine` | 471 | 15358 | crates-mcp-server (4) |
+| **crates-cli** | `Presentation` | `crates/cli` | 58 | 3707 | crates-engine (141), crates-mcp-server (2) |
+| **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 52 | 1189 | crates-engine (98) |
+| **crates-engine** | `Domain` | `crates/engine` | 496 | 16783 | crates-mcp-server (4) |
 
 ---
 
@@ -53,19 +53,19 @@ flowchart TD
 
 *Ingress entrypoints, CLI commands, MCP protocol dispatchers, and UI components.*
 
-- **`crates-mcp-server`** (at `crates/mcp-server`): 50 symbols (1156 tokens).
-  - Depends on: `crates-engine` (88 refs)
+- **`crates-cli`** (at `crates/cli`): 58 symbols (3707 tokens).
+  - Depends on: `crates-engine` (141 refs), `crates-mcp-server` (2 refs)
+- **`crates-mcp-server`** (at `crates/mcp-server`): 52 symbols (1189 tokens).
+  - Depends on: `crates-engine` (98 refs)
   - Consumed by: `crates-cli` (2 callers), `crates-engine` (4 callers)
-- **`crates-cli`** (at `crates/cli`): 47 symbols (3141 tokens).
-  - Depends on: `crates-engine` (120 refs), `crates-mcp-server` (2 refs)
 
 ### Layer 2: Domain & Business Logic
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 471 symbols (15358 tokens).
+- **`crates-engine`** (at `crates/engine`): 496 symbols (16783 tokens).
   - Depends on: `crates-mcp-server` (4 refs)
-  - Consumed by: `crates-cli` (120 callers), `crates-mcp-server` (88 callers)
+  - Consumed by: `crates-cli` (141 callers), `crates-mcp-server` (98 callers)
 
 ---
 
@@ -75,21 +75,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 134 | 1 | 0.06719 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 97 | 1 | 0.01367 | `crates/engine/src/cache.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 72 | 2 | 0.00667 | `crates/engine/src/cache.rs` |
-| **`from`** | `Method` | `Domain` | 66 | 1 | 0.04046 | `crates/engine/src/error.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 60 | 3 | 0.00706 | `crates/engine/src/symbol.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 56 | 18 | 0.00897 | `crates/engine/src/graph.rs` |
-| **`as_str`** | `Method` | `Domain` | 47 | 1 | 0.01152 | `crates/engine/src/impact.rs` |
-| **`is_empty`** | `Method` | `Domain` | 42 | 1 | 0.00640 | `crates/engine/src/coedit.rs` |
-| **`build`** | `Method` | `Domain` | 42 | 5 | 0.00160 | `crates/engine/src/graph.rs` |
-| **`default`** | `Method` | `Infrastructure` | 36 | 2 | 0.00349 | `crates/engine/src/cache.rs` |
-| **`new`** | `Method` | `Domain` | 32 | 1 | 0.02089 | `crates/engine/src/symbol.rs` |
-| **`symbol`** | `Method` | `Core` | 24 | 3 | 0.00122 | `crates/engine/src/graph.rs` |
-| **`EngineError`** | `Enum` | `Core` | 20 | 1 | 0.03785 | `crates/engine/src/error.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 21 | 4 | 0.00095 | `crates/engine/src/loader.rs` |
-| **`ContextSelector`** | `Struct` | `Domain` | 20 | 22 | 0.00182 | `crates/engine/src/selector.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 147 | 1 | 0.06986 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 112 | 1 | 0.01408 | `crates/engine/src/cache.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 75 | 2 | 0.00650 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 70 | 1 | 0.04223 | `crates/engine/src/error.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 63 | 18 | 0.00923 | `crates/engine/src/graph.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 63 | 3 | 0.00696 | `crates/engine/src/symbol.rs` |
+| **`as_str`** | `Method` | `Domain` | 50 | 1 | 0.01112 | `crates/engine/src/impact.rs` |
+| **`build`** | `Method` | `Domain` | 47 | 5 | 0.00160 | `crates/engine/src/graph.rs` |
+| **`is_empty`** | `Method` | `Domain` | 44 | 1 | 0.00601 | `crates/engine/src/coedit.rs` |
+| **`default`** | `Method` | `Infrastructure` | 41 | 2 | 0.00349 | `crates/engine/src/cache.rs` |
+| **`new`** | `Method` | `Domain` | 34 | 1 | 0.02053 | `crates/engine/src/symbol.rs` |
+| **`symbol`** | `Method` | `Core` | 28 | 3 | 0.00127 | `crates/engine/src/graph.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 24 | 4 | 0.00093 | `crates/engine/src/loader.rs` |
+| **`EngineError`** | `Enum` | `Core` | 20 | 1 | 0.03919 | `crates/engine/src/error.rs` |
+| **`repo_root`** | `Function` | `Presentation` | 23 | 1 | 0.00389 | `crates/cli/tests/cli_test.rs` |
 
 ---
 
@@ -117,6 +117,11 @@ pub fn execute(args: CleanArgs) -> Result<(), Box<dyn std::error::Error>>
 - **`execute`** (`Function` in `crates/cli/src/commands/coedit.rs`):
 ```text
 pub fn execute(args: CoeditArgs) -> Result<(), Box<dyn std::error::Error>>
+```
+
+- **`execute`** (`Function` in `crates/cli/src/commands/community.rs`):
+```text
+pub fn execute(args: CommunityArgs) -> Result<(), Box<dyn std::error::Error>>
 ```
 
 - **`execute`** (`Function` in `crates/cli/src/commands/impact.rs`):
@@ -176,6 +181,10 @@ pub struct ArchitectureArgs {
     /// Disable incremental AST caching and force full re-parsing
     #[arg(long = "no-cache")]
     pub no_cache: bool,
+
+    /// Modularity resolution parameter gamma for subsystem community detection
+    #[arg(short = 'r', long = "resolution", default_value = "1.0")]
+    pub resolution: f64,
 }
 ```
 
@@ -274,6 +283,50 @@ pub struct CoeditArgs {
     /// Output results in machine-readable JSON format
     #[arg(long = "json")]
     pub json: bool,
+}
+```
+
+- **`CommunityArgs`** (`Struct` in `crates/cli/src/commands/community.rs`):
+```text
+pub struct CommunityArgs {
+    /// Target codebase directory to scan
+    #[arg(short = 'p', long = "path", default_value = ".")]
+    pub path: PathBuf,
+
+    /// Modularity resolution parameter gamma (Reichardt & Bornholdt, 2004)
+    #[arg(short = 'r', long = "resolution", default_value = "1.0")]
+    pub resolution: f64,
+
+    /// Display multi-resolution hierarchy (Macro gamma=0.5, Meso gamma=1.0, Micro gamma=2.5)
+    #[arg(long = "hierarchy")]
+    pub hierarchy: bool,
+
+    /// Identify architectural drift and misplaced / leaky symbols
+    #[arg(long = "drift")]
+    pub drift: bool,
+
+    /// Disable incremental AST caching and force full re-parsing
+    #[arg(long = "no-cache")]
+    pub no_cache: bool,
+
+    /// Output results in machine-readable JSON format
+    #[arg(long = "json")]
+    pub json: bool,
+}
+```
+
+- **`CommunityCliReport`** (`Struct` in `crates/cli/src/commands/community.rs`):
+```text
+struct CommunityCliReport {
+    resolution: f64,
+    modularity: f32,
+    total_symbols: usize,
+    community_count: usize,
+    communities: Vec<Community>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    drift: Option<Vec<ArchitecturalDrift>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hierarchy: Option<CommunityHierarchy>,
 }
 ```
 
@@ -398,6 +451,10 @@ pub struct SelectArgs {
     /// Dynamically calibrate multiplex layer weights using empirical Git commit history
     #[arg(long = "learn-weights", alias = "learned-weights")]
     pub learn_weights: bool,
+
+    /// Apply intra-community cohesion boost to focus seeds to reduce external hub drift
+    #[arg(long = "community-boost", alias = "community", default_value = "0.0")]
+    pub community_boost: f32,
 }
 ```
 
@@ -446,6 +503,8 @@ enum Commands {
     Impact(commands::impact::ImpactArgs),
     /// Mine historical Git co-edits and learn empirical multiplex layer edge weights
     Coedit(commands::coedit::CoeditArgs),
+    /// Detect multi-resolution topological communities, hierarchy, and architectural drift
+    Community(commands::community::CommunityArgs),
     /// Run Model Context Protocol (MCP) server over stdio for AI agent harnesses
     Mcp(commands::mcp::McpArgs),
     /// Watch codebase for file changes and incrementally maintain the in-memory graph
@@ -484,24 +543,6 @@ pub fn compute_blake3_hash(bytes: &[u8]) -> [u8; 32]
 > Computes the relative module/path distance between two file paths.
 ```text
 pub fn compute_path_distance(p1: &Path, p2: &Path) -> usize
-```
-
-- **`count_tokens`** (`Function` in `crates/engine/src/tokens.rs`):
-> Counts tokens using the specified tokenizer model.
-```text
-pub fn count_tokens(text: &str, model: TokenizerModel) -> usize
-```
-
-- **`estimate_tokens`** (`Function` in `crates/engine/src/tokens.rs`):
-> Estimates the token count of a given text using a fast BPE heuristic.
-```text
-pub fn estimate_tokens(text: &str) -> usize
-```
-
-- **`estimate_tokens_calibrated`** (`Function` in `crates/engine/src/tokens.rs`):
-> Calibrated token estimator applying empirical linear scaling.
-```text
-pub fn estimate_tokens_calibrated(text: &str) -> usize
 ```
 
 ---

@@ -2,6 +2,7 @@ pub mod architecture;
 pub mod blueprint;
 pub mod clean;
 pub mod coedit;
+pub mod community;
 pub mod impact;
 pub mod inspect;
 pub mod mcp;

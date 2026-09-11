@@ -283,6 +283,27 @@ repotrim coedit --min-support 3 --format json
 repotrim select --query "rate limit" --coedit --learn-weights --budget 1200
 ```
 
+### 10. Multi-Resolution Community Detection (`community`)
+
+Detect topological communities via multi-resolution Potts modularity optimization ($\gamma$), unpack hierarchical scales, and diagnose architectural drift:
+
+```bash
+# Detect communities at standard modularity resolution (gamma = 1.0)
+repotrim community
+
+# Multi-scale hierarchical decomposition (Macro gamma=0.5, Meso gamma=1.0, Micro gamma=2.5)
+repotrim community --hierarchy
+
+# Detect architectural drift (symbols deviating from dominant directory)
+repotrim community --drift
+
+# Tune modularity resolution in architecture specification
+repotrim architecture --resolution 0.75 --output docs/ARCHITECTURE.md
+
+# Context selection boosted by seed community cohesion
+repotrim select --symbol ContextSelector --community-boost --budget 800
+```
+
 ---
 
 ## Model Context Protocol (MCP) Integration
@@ -339,11 +360,12 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean`, `useCoedits?: boolean`, `learnWeights?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, joint MCKP LOD optimization, and Git co-edit fusion |
+| **`trim_context`** | `seeds?: string[]`, `query?: string`, `fromDiff?: boolean`, `budget?: number \| "auto"`, `model?: string`, `tokenizer?: string`, `format?: string`, `diagnostics?: boolean`, `jointLod?: boolean`, `useCoedits?: boolean`, `learnWeights?: boolean`, `communityBoost?: boolean` | Computes optimal Markdown or JSON context skeleton with seed, query, or diff inference, supporting auto-budgeting, exact tokenization, sensitivity diagnostics, joint MCKP LOD optimization, Git co-edit fusion, and community boosting |
+| **`detect_communities`** | `path?: string`, `resolution?: number`, `hierarchy?: boolean`, `drift?: boolean`, `format?: string` | Detects multi-resolution Potts communities across Macro ($\gamma=0.5$), Meso ($\gamma=1.0$), and Micro ($\gamma=2.5$) tiers, spots architectural drift, and outputs topological catalogs |
 | **`mine_coedits`** | `path?: string`, `limit?: number`, `minSupport?: number` | Mines fine-grained git commit history for co-edit patterns, computes association confidence, and returns top logical coupling pairs |
 | **`analyze_impact`** | `symbol?: string`, `diff?: string`, `diffAgainst?: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Computes architectural blast radius, 1st-order callers, transitive dependents, and recommended regression tests |
 | **`generate_blueprint`** | `task: string`, `budget?: number \| "auto"`, `model?: string`, `path?: string` | Generates a structured feature blueprint with auto-inferred seed anchors and target files |
-| **`generate_architecture_docs`** | `path?: string`, `output?: string` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
+| **`generate_architecture_docs`** | `path?: string`, `output?: string`, `resolution?: number` | Generates durable repository architecture docs, subsystem topology, layers, and Mermaid diagrams |
 | **`query_graph_stats`** | `path?: string` | Retrieves syntax breakdown, edge density, and top PageRank hubs |
 | **`inspect_symbol`** | `symbol: string`, `path?: string` | Deeply inspects definitions, token costs, dependencies, and callers |
 | **`clean_cache`** | `path?: string` | Clears on-disk cache and resets in-memory daemon state |
@@ -381,7 +403,8 @@ repotrim/
 │   │   ├── token_calibration.md
 │   │   ├── sensitivity_analysis.md
 │   │   ├── mckp_joint_selection.md
-│   │   └── git_coedit_learning.md
+│   │   ├── git_coedit_learning.md
+│   │   └── community_detection.md
 │   └── harness/                # Agent harness guides, blueprint templates & server docs
 │       ├── OVERVIEW.md
 │       ├── FEATURE_BLUEPRINT_TEMPLATE.md
@@ -395,6 +418,7 @@ repotrim/
     │       ├── lib.rs
     │       ├── cache.rs        # Incremental BLAKE3 Merkle cache and bincode persistence
     │       ├── coedit.rs       # Git co-edit commit mining, noise filtering, half-life decay
+    │       ├── community.rs    # Multi-resolution Potts modularity, Louvain hierarchy & drift
     │       ├── diff.rs         # Unified git diff parser and symbol mapping
     │       ├── error.rs        # Engine error types
     │       ├── intent.rs       # BM25 + trigram + semantic hybrid query resolver
@@ -404,7 +428,7 @@ repotrim/
     │       ├── symbol.rs       # Dense SymbolId, SymbolNode, ReferenceEdge
     │       ├── tokens.rs       # In-engine allocation-free BPE token estimator
     │       └── weight_learning.rs # Bayesian multiplex edge weight learning & ranking calibration
-    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, coedit, mcp)
+    ├── cli/                    # repotrim: CLI binary (select, blueprint, stats, inspect, clean, coedit, community, mcp)
     └── mcp-server/             # repotrim-mcp: stdio JSON-RPC MCP server
 ```
 
@@ -483,6 +507,13 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Empirical evaluation: [`docs/benchmarks/git_coedit_learning.md`](docs/benchmarks/git_coedit_learning.md).
 20. **Supervised Random Walks & Edge Weight Learning in Information Networks:**
     - Lars Backstrom, Jure Leskovec. *"Supervised Random Walks: Predicting and Recommending Links in Social Networks"*. In *Proceedings of the 4th ACM International Conference on Web Search and Data Mining (WSDM '11)*, pp. 1–10, 2011. [DOI: 10.1145/1935826.1935832](https://doi.org/10.1145/1935826.1935832).
+21. **Multi-Resolution Modularity, Spin Glass Potts Models, & Resolution Limits:**
+    - Jörg Reichardt, Stefan Bornholdt. *"Detecting Fuzzy Community Structures in Complex Networks with a Potts Model"*. In *Physical Review Letters*, 93(21): 218701, 2004. [DOI: 10.1103/PhysRevLett.93.218701](https://doi.org/10.1103/PhysRevLett.93.218701).
+    - Santo Fortunato, Marc Barthélemy. *"Resolution limit in modularity detection"*. In *Proceedings of the National Academy of Sciences (PNAS)*, 104(1): 35–41, 2007. [DOI: 10.1073/pnas.0605965104](https://doi.org/10.1073/pnas.0605965104).
+    - Alex Arenas, Alberto Fernández, Sergio Gómez. *"Analysis of the multiscale, knotty-centre and segregated properties of complex networks"*. In *New Journal of Physics*, 10(5): 053039, 2008. [DOI: 10.1088/1367-2630/10/5/053039](https://doi.org/10.1088/1367-2630/10/5/053039).
+    - Vincent A. Traag, Ludo Waltman, Nees Jan van Eck. *"From Louvain to Leiden: guaranteeing well-connected communities"*. In *Scientific Reports*, 9(1): 5233, 2019. [DOI: 10.1038/s41598-019-41695-z](https://doi.org/10.1038/s41598-019-41695-z).
+    - Alexander Strehl, Joydeep Ghosh. *"Cluster Ensembles — A Knowledge Reuse Framework for Combining Multiple Partitions"*. In *Journal of Machine Learning Research (JMLR)*, 3: 583–617, 2002. [JMLR](https://jmlr.org/papers/v3/strehl02a.html).
+    - Empirical evaluation: [`docs/benchmarks/community_detection.md`](docs/benchmarks/community_detection.md).
 
 ---
 

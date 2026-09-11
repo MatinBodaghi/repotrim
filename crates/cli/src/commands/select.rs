@@ -76,6 +76,10 @@ pub struct SelectArgs {
     /// Dynamically calibrate multiplex layer weights using empirical Git commit history
     #[arg(long = "learn-weights", alias = "learned-weights")]
     pub learn_weights: bool,
+
+    /// Apply intra-community cohesion boost to focus seeds to reduce external hub drift
+    #[arg(long = "community-boost", alias = "community", default_value = "0.0")]
+    pub community_boost: f32,
 }
 
 pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -415,12 +419,22 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
                 );
             (selected, md, None, Some(sens), None)
         } else {
-            let (selected, md) = selector.select_and_format_context_weighted(
-                &graph,
-                &seed_pairs,
-                budget,
-                &repo.file_sources,
-            );
+            let (selected, md) = if args.community_boost > 0.0 {
+                selector.select_and_format_context_with_community(
+                    &graph,
+                    &seed_pairs,
+                    budget,
+                    args.community_boost,
+                    &repo.file_sources,
+                )
+            } else {
+                selector.select_and_format_context_weighted(
+                    &graph,
+                    &seed_pairs,
+                    budget,
+                    &repo.file_sources,
+                )
+            };
             (selected, md, None, None, None)
         }
     };

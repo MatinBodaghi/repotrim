@@ -20,6 +20,10 @@ pub struct ArchitectureArgs {
     /// Disable incremental AST caching and force full re-parsing
     #[arg(long = "no-cache")]
     pub no_cache: bool,
+
+    /// Modularity resolution parameter gamma for subsystem community detection
+    #[arg(short = 'r', long = "resolution", default_value = "1.0")]
+    pub resolution: f64,
 }
 
 pub fn execute(args: ArchitectureArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +39,8 @@ pub fn execute(args: ArchitectureArgs) -> Result<(), Box<dyn std::error::Error>>
     repo.load_all_sources()?;
 
     let graph = repo.build_graph();
-    let report = ArchitectureReport::analyze(&graph, &repo.root_path);
+    let report =
+        ArchitectureReport::analyze_with_resolution(&graph, &repo.root_path, args.resolution);
     let markdown_content = report.to_markdown();
 
     if args.output == "-" {

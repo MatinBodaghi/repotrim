@@ -76,7 +76,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 9);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -385,5 +385,80 @@ fn test_mcp_mine_coedits_and_use_coedits() {
     assert_eq!(resp4["id"], 4);
     assert_eq!(resp4["result"]["isError"], false);
     let trim_text = resp4["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(trim_text.contains("ContextSelector"));
+}
+
+#[test]
+fn test_mcp_detect_communities() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. tools/call: detect_communities (markdown, with drift)
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"detect_communities","arguments":{{"path":"{}","resolution":1.0,"drift":true}}}}}}"#,
+            "\n",
+            // 3. tools/call: detect_communities (json, with drift)
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"detect_communities","arguments":{{"path":"{}","resolution":1.0,"drift":true,"format":"json"}}}}}}"#,
+            "\n",
+            // 4. tools/call: detect_communities hierarchy (markdown)
+            r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"detect_communities","arguments":{{"path":"{}","hierarchy":true}}}}}}"#,
+            "\n",
+            // 5. tools/call: trim_context with communityBoost
+            r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"trim_context","arguments":{{"seeds":["ContextSelector"],"budget":500,"communityBoost":true,"path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str, root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 5);
+
+    // 2. detect_communities (markdown)
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    assert_eq!(resp2["result"]["isError"], false);
+    let md_text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(md_text.contains("# Topological Community Catalog"));
+    assert!(md_text.contains("Modularity Q:"));
+
+    // 3. detect_communities (json)
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    assert_eq!(resp3["result"]["isError"], false);
+    let json_text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    let parsed_json: serde_json::Value = serde_json::from_str(json_text).unwrap();
+    assert!(parsed_json.get("communities").is_some());
+    assert!(parsed_json.get("modularity").is_some());
+    assert!(parsed_json.get("drift").is_some());
+
+    // 4. detect_communities hierarchy (markdown)
+    let resp4: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(resp4["id"], 4);
+    assert_eq!(resp4["result"]["isError"], false);
+    let hier_text = resp4["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(hier_text.contains("# Multi-Scale Community Hierarchy"));
+    assert!(hier_text.contains("Macro Subsystems (γ = 0.5)"));
+    assert!(hier_text.contains("Meso Modules (γ = 1.0)"));
+    assert!(hier_text.contains("Micro Components (γ = 2.5)"));
+
+    // 5. trim_context with communityBoost
+    let resp5: serde_json::Value = serde_json::from_str(lines[4]).unwrap();
+    assert_eq!(resp5["id"], 5);
+    assert_eq!(resp5["result"]["isError"], false);
+    let trim_text = resp5["result"]["content"][0]["text"].as_str().unwrap();
     assert!(trim_text.contains("ContextSelector"));
 }

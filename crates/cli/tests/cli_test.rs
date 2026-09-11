@@ -20,6 +20,7 @@ fn test_cli_help() {
     assert!(stdout.contains("inspect"));
     assert!(stdout.contains("clean"));
     assert!(stdout.contains("coedit"));
+    assert!(stdout.contains("community"));
     assert!(stdout.contains("mcp"));
     assert!(stdout.contains("watch"));
 }
@@ -512,4 +513,123 @@ fn test_cli_select_with_coedit_and_learned_weights() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("ContextSelector"));
     assert!(stdout.contains("### File:"));
+}
+
+#[test]
+fn test_cli_community_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["community", "--help"])
+        .output()
+        .expect("Failed to execute repotrim community --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--resolution"));
+    assert!(stdout.contains("--hierarchy"));
+    assert!(stdout.contains("--drift"));
+}
+
+#[test]
+fn test_cli_community_run() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["community", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim community");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Community Name"));
+    assert!(stdout.contains("Density"));
+    assert!(stdout.contains("Dominant Dir"));
+    assert!(stdout.contains("Purity"));
+}
+
+#[test]
+fn test_cli_community_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["community", "--json", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim community --json");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Valid JSON from repotrim community");
+    assert!(parsed.get("resolution").is_some());
+    assert!(parsed.get("modularity").is_some());
+    assert!(parsed.get("communities").is_some());
+}
+
+#[test]
+fn test_cli_community_hierarchy() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["community", "--hierarchy", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim community --hierarchy");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Macro Subsystems"));
+    assert!(stdout.contains("Meso Modules"));
+    assert!(stdout.contains("Micro Components"));
+}
+
+#[test]
+fn test_cli_community_drift() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["community", "--drift", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim community --drift");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Architectural Drift Analysis"));
+}
+
+#[test]
+fn test_cli_select_with_community_boost() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "select",
+            "--seed",
+            "ContextSelector",
+            "--budget",
+            "500",
+            "--community-boost",
+            "0.35",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim select with community boost");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ContextSelector"));
+    assert!(stdout.contains("### File:"));
+}
+
+#[test]
+fn test_cli_architecture_with_resolution() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "architecture",
+            "--resolution",
+            "1.5",
+            "--output",
+            "-",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim architecture --resolution");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("# Repository Architecture & Subsystem Specification"));
+    assert!(stdout.contains("Resolution"));
 }

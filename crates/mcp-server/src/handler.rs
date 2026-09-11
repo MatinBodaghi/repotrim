@@ -1,12 +1,13 @@
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    count_tokens, ArchitectureReport, CoeditCache, CoeditConfig, ContextSelector, DiffResolver,
-    EdgeWeightLearner, GitCommitMiner, ImpactAnalyzer, IntentResolver, LayerWeights,
-    LoadedRepository, LodLevel, ModelProfile, PprSolver, RepositoryWatcher, SymbolId, SymbolKind,
-    TokenizerModel,
+    count_tokens, ArchitectureReport, CoeditCache, CoeditConfig, CommunityConfig,
+    CommunityDetector, ContextSelector, DiffResolver, EdgeWeightLearner, GitCommitMiner,
+    ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile,
+    PprSolver, RepositoryWatcher, SymbolId, SymbolKind, TokenizerModel,
 };
 
 use crate::protocol::{
@@ -190,6 +191,10 @@ impl McpHandler {
                         "learnWeights": {
                             "type": "boolean",
                             "description": "Optional flag to dynamically calibrate multiplex layer weights using empirical Git commit history"
+                        },
+                        "communityBoost": {
+                            "type": "number",
+                            "description": "Optional intra-community cohesion boost multiplier (e.g. 0.35) to focus context selection on seeds' topological communities"
                         }
                     }
                 }),
@@ -240,13 +245,13 @@ impl McpHandler {
             },
             ToolDefinition {
                 name: "generate_blueprint".to_string(),
-                description: "Generate a structured feature blueprint (FEATURE_BLUEPRINT.md) with inferred seed anchors, target files, and recommended token budgets for a given task description.".to_string(),
+                description: "Generate an agent-ready high-density feature specification blueprint with inferred seed anchors, target implementation files, and relevant interface definitions.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "task": {
                             "type": "string",
-                            "description": "Task or feature description to scaffold (e.g. 'Add user session authentication')"
+                            "description": "Feature specification or bug fix description"
                         },
                         "budget": {
                             "description": "Recommended token budget for context slicing, or 'auto' for Knee-Curve tuning (default: 3000)"
@@ -276,6 +281,10 @@ impl McpHandler {
                         "output": {
                             "type": "string",
                             "description": "Optional destination file path to write generated documentation to (e.g. 'docs/ARCHITECTURE.md')"
+                        },
+                        "resolution": {
+                            "type": "number",
+                            "description": "Optional modularity resolution parameter gamma (default: 1.0, <1.0 for macro, >1.0 for micro)"
                         }
                     }
                 }),
@@ -344,6 +353,36 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "detect_communities".to_string(),
+                description: "Detect multi-resolution topological communities, analyze hierarchical modularity (Macro/Meso/Micro), and spotlight architectural drift / misplaced symbols.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        },
+                        "resolution": {
+                            "type": "number",
+                            "description": "Modularity resolution parameter gamma (default: 1.0, <1.0 for macro, >1.0 for micro)"
+                        },
+                        "hierarchy": {
+                            "type": "boolean",
+                            "description": "Whether to return multi-scale hierarchy (Macro, Meso, Micro; default: false)"
+                        },
+                        "drift": {
+                            "type": "boolean",
+                            "description": "Whether to analyze architectural drift and misplaced symbols (default: false)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output format ('markdown' or 'json', default: 'markdown')"
+                        }
+                    }
+                }),
+            },
         ]
     }
 
@@ -358,6 +397,7 @@ impl McpHandler {
             "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
             "analyze_impact" => self.tool_analyze_impact(arguments),
             "mine_coedits" => self.tool_mine_coedits(arguments),
+            "detect_communities" => self.tool_detect_communities(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -466,6 +506,10 @@ impl McpHandler {
             .get("learnWeights")
             .and_then(|d| d.as_bool())
             .unwrap_or(false);
+        let community_boost = args
+            .get("communityBoost")
+            .and_then(|d| d.as_f64())
+            .unwrap_or(0.0) as f32;
         let target_path = self.resolve_path(&args);
 
         let mut repo = match self.get_or_load_repo(&target_path) {
@@ -617,12 +661,22 @@ impl McpHandler {
             );
             (sel, md, None, Some(s), None)
         } else {
-            let (sel, md) = selector.select_and_format_context_weighted(
-                &graph,
-                &seed_pairs,
-                explicit_budget,
-                &repo.file_sources,
-            );
+            let (sel, md) = if community_boost > 0.0 {
+                selector.select_and_format_context_with_community(
+                    &graph,
+                    &seed_pairs,
+                    explicit_budget,
+                    community_boost,
+                    &repo.file_sources,
+                )
+            } else {
+                selector.select_and_format_context_weighted(
+                    &graph,
+                    &seed_pairs,
+                    explicit_budget,
+                    &repo.file_sources,
+                )
+            };
             (sel, md, None, None, None)
         };
 
@@ -1055,7 +1109,12 @@ impl McpHandler {
         };
 
         let graph = repo.build_graph();
-        let report = ArchitectureReport::analyze(&graph, &repo.root_path);
+        let resolution = args
+            .get("resolution")
+            .and_then(|r| r.as_f64())
+            .unwrap_or(1.0);
+        let report =
+            ArchitectureReport::analyze_with_resolution(&graph, &repo.root_path, resolution);
         let markdown = report.to_markdown();
 
         if let Some(output_file) = args.get("output").and_then(|o| o.as_str()) {
@@ -1255,6 +1314,152 @@ impl McpHandler {
         } else {
             let md = report.to_markdown();
             ToolCallResult::success(md)
+        }
+    }
+
+    fn tool_detect_communities(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let target_path = self.resolve_path(&args);
+        let resolution = args
+            .get("resolution")
+            .and_then(|r| r.as_f64())
+            .unwrap_or(1.0);
+        let hierarchy = args
+            .get("hierarchy")
+            .and_then(|h| h.as_bool())
+            .unwrap_or(false);
+        let drift = args.get("drift").and_then(|d| d.as_bool()).unwrap_or(false);
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let graph = repo.build_graph();
+
+        if hierarchy {
+            let hier = CommunityDetector::detect_hierarchy(&graph);
+            if format_str == "json" {
+                match serde_json::to_string_pretty(&hier) {
+                    Ok(json_str) => ToolCallResult::success(json_str),
+                    Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+                }
+            } else {
+                let mut md = String::new();
+                let _ = writeln!(md, "# Multi-Scale Community Hierarchy\n");
+                let _ = writeln!(
+                    md,
+                    "## 1. Macro Subsystems (γ = 0.5)\n- Modularity: **{:.4}** | Communities: **{}**\n",
+                    hier.macro_modularity,
+                    hier.macro_communities.len()
+                );
+                let _ = writeln!(
+                    md,
+                    "## 2. Meso Modules (γ = 1.0)\n- Modularity: **{:.4}** | Communities: **{}**\n",
+                    hier.meso_modularity,
+                    hier.meso_communities.len()
+                );
+                let _ = writeln!(
+                    md,
+                    "## 3. Micro Components (γ = 2.5)\n- Modularity: **{:.4}** | Communities: **{}**\n",
+                    hier.micro_modularity,
+                    hier.micro_communities.len()
+                );
+                ToolCallResult::success(md)
+            }
+        } else {
+            let config = CommunityConfig::with_resolution(resolution);
+            let result = CommunityDetector::detect(&graph, &config);
+            let drifts = if drift {
+                Some(CommunityDetector::analyze_drift(
+                    &graph,
+                    &result.communities,
+                    &repo.root_path,
+                ))
+            } else {
+                None
+            };
+
+            if format_str == "json" {
+                let json_val = serde_json::json!({
+                    "resolution": result.resolution,
+                    "modularity": result.modularity,
+                    "total_symbols": graph.num_symbols(),
+                    "community_count": result.communities.len(),
+                    "communities": result.communities,
+                    "drift": drifts,
+                });
+                match serde_json::to_string_pretty(&json_val) {
+                    Ok(json_str) => ToolCallResult::success(json_str),
+                    Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+                }
+            } else {
+                let mut md = String::new();
+                let _ = writeln!(
+                    md,
+                    "# Topological Community Catalog (γ = {:.2})\n",
+                    result.resolution
+                );
+                let _ = writeln!(md, "- **Total Symbols:** {}", graph.num_symbols());
+                let _ = writeln!(md, "- **Communities Found:** {}", result.communities.len());
+                let _ = writeln!(md, "- **Modularity Q:** {:.4}\n", result.modularity);
+                let _ = writeln!(
+                    md,
+                    "| ID | Name | Symbols | Tokens | Density | Dominant Dir | Purity | Key Symbols |"
+                );
+                let _ = writeln!(
+                    md,
+                    "| :---: | :--- | :---: | :---: | :---: | :--- | :---: | :--- |"
+                );
+                for c in &result.communities {
+                    let _ = writeln!(
+                        md,
+                        "| {} | `{}` | {} | {} | {:.2} | `{}` | {:.0}% | {} |",
+                        c.id,
+                        c.name,
+                        c.symbol_count,
+                        c.total_tokens,
+                        c.density,
+                        c.dominant_directory
+                            .display()
+                            .to_string()
+                            .replace('\\', "/"),
+                        c.directory_purity * 100.0,
+                        c.key_symbols.join(", ")
+                    );
+                }
+
+                if let Some(ref d_list) = drifts {
+                    let _ = writeln!(md, "\n---\n\n## Architectural Drift & Leaky Abstractions\n");
+                    if d_list.is_empty() {
+                        let _ = writeln!(md, "✓ No significant architectural drift detected.");
+                    } else {
+                        let _ = writeln!(
+                            md,
+                            "| Symbol | Kind | Declared Directory | Coupled Community | Drift Score |"
+                        );
+                        let _ = writeln!(md, "| :--- | :---: | :--- | :--- | :---: |");
+                        for d in d_list {
+                            let _ = writeln!(
+                                md,
+                                "| `{}` | `{:?}` | `{}` | `{}` | {:.1}% |",
+                                d.symbol_name,
+                                d.symbol_kind,
+                                d.declared_directory
+                                    .display()
+                                    .to_string()
+                                    .replace('\\', "/"),
+                                d.community_name,
+                                d.drift_score * 100.0
+                            );
+                        }
+                    }
+                }
+                ToolCallResult::success(md)
+            }
         }
     }
 }
