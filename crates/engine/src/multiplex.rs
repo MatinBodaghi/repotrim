@@ -530,7 +530,10 @@ mod tests {
 
         // Empty slice check
         assert_eq!(graph.num_edges_for(RelationType::Imports), 0);
-        assert_eq!(graph.neighbors_for(SymbolId(0), RelationType::Imports), &[]);
+        assert_eq!(
+            graph.neighbors_for(SymbolId(0), RelationType::Imports),
+            &[] as &[u32]
+        );
 
         // Typed neighbors iterator
         let neighbors_0: Vec<(RelationType, u32, f32)> =
