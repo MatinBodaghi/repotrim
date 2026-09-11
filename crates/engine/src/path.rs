@@ -40,11 +40,7 @@ pub struct ExecutionPath {
 
 impl ExecutionPath {
     /// Constructs a new `ExecutionPath`.
-    pub fn new(
-        nodes: Vec<SymbolId>,
-        relations: Vec<RelationType>,
-        edge_weights: Vec<f32>,
-    ) -> Self {
+    pub fn new(nodes: Vec<SymbolId>, relations: Vec<RelationType>, edge_weights: Vec<f32>) -> Self {
         assert_eq!(
             nodes.len().saturating_sub(1),
             relations.len(),
@@ -680,7 +676,11 @@ impl PathCoverage {
             paths,
             symbol_to_paths,
             path_node_steps,
-            total_weight: if total_weight > 0.0 { total_weight } else { 1.0 },
+            total_weight: if total_weight > 0.0 {
+                total_weight
+            } else {
+                1.0
+            },
         }
     }
 
@@ -778,8 +778,7 @@ impl PathCoverage {
                 let current_log = state.log_uncovered[path_idx];
                 let current_cov = ((1.0 - current_log.exp()) / scale).clamp(0.0, 1.0);
                 state.log_uncovered[path_idx] += log_delta;
-                let new_cov =
-                    ((1.0 - state.log_uncovered[path_idx].exp()) / scale).clamp(0.0, 1.0);
+                let new_cov = ((1.0 - state.log_uncovered[path_idx].exp()) / scale).clamp(0.0, 1.0);
                 let delta = (new_cov - current_cov).max(0.0);
                 state.total_coverage += w_m * delta;
             }
@@ -832,7 +831,10 @@ mod tests {
             make_test_symbol(2, "db"),
         ];
         let trace = p.format_trace(&syms);
-        assert_eq!(trace, "entrypoint --[Calls]--> service --[References]--> db");
+        assert_eq!(
+            trace,
+            "entrypoint --[Calls]--> service --[References]--> db"
+        );
     }
 
     #[test]

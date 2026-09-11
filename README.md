@@ -593,6 +593,10 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 26. **Constrained Submodular Knapsack Optimization & Approximation Guarantees:**
     - Samir Khuller, Anna Moss, Joseph (Seffi) Naor. *"The budgeted maximum coverage problem"*. In *Information Processing Letters*, 70(1): 39–45, 1999. [DOI: 10.1016/S0020-0190(99)00031-9](https://doi.org/10.1016/S0020-0190(99)00031-9).
     - Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *Proceedings of the 13th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD '07)*, pp. 420–429, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
+27. **Causal Path Inference, Maximum Entropy, & Boltzmann Energy Distributions:**
+    - Brian D. Ziebart, Andrew L. Maas, J. Andrew Bagnell, Anind K. Dey. *"Maximum Entropy Inverse Reinforcement Learning"*. In *Proceedings of the 23rd AAAI Conference on Artificial Intelligence (AAAI '08)*, pp. 1433–1438, 2008.
+    - H. J. Kappen. *"Path integrals and symmetry breaks for optimal control theory"*. In *Journal of Statistical Mechanics: Theory and Experiment*, 2005(11): P11011, 2005. [DOI: 10.1088/1742-5468/2005/11/P11011](https://doi.org/10.1088/1742-5468/2005/11/P11011).
+    - Jin Y. Yen. *"Finding the K Shortest Loopless Paths in a Network"*. In *Management Science*, 17(11): 712–716, 1971. [DOI: 10.1287/mnsc.17.11.712](https://doi.org/10.1287/mnsc.17.11.712).
 
 ---
 

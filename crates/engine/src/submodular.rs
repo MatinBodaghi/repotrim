@@ -443,7 +443,8 @@ impl SubmodularUtility {
             let prev_path = ps.total_coverage();
             pc.add_candidate(ps, candidate);
             let path_marginal = ps.total_coverage() - prev_path;
-            let norm_path_marginal = if self.config.normalize_components && pc.total_weight() > 0.0 {
+            let norm_path_marginal = if self.config.normalize_components && pc.total_weight() > 0.0
+            {
                 path_marginal / pc.total_weight()
             } else {
                 path_marginal
@@ -651,8 +652,8 @@ mod tests {
         };
 
         let util_no_path = SubmodularUtility::new(config_no_path, cov.clone(), rel.clone());
-        let util_with_path = SubmodularUtility::new(config_with_path, cov, rel)
-            .with_path_coverage(path_cov);
+        let util_with_path =
+            SubmodularUtility::new(config_with_path, cov, rel).with_path_coverage(path_cov);
 
         let s_no = util_no_path.new_state();
         assert!(s_no.path_state.is_none());
