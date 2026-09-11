@@ -9,7 +9,7 @@ use crate::knee::KneedleDetector;
 use crate::model::ModelProfile;
 use crate::ppr::{PprConfig, PprSolver};
 use crate::symbol::{SymbolId, SymbolNode};
-use crate::tokens::TokenizerModel;
+use crate::tokens::{count_tokens, TokenizerModel};
 
 /// Diagnostic report produced when auto-budgeting context selection.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,9 +49,16 @@ impl ContextSelector {
         }
     }
 
+    /// Sets whether the optimizer should account for structural Markdown framing.
+    pub fn with_framing(mut self, framing: bool) -> Self {
+        self.celf = self.celf.with_framing(framing);
+        self
+    }
+
     /// Sets the tokenizer model for token counting and LOD resolution.
     pub fn with_tokenizer(mut self, model: TokenizerModel) -> Self {
         self.tokenizer_model = model;
+        self.celf = self.celf.with_tokenizer(model);
         self
     }
 
@@ -305,9 +312,17 @@ impl ContextSelector {
             file_sources,
             self.tokenizer_model,
         );
-        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+        let (surviving_symbols, markdown, _) = ContextFormatter::format_markdown_budgeted(
+            &selected_symbols,
+            &lod_map,
+            file_sources,
+            budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
+        );
 
-        (selected_symbols, markdown)
+        (surviving_symbols, markdown)
     }
 
     /// End-to-end pipeline with auto-budgeting: selects optimal symbols and formats
@@ -353,9 +368,17 @@ impl ContextSelector {
             file_sources,
             self.tokenizer_model,
         );
-        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+        let (surviving_symbols, markdown, _) = ContextFormatter::format_markdown_budgeted(
+            &selected_symbols,
+            &lod_map,
+            file_sources,
+            report.optimal_budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
+        );
 
-        (selected_symbols, markdown, report)
+        (surviving_symbols, markdown, report)
     }
 
     /// End-to-end pipeline: selects mathematically optimal symbols and formats them
@@ -409,11 +432,12 @@ impl ContextSelector {
             *ppr_result.scores.entry(seed_id).or_default() += weight;
         }
 
-        // 3. Select optimal subset using CELF submodular knapsack
-        let selected_ids = self.celf.optimize(graph, &ppr_result.scores, budget);
+        // 3. Select optimal subset using CELF submodular knapsack (accounting for structural framing)
+        let optimizer = self.celf.clone().with_framing(true);
+        let selected_ids = optimizer.optimize(graph, &ppr_result.scores, budget);
 
         // 4. Analyze numerical sensitivity
-        let sensitivity = self.celf.analyze_sensitivity(
+        let sensitivity = optimizer.analyze_sensitivity(
             graph,
             &ppr_result,
             &selected_ids,
@@ -445,9 +469,17 @@ impl ContextSelector {
             file_sources,
             self.tokenizer_model,
         );
-        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+        let (surviving_symbols, markdown, _) = ContextFormatter::format_markdown_budgeted(
+            &selected_symbols,
+            &lod_map,
+            file_sources,
+            budget,
+            self.tokenizer_model,
+            &ppr_result.scores,
+            &seed_id_list,
+        );
 
-        (selected_symbols, markdown, sensitivity)
+        (surviving_symbols, markdown, sensitivity)
     }
 
     /// End-to-end pipeline using Multiple-Choice Knapsack (MCKP) joint symbol selection
@@ -493,8 +525,8 @@ impl ContextSelector {
             *ppr_scores.entry(seed_id).or_default() += weight;
         }
 
-        // 3. Solve Multiple-Choice Knapsack Problem (MCKP) jointly
-        let mckp_result = self.celf.optimize_mckp(
+        // 3. Solve Multiple-Choice Knapsack Problem (MCKP) jointly with structural framing
+        let mckp_result = self.celf.clone().with_framing(true).optimize_mckp(
             graph,
             &ppr_scores,
             budget,
@@ -516,14 +548,26 @@ impl ContextSelector {
                 .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
         });
 
-        // 5. Format into Markdown using the exact MCKP-selected LOD mapping
-        let markdown = ContextFormatter::format_markdown(
+        // 5. Format into Markdown using the exact MCKP-selected LOD mapping with strict budget enforcement
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let (surviving_symbols, markdown, surviving_lods) = ContextFormatter::format_markdown_budgeted(
             &selected_symbols,
             &mckp_result.selected_lods,
             file_sources,
+            budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
         );
+        let final_tokens = count_tokens(&markdown, self.tokenizer_model);
+        let updated_mckp = MckpResult {
+            selected_lods: surviving_lods,
+            total_tokens: final_tokens,
+            cumulative_utility: mckp_result.cumulative_utility,
+            trace: mckp_result.trace,
+        };
 
-        (selected_symbols, markdown, mckp_result)
+        (surviving_symbols, markdown, updated_mckp)
     }
 
     /// End-to-end pipeline with auto-budgeting using Multiple-Choice Knapsack (MCKP)
@@ -573,7 +617,8 @@ impl ContextSelector {
         }
 
         // 2. Run MCKP optimization up to max_budget to generate the incremental utility-cost curve
-        let full_mckp = self.celf.optimize_mckp(
+        let optimizer = self.celf.clone().with_framing(true);
+        let full_mckp = optimizer.optimize_mckp(
             graph,
             &ppr_scores,
             profile.max_budget,
@@ -618,7 +663,7 @@ impl ContextSelector {
         let optimal_budget = knee_tokens.clamp(profile.min_budget, profile.max_budget);
 
         // 5. Re-run MCKP at optimal_budget
-        let mckp_result = self.celf.optimize_mckp(
+        let mckp_result = optimizer.optimize_mckp(
             graph,
             &ppr_scores,
             optimal_budget,
@@ -640,11 +685,23 @@ impl ContextSelector {
                 .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
         });
 
-        let markdown = ContextFormatter::format_markdown(
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let (surviving_symbols, markdown, surviving_lods) = ContextFormatter::format_markdown_budgeted(
             &selected_symbols,
             &mckp_result.selected_lods,
             file_sources,
+            optimal_budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
         );
+        let final_tokens = count_tokens(&markdown, self.tokenizer_model);
+        let updated_mckp = MckpResult {
+            selected_lods: surviving_lods,
+            total_tokens: final_tokens,
+            cumulative_utility: mckp_result.cumulative_utility,
+            trace: mckp_result.trace,
+        };
 
         let report = AutoBudgetReport {
             model_name: profile.name.to_string(),
@@ -652,10 +709,10 @@ impl ContextSelector {
             knee_tokens,
             knee_utility_ratio: knee_ratio,
             candidate_count: full_mckp.selected_lods.len(),
-            selected_count: selected_symbols.len(),
+            selected_count: surviving_symbols.len(),
         };
 
-        (selected_symbols, markdown, report, mckp_result)
+        (surviving_symbols, markdown, report, updated_mckp)
     }
 
     /// Applies an intra-community cohesion boost to PPR relevance scores.
@@ -744,7 +801,11 @@ impl ContextSelector {
 
         Self::apply_community_boost(graph, &mut ppr_scores, weighted_seeds, community_boost);
 
-        let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
+        let selected_ids = self
+            .celf
+            .clone()
+            .with_framing(true)
+            .optimize(graph, &ppr_scores, budget);
 
         let mut selected_symbols: Vec<SymbolNode> = selected_ids
             .into_iter()
@@ -767,9 +828,17 @@ impl ContextSelector {
             file_sources,
             self.tokenizer_model,
         );
-        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+        let (surviving_symbols, markdown, _) = ContextFormatter::format_markdown_budgeted(
+            &selected_symbols,
+            &lod_map,
+            file_sources,
+            budget,
+            self.tokenizer_model,
+            &ppr_scores,
+            &seed_id_list,
+        );
 
-        (selected_symbols, markdown)
+        (surviving_symbols, markdown)
     }
 }
 
@@ -1055,5 +1124,48 @@ mod tests {
         assert!(!auto_syms.is_empty());
         assert!(!auto_md.is_empty());
         assert!(auto_mckp.total_tokens <= report.optimal_budget);
+    }
+
+    #[test]
+    fn test_context_selector_select_and_format_budget_invariant() {
+        let s0 = make_test_symbol(0, "entry", "src/entry.rs", 1, 20);
+        let s1 = make_test_symbol(1, "service", "src/service.rs", 1, 30);
+        let s2 = make_test_symbol(2, "db", "src/db.rs", 1, 40);
+
+        let edges = vec![
+            ReferenceEdge {
+                source: SymbolId(0),
+                target_ident: "service".to_string(),
+                kind: EdgeKind::Call,
+            },
+            ReferenceEdge {
+                source: SymbolId(1),
+                target_ident: "db".to_string(),
+                kind: EdgeKind::Call,
+            },
+        ];
+
+        let graph = MultiplexGraph::build(vec![s0, s1, s2], &edges, LayerWeights::default());
+        let selector = ContextSelector::default();
+
+        let mut sources = HashMap::new();
+        sources.insert(PathBuf::from("src/entry.rs"), "fn entry() { service(); }".to_string());
+        sources.insert(PathBuf::from("src/service.rs"), "fn service() { db(); }".to_string());
+        sources.insert(PathBuf::from("src/db.rs"), "fn db() { query(); }".to_string());
+
+        // Test across a sweep of budgets
+        for budget in [30, 45, 60, 100, 200] {
+            let (syms, md) = selector.select_and_format_context(&graph, &[SymbolId(0)], budget, &sources);
+            let actual_tokens = count_tokens(&md, selector.tokenizer_model());
+            assert!(
+                actual_tokens <= budget,
+                "Budget invariant violated: actual tokens {} > budget {}",
+                actual_tokens,
+                budget
+            );
+            if actual_tokens > 0 {
+                assert!(!syms.is_empty());
+            }
+        }
     }
 }

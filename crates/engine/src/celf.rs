@@ -106,6 +106,12 @@ pub struct CelfConfig {
     pub threshold_epsilon: Option<f32>,
     /// Relative utility multipliers for discrete Level-of-Detail (LOD) representations.
     pub lod_weights: LodWeights,
+    /// Tokenizer model used for estimating framing and symbol token costs.
+    #[serde(default)]
+    pub tokenizer_model: TokenizerModel,
+    /// Whether to account for structural Markdown framing (file headers, container wrappers, line comments).
+    #[serde(default)]
+    pub framing_aware: bool,
 }
 
 impl Default for CelfConfig {
@@ -116,6 +122,8 @@ impl Default for CelfConfig {
             min_relevance_threshold: 1e-5,
             threshold_epsilon: None,
             lod_weights: LodWeights::default(),
+            tokenizer_model: TokenizerModel::default(),
+            framing_aware: false,
         }
     }
 }
@@ -124,6 +132,18 @@ impl CelfConfig {
     /// Sets custom Level-of-Detail utility multipliers.
     pub fn with_lod_weights(mut self, weights: LodWeights) -> Self {
         self.lod_weights = weights;
+        self
+    }
+
+    /// Sets the tokenizer model for structural framing and cost calculations.
+    pub fn with_tokenizer(mut self, model: TokenizerModel) -> Self {
+        self.tokenizer_model = model;
+        self
+    }
+
+    /// Sets whether the optimizer should account for structural Markdown framing.
+    pub fn with_framing(mut self, framing_aware: bool) -> Self {
+        self.framing_aware = framing_aware;
         self
     }
 }
@@ -140,6 +160,7 @@ pub fn build_pareto_frontier(
     file_source: Option<&str>,
     model: TokenizerModel,
     weights: LodWeights,
+    framing_aware: bool,
 ) -> Vec<LodOption> {
     let mut raw_options = Vec::with_capacity(5);
     raw_options.push(LodOption {
@@ -155,10 +176,15 @@ pub fn build_pareto_frontier(
         LodLevel::FullBody,
     ];
 
+    let in_container = sym.container_name.is_some();
     let mut last_cost = 0;
     for &lvl in &levels {
-        let text = ContextFormatter::render_symbol(sym, lvl, file_source);
-        let cost = count_tokens(&text, model).max(1);
+        let cost = if framing_aware {
+            ContextFormatter::rendered_symbol_tokens(sym, lvl, file_source, in_container, model).max(1)
+        } else {
+            let text = ContextFormatter::render_symbol(sym, lvl, file_source);
+            count_tokens(&text, model).max(1)
+        };
         let multiplier = weights.multiplier(lvl);
         raw_options.push(LodOption {
             level: Some(lvl),
@@ -384,6 +410,56 @@ impl CelfOptimizer {
         Self { config }
     }
 
+    /// Sets the tokenizer model for structural framing and cost calculations.
+    pub fn with_tokenizer(mut self, model: TokenizerModel) -> Self {
+        self.config.tokenizer_model = model;
+        self
+    }
+
+    /// Sets whether the optimizer should account for structural Markdown framing.
+    pub fn with_framing(mut self, framing_aware: bool) -> Self {
+        self.config.framing_aware = framing_aware;
+        self
+    }
+
+    /// Computes the incremental token cost of admitting a symbol into context,
+    /// accounting for symbol framing, file framing (if file not yet opened), and
+    /// container framing (if container not yet opened) when framing_aware is true.
+    fn symbol_incremental_cost(
+        &self,
+        sym: &SymbolNode,
+        opened_files: &HashSet<PathBuf>,
+        opened_containers: &HashSet<(PathBuf, String)>,
+        model: TokenizerModel,
+    ) -> usize {
+        if !self.config.framing_aware {
+            return sym.token_cost.max(1);
+        }
+
+        let in_container = sym.container_name.is_some();
+        let mut cost = sym.token_cost.max(1);
+        cost += ContextFormatter::symbol_framing_tokens(sym, in_container, model);
+
+        if !opened_files.contains(&sym.file_path) {
+            let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
+            cost += ContextFormatter::file_framing_tokens(&sym.file_path, lang_tag, model);
+        }
+
+        if let Some(ref c_name) = sym.container_name {
+            if !opened_containers.contains(&(sym.file_path.clone(), c_name.clone())) {
+                let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
+                cost += ContextFormatter::container_framing_tokens(
+                    lang_tag,
+                    c_name,
+                    sym.trait_name.as_deref(),
+                    model,
+                );
+            }
+        }
+
+        cost
+    }
+
     /// Selects the optimal subset of symbols that fit within the token `budget`.
     ///
     /// Combines PPR relevance scores with an anti-clustering file diversity penalty.
@@ -422,6 +498,9 @@ impl CelfOptimizer {
         let mut trace: Vec<CelfTraceStep> = Vec::new();
         let mut covered_nodes: HashSet<SymbolId> = HashSet::new();
         let mut file_token_costs: HashMap<PathBuf, usize> = HashMap::new();
+        let mut opened_files: HashSet<PathBuf> = HashSet::new();
+        let mut opened_containers: HashSet<(PathBuf, String)> = HashSet::new();
+        let model = self.config.tokenizer_model;
         let mut current_tokens: usize = 0;
         let mut cumulative_utility: f32 = 0.0;
         let mut current_iteration: usize = 0;
@@ -436,8 +515,8 @@ impl CelfOptimizer {
                 continue;
             }
 
-            let cost = sym.token_cost.max(1);
-            if cost > budget {
+            let initial_cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
+            if initial_cost > budget {
                 continue;
             }
 
@@ -453,13 +532,13 @@ impl CelfOptimizer {
             match &best_singleton {
                 Some((_, _, best_val)) if *best_val >= initial_marginal_gain => {}
                 _ => {
-                    best_singleton = Some((sym.id, cost, initial_marginal_gain));
+                    best_singleton = Some((sym.id, initial_cost, initial_marginal_gain));
                 }
             }
 
             heap.push(CelfItem {
                 symbol_id: sym.id,
-                marginal_gain_per_token: initial_marginal_gain / (cost as f32),
+                marginal_gain_per_token: initial_marginal_gain / (initial_cost as f32),
                 last_iteration: 0,
             });
         }
@@ -471,7 +550,7 @@ impl CelfOptimizer {
                 None => continue,
             };
 
-            let cost = sym.token_cost.max(1);
+            let cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
 
             // Skip if it doesn't fit in remaining budget
             if current_tokens + cost > budget {
@@ -487,6 +566,10 @@ impl CelfOptimizer {
                 selected_set.insert(top.symbol_id);
                 selected_list.push(top.symbol_id);
                 current_tokens += cost;
+                opened_files.insert(sym.file_path.clone());
+                if let Some(ref c_name) = sym.container_name {
+                    opened_containers.insert((sym.file_path.clone(), c_name.clone()));
+                }
 
                 trace.push(CelfTraceStep {
                     symbol_id: top.symbol_id,
@@ -563,14 +646,17 @@ impl CelfOptimizer {
 
         let mut best_singleton: Option<(SymbolId, usize, f32)> = None;
         let mut candidates = Vec::new();
+        let mut opened_files: HashSet<PathBuf> = HashSet::new();
+        let mut opened_containers: HashSet<(PathBuf, String)> = HashSet::new();
+        let model = self.config.tokenizer_model;
 
         for sym in graph.symbols() {
             let score = ppr_scores.get(&sym.id).copied().unwrap_or(0.0);
             if score < self.config.min_relevance_threshold && !ppr_scores.is_empty() {
                 continue;
             }
-            let cost = sym.token_cost.max(1);
-            if cost > budget {
+            let initial_cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
+            if initial_cost > budget {
                 continue;
             }
             let val = self.compute_marginal_gain(
@@ -581,10 +667,10 @@ impl CelfOptimizer {
                 &empty_file_costs,
             );
             if val > 0.0 {
-                candidates.push((sym.id, cost));
+                candidates.push((sym.id, initial_cost));
                 match &best_singleton {
                     Some((_, _, best_val)) if *best_val >= val => {}
-                    _ => best_singleton = Some((sym.id, cost, val)),
+                    _ => best_singleton = Some((sym.id, initial_cost, val)),
                 }
             }
         }
@@ -606,10 +692,15 @@ impl CelfOptimizer {
         let mut tau = m_val;
 
         while tau >= min_tau && current_tokens < budget {
-            for &(sym_id, cost) in &candidates {
+            for &(sym_id, _) in &candidates {
                 if selected_set.contains(&sym_id) {
                     continue;
                 }
+                let sym = match graph.symbol(sym_id) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let cost = self.symbol_incremental_cost(sym, &opened_files, &opened_containers, model);
                 if current_tokens + cost > budget {
                     continue;
                 }
@@ -626,6 +717,10 @@ impl CelfOptimizer {
                     selected_list.push(sym_id);
                     current_tokens += cost;
                     cumulative_utility += marginal_gain;
+                    opened_files.insert(sym.file_path.clone());
+                    if let Some(ref c_name) = sym.container_name {
+                        opened_containers.insert((sym.file_path.clone(), c_name.clone()));
+                    }
 
                     trace.push(CelfTraceStep {
                         symbol_id: sym_id,
@@ -1011,17 +1106,39 @@ impl CelfOptimizer {
             }
 
             let file_src = file_sources.get(&sym.file_path).map(|s| s.as_str());
-            let frontier =
-                build_pareto_frontier(sym, file_src, tokenizer_model, self.config.lod_weights);
+            let frontier = build_pareto_frontier(
+                sym,
+                file_src,
+                tokenizer_model,
+                self.config.lod_weights,
+                self.config.framing_aware,
+            );
+
+            let singleton_framing = if self.config.framing_aware {
+                let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
+                let mut f = ContextFormatter::file_framing_tokens(&sym.file_path, lang_tag, tokenizer_model);
+                if let Some(ref c_name) = sym.container_name {
+                    f += ContextFormatter::container_framing_tokens(
+                        lang_tag,
+                        c_name,
+                        sym.trait_name.as_deref(),
+                        tokenizer_model,
+                    );
+                }
+                f
+            } else {
+                0
+            };
 
             // If even the minimum option exceeds budget, symbol cannot fit
-            if frontier.len() < 2 || frontier[1].cost > budget {
+            if frontier.len() < 2 || frontier[1].cost + singleton_framing > budget {
                 continue;
             }
 
             // Evaluate singleton candidate choices against empty set for Khuller-Sviridenko guarantee
             for opt in &frontier[1..] {
-                if opt.cost <= budget {
+                let total_opt_cost = opt.cost + singleton_framing;
+                if total_opt_cost <= budget {
                     if let Some(level) = opt.level {
                         let direct = opt.utility_multiplier * score;
                         let mut neighbor = 0.0_f32;
@@ -1030,13 +1147,13 @@ impl CelfOptimizer {
                             neighbor += self.config.neighbor_coverage_weight * n_score;
                         }
                         let diversity =
-                            ((1.0 + (opt.cost as f32)).ln()) * self.config.lambda_diversity;
+                            ((1.0 + (total_opt_cost as f32)).ln()) * self.config.lambda_diversity;
                         let standalone_util = direct + neighbor + diversity;
 
                         match &best_singleton {
                             Some((_, _, _, best_val)) if *best_val >= standalone_util => {}
                             _ => {
-                                best_singleton = Some((sym.id, level, opt.cost, standalone_util));
+                                best_singleton = Some((sym.id, level, total_opt_cost, standalone_util));
                             }
                         }
                     }
@@ -1075,6 +1192,8 @@ impl CelfOptimizer {
         let mut cumulative_utility: f32 = 0.0;
         let mut current_iteration: usize = 0;
         let mut trace: Vec<MckpTraceStep> = Vec::new();
+        let mut opened_files: HashSet<PathBuf> = HashSet::new();
+        let mut opened_containers: HashSet<(PathBuf, String)> = HashSet::new();
 
         // 3. CELF Lazy Evaluation Loop
         while let Some(mut top) = heap.pop() {
@@ -1092,8 +1211,30 @@ impl CelfOptimizer {
                 continue;
             }
 
+            let sym = match graph.symbol(top.symbol_id) {
+                Some(s) => s,
+                None => continue,
+            };
+
             let next_option = &frontier[j + 1];
-            let delta_c = next_option.cost - frontier[j].cost;
+            let mut delta_c = next_option.cost - frontier[j].cost;
+            if self.config.framing_aware && j == 0 {
+                if !opened_files.contains(&sym.file_path) {
+                    let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
+                    delta_c += ContextFormatter::file_framing_tokens(&sym.file_path, lang_tag, tokenizer_model);
+                }
+                if let Some(ref c_name) = sym.container_name {
+                    if !opened_containers.contains(&(sym.file_path.clone(), c_name.clone())) {
+                        let lang_tag = ContextFormatter::language_tag_for_path(&sym.file_path);
+                        delta_c += ContextFormatter::container_framing_tokens(
+                            lang_tag,
+                            c_name,
+                            sym.trait_name.as_deref(),
+                            tokenizer_model,
+                        );
+                    }
+                }
+            }
 
             // Skip if this upgrade exceeds remaining budget
             if current_tokens + delta_c > budget {
@@ -1112,6 +1253,10 @@ impl CelfOptimizer {
                 }
 
                 if j == 0 {
+                    opened_files.insert(sym.file_path.clone());
+                    if let Some(ref c_name) = sym.container_name {
+                        opened_containers.insert((sym.file_path.clone(), c_name.clone()));
+                    }
                     covered_nodes.insert(top.symbol_id);
                     for &n in graph.neighbors(top.symbol_id) {
                         covered_nodes.insert(SymbolId(n));
@@ -1294,6 +1439,7 @@ mod tests {
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
             lod_weights: LodWeights::default(),
+            ..Default::default()
         });
 
         let selected = optimizer.optimize(&graph, &ppr_scores, 20);
@@ -1368,6 +1514,7 @@ mod tests {
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
             lod_weights: LodWeights::default(),
+            ..Default::default()
         });
 
         // Budget = 10.
@@ -1403,6 +1550,7 @@ mod tests {
             min_relevance_threshold: 0.0,
             threshold_epsilon: Some(0.1),
             lod_weights: LodWeights::default(),
+            ..Default::default()
         });
 
         let (selected, trace) = optimizer.optimize_with_trace(&graph, &ppr_scores, 30);
@@ -1488,6 +1636,7 @@ mod tests {
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
             lod_weights: LodWeights::default(),
+            ..Default::default()
         });
 
         let selected = vec![SymbolId(0)];
@@ -1516,6 +1665,7 @@ mod tests {
             Some(source),
             TokenizerModel::FastHeuristic,
             LodWeights::default(),
+            false,
         );
 
         // Frontier must start with None at cost 0
@@ -1563,6 +1713,7 @@ mod tests {
             Some(source),
             TokenizerModel::FastHeuristic,
             LodWeights::default(),
+            false,
         );
 
         // Since s0 has no docstring, SignatureAndDoc should not appear in the frontier
@@ -1712,6 +1863,7 @@ mod tests {
             min_relevance_threshold: 0.0,
             threshold_epsilon: None,
             lod_weights: LodWeights::default(),
+            ..Default::default()
         });
 
         // With budget 10, the best singleton s1 at FullBody provides enormous utility
@@ -1725,5 +1877,27 @@ mod tests {
 
         assert_eq!(result.selected_lods.len(), 1);
         assert!(result.selected_lods.contains_key(&SymbolId(1)));
+    }
+
+    #[test]
+    fn test_celf_framing_aware_budget_adherence() {
+        // Two symbols in two separate files
+        let s0 = make_test_node(0, "fn_a", "src/a.rs", 10);
+        let s1 = make_test_node(1, "fn_b", "src/b.rs", 10);
+        let graph = MultiplexGraph::build(vec![s0, s1], &[], LayerWeights::default());
+
+        let mut ppr_scores = HashMap::new();
+        ppr_scores.insert(SymbolId(0), 1.0);
+        ppr_scores.insert(SymbolId(1), 0.8);
+
+        // Framing aware optimizer
+        let optimizer = CelfOptimizer::default().with_framing(true);
+
+        // Budget of 35 tokens:
+        // One symbol in src/a.rs costs 10 (raw) + ~15 (file framing) + ~4 (comment) = ~29 tokens.
+        // Admitting the second symbol from src/b.rs would cost another ~29 tokens (total ~58), which exceeds 35.
+        let selected = optimizer.optimize(&graph, &ppr_scores, 35);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0], SymbolId(0));
     }
 }

@@ -97,7 +97,8 @@ impl ContextFormatter {
         )
     }
 
-    /// Dynamically allocates Level-of-Detail (LOD) to selected symbols using a specific `TokenizerModel`.
+    /// Dynamically allocates Level-of-Detail (LOD) to selected symbols using a specific `TokenizerModel`,
+    /// accounting for full rendered Markdown structural framing (file headers, container wrappers, and line comments).
     pub fn assign_lod_with_model(
         symbols: &[SymbolNode],
         ppr_scores: &HashMap<SymbolId, f32>,
@@ -106,6 +107,10 @@ impl ContextFormatter {
         file_sources: &HashMap<PathBuf, String>,
         model: TokenizerModel,
     ) -> HashMap<SymbolId, LodLevel> {
+        if symbols.is_empty() || budget == 0 {
+            return HashMap::new();
+        }
+
         let mut lod_map: HashMap<SymbolId, LodLevel> = HashMap::with_capacity(symbols.len());
         let seed_set: std::collections::HashSet<SymbolId> = seed_ids.iter().copied().collect();
 
@@ -114,43 +119,36 @@ impl ContextFormatter {
             lod_map.insert(sym.id, LodLevel::SignatureOnly);
         }
 
-        // Calculate current baseline token consumption
-        let mut current_tokens: usize = symbols
-            .iter()
-            .map(|s| {
-                let src = file_sources.get(&s.file_path).map(|f| f.as_str());
-                let rendered = Self::render_symbol(s, LodLevel::SignatureOnly, src);
-                count_tokens(&rendered, model)
-            })
-            .sum();
+        // Calculate baseline token consumption including structural Markdown framing
+        let initial_md = Self::format_markdown(symbols, &lod_map, file_sources);
+        let mut current_tokens = count_tokens(&initial_md, model);
 
         // If baseline already exceeds budget, keep at SignatureOnly
         if current_tokens >= budget {
             return lod_map;
         }
 
-        // Pass 2: Upgrade root seeds to FullBody or SlicedBody
+        // Pass 2: Upgrade root seeds to FullBody or SlicedBody if budget permits
         for sym in symbols {
             if seed_set.contains(&sym.id) {
-                let src = file_sources.get(&sym.file_path).map(|f| f.as_str());
-                let full_tokens =
-                    count_tokens(&Self::render_symbol(sym, LodLevel::FullBody, src), model);
-                let sig_tokens = count_tokens(
-                    &Self::render_symbol(sym, LodLevel::SignatureOnly, src),
-                    model,
-                );
-                let extra_tokens = full_tokens.saturating_sub(sig_tokens);
+                // Try FullBody
+                lod_map.insert(sym.id, LodLevel::FullBody);
+                let candidate_md = Self::format_markdown(symbols, &lod_map, file_sources);
+                let full_tokens = count_tokens(&candidate_md, model);
 
-                if current_tokens + extra_tokens <= budget {
-                    lod_map.insert(sym.id, LodLevel::FullBody);
-                    current_tokens += extra_tokens;
+                if full_tokens <= budget {
+                    current_tokens = full_tokens;
                 } else {
-                    let sliced_tokens =
-                        count_tokens(&Self::render_symbol(sym, LodLevel::SlicedBody, src), model);
-                    let extra_sliced = sliced_tokens.saturating_sub(sig_tokens);
-                    if current_tokens + extra_sliced <= budget {
-                        lod_map.insert(sym.id, LodLevel::SlicedBody);
-                        current_tokens += extra_sliced;
+                    // Try SlicedBody
+                    lod_map.insert(sym.id, LodLevel::SlicedBody);
+                    let sliced_md = Self::format_markdown(symbols, &lod_map, file_sources);
+                    let sliced_tokens = count_tokens(&sliced_md, model);
+
+                    if sliced_tokens <= budget {
+                        current_tokens = sliced_tokens;
+                    } else {
+                        // Revert to SignatureOnly
+                        lod_map.insert(sym.id, LodLevel::SignatureOnly);
                     }
                 }
             }
@@ -173,24 +171,150 @@ impl ContextFormatter {
             if current_tokens >= budget {
                 break;
             }
-            let src = file_sources.get(&sym.file_path).map(|f| f.as_str());
-            let doc_tokens = count_tokens(
-                &Self::render_symbol(sym, LodLevel::SignatureAndDoc, src),
-                model,
-            );
-            let sig_tokens = count_tokens(
-                &Self::render_symbol(sym, LodLevel::SignatureOnly, src),
-                model,
-            );
-            let extra = doc_tokens.saturating_sub(sig_tokens);
+            lod_map.insert(sym.id, LodLevel::SignatureAndDoc);
+            let candidate_md = Self::format_markdown(symbols, &lod_map, file_sources);
+            let candidate_tokens = count_tokens(&candidate_md, model);
 
-            if current_tokens + extra <= budget {
-                lod_map.insert(sym.id, LodLevel::SignatureAndDoc);
-                current_tokens += extra;
+            if candidate_tokens <= budget {
+                current_tokens = candidate_tokens;
+            } else {
+                lod_map.insert(sym.id, LodLevel::SignatureOnly);
             }
         }
 
         lod_map
+    }
+
+    /// Formats selected symbols into structured Markdown with strict budget enforcement.
+    ///
+    /// If the initial Markdown exceeds `budget`, dynamically prunes lower-priority non-seed
+    /// symbols and downgrades Level-of-Detail until `count_tokens(&markdown, model) <= budget`.
+    ///
+    /// Returns a tuple containing:
+    /// 1. The pruned list of surviving `SymbolNode`s
+    /// 2. The rendered Markdown string (strictly guaranteed `<= budget` tokens)
+    /// 3. The final `LodLevel` mapping for the surviving symbols
+    pub fn format_markdown_budgeted(
+        symbols: &[SymbolNode],
+        lod_map: &HashMap<SymbolId, LodLevel>,
+        file_sources: &HashMap<PathBuf, String>,
+        budget: usize,
+        model: TokenizerModel,
+        ppr_scores: &HashMap<SymbolId, f32>,
+        seed_ids: &[SymbolId],
+    ) -> (Vec<SymbolNode>, String, HashMap<SymbolId, LodLevel>) {
+        if symbols.is_empty() || budget == 0 {
+            return (Vec::new(), String::new(), HashMap::new());
+        }
+
+        let mut working_symbols: Vec<SymbolNode> = symbols.to_vec();
+        let mut working_lods: HashMap<SymbolId, LodLevel> = lod_map.clone();
+        let seed_set: HashSet<SymbolId> = seed_ids.iter().copied().collect();
+
+        // 1. Initial format check
+        let mut md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+        let mut tokens = count_tokens(&md, model);
+
+        if tokens <= budget {
+            return (working_symbols, md, working_lods);
+        }
+
+        // 2. Stage 1 degradation: downgrade non-seeds from SignatureAndDoc to SignatureOnly
+        for sym in &working_symbols {
+            if !seed_set.contains(&sym.id) {
+                working_lods.insert(sym.id, LodLevel::SignatureOnly);
+            }
+        }
+        md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+        tokens = count_tokens(&md, model);
+        if tokens <= budget {
+            return (working_symbols, md, working_lods);
+        }
+
+        // 3. Stage 2 degradation: downgrade seeds from FullBody -> SlicedBody -> SignatureOnly
+        for sym in &working_symbols {
+            if seed_set.contains(&sym.id) {
+                if let Some(lod) = working_lods.get_mut(&sym.id) {
+                    if *lod == LodLevel::FullBody {
+                        *lod = LodLevel::SlicedBody;
+                    }
+                }
+            }
+        }
+        md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+        tokens = count_tokens(&md, model);
+        if tokens <= budget {
+            return (working_symbols, md, working_lods);
+        }
+
+        for sym in &working_symbols {
+            if seed_set.contains(&sym.id) {
+                working_lods.insert(sym.id, LodLevel::SignatureOnly);
+            }
+        }
+        md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+        tokens = count_tokens(&md, model);
+        if tokens <= budget {
+            return (working_symbols, md, working_lods);
+        }
+
+        // 4. Stage 3 pruning: prune non-seed symbols in ascending PPR score priority
+        let mut non_seed_ids: Vec<SymbolId> = working_symbols
+            .iter()
+            .filter(|s| !seed_set.contains(&s.id))
+            .map(|s| s.id)
+            .collect();
+        non_seed_ids.sort_by(|a, b| {
+            let score_a = ppr_scores.get(a).copied().unwrap_or(0.0);
+            let score_b = ppr_scores.get(b).copied().unwrap_or(0.0);
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for drop_id in non_seed_ids {
+            working_lods.remove(&drop_id);
+            working_symbols.retain(|s| s.id != drop_id);
+
+            md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+            tokens = count_tokens(&md, model);
+            if tokens <= budget {
+                return (working_symbols, md, working_lods);
+            }
+        }
+
+        // 5. Stage 4 pruning: if even seeds alone exceed budget, prune seeds by ascending PPR score
+        if tokens > budget && working_symbols.len() > 1 {
+            let mut seed_candidates: Vec<SymbolId> = working_symbols.iter().map(|s| s.id).collect();
+            seed_candidates.sort_by(|a, b| {
+                let score_a = ppr_scores.get(a).copied().unwrap_or(0.0);
+                let score_b = ppr_scores.get(b).copied().unwrap_or(0.0);
+                score_a
+                    .partial_cmp(&score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            for drop_id in seed_candidates {
+                if working_symbols.len() <= 1 {
+                    break;
+                }
+                working_lods.remove(&drop_id);
+                working_symbols.retain(|s| s.id != drop_id);
+
+                md = Self::format_markdown(&working_symbols, &working_lods, file_sources);
+                tokens = count_tokens(&md, model);
+                if tokens <= budget {
+                    return (working_symbols, md, working_lods);
+                }
+            }
+        }
+
+        // 6. Stage 5 emergency truncation: if budget is smaller than a single formatted file
+        if tokens > budget && budget < 20 {
+            return (Vec::new(), String::new(), HashMap::new());
+        }
+
+        (working_symbols, md, working_lods)
     }
 
     /// Renders selected symbols into structured Markdown with file paths, line numbers,
@@ -687,6 +811,80 @@ impl ContextFormatter {
             }
         }
     }
+
+    /// Estimates the token cost of file framing (header and closing code fence).
+    pub fn file_framing_tokens(path: &std::path::Path, lang_tag: &str, model: TokenizerModel) -> usize {
+        let sample = format!("### File: `{}`\n```{}\n```\n\n", path.display(), lang_tag);
+        count_tokens(&sample, model)
+    }
+
+    /// Estimates the token cost of container framing (opening declaration and closing footer).
+    pub fn container_framing_tokens(
+        lang_tag: &str,
+        container_name: &str,
+        trait_name: Option<&str>,
+        model: TokenizerModel,
+    ) -> usize {
+        let (header, footer) = Self::container_header_and_footer(lang_tag, container_name, trait_name);
+        let sample = if let Some(footer) = footer {
+            format!("{}\n{}\n", header, footer)
+        } else {
+            format!("{}\n", header)
+        };
+        count_tokens(&sample, model)
+    }
+
+    /// Estimates the token cost of line comment and indentation overhead for a symbol.
+    pub fn symbol_framing_tokens(sym: &SymbolNode, in_container: bool, model: TokenizerModel) -> usize {
+        let comment_prefix = if sym.file_path.extension().and_then(|e| e.to_str()) == Some("py") {
+            "#"
+        } else {
+            "//"
+        };
+        let comment = format!(
+            "{} Lines {}-{}\n",
+            comment_prefix,
+            sym.span.start_row + 1,
+            sym.span.end_row + 1
+        );
+        let comment_tokens = count_tokens(&comment, model);
+        let indent_tokens = if in_container {
+            let line_count = sym.signature.lines().count().max(1);
+            line_count
+        } else {
+            0
+        };
+        comment_tokens + indent_tokens
+    }
+
+    /// Estimates the total token cost of a rendered symbol including its comment and indentation.
+    pub fn rendered_symbol_tokens(
+        sym: &SymbolNode,
+        lod: LodLevel,
+        file_src: Option<&str>,
+        in_container: bool,
+        model: TokenizerModel,
+    ) -> usize {
+        let rendered = Self::render_symbol(sym, lod, file_src);
+        let comment_prefix = if sym.file_path.extension().and_then(|e| e.to_str()) == Some("py") {
+            "#"
+        } else {
+            "//"
+        };
+        let block = format!(
+            "{} Lines {}-{}\n{}",
+            comment_prefix,
+            sym.span.start_row + 1,
+            sym.span.end_row + 1,
+            rendered
+        );
+        let text = if in_container {
+            Self::indent_lines(&block, "    ")
+        } else {
+            block
+        };
+        count_tokens(&text, model)
+    }
 }
 
 #[cfg(test)]
@@ -1130,5 +1328,80 @@ mod tests {
 
         // Cycle gracefully falls back to deterministic alphabetical ordering
         assert_eq!(sorted, vec![&path_a, &path_b]);
+    }
+
+    #[test]
+    fn test_framing_token_helpers() {
+        let path = PathBuf::from("crates/engine/src/celf.rs");
+        let file_tokens = ContextFormatter::file_framing_tokens(&path, "rust", TokenizerModel::FastHeuristic);
+        assert!(file_tokens > 0);
+
+        let container_tokens = ContextFormatter::container_framing_tokens(
+            "rust",
+            "CelfOptimizer",
+            None,
+            TokenizerModel::FastHeuristic,
+        );
+        assert!(container_tokens > 0);
+
+        let sym = make_test_symbol(1, "optimize", SymbolKind::Method, TextSpan::new(0, 50, 10, 15), None);
+        let sym_tokens = ContextFormatter::symbol_framing_tokens(&sym, true, TokenizerModel::FastHeuristic);
+        assert!(sym_tokens > 0);
+    }
+
+    #[test]
+    fn test_format_markdown_budgeted_strict_adherence() {
+        let mut symbols = Vec::new();
+        let mut ppr_scores = HashMap::new();
+        let mut sources = HashMap::new();
+
+        let path = PathBuf::from("src/lib.rs");
+        sources.insert(
+            path.clone(),
+            "pub fn f1() {}\npub fn f2() {}\npub fn f3() {}\npub fn f4() {}\npub fn f5() {}".to_string(),
+        );
+
+        for i in 1..=5 {
+            let sym = make_test_symbol_full(
+                i,
+                &format!("f{}", i),
+                SymbolKind::Function,
+                "src/lib.rs",
+                TextSpan::new((i as usize - 1) * 15, i as usize * 15, (i as usize - 1) * 2, i as usize * 2 + 1),
+                &format!("pub fn f{}()", i),
+                Some("Some docstring for testing"),
+                None,
+                None,
+            );
+            symbols.push(sym);
+            ppr_scores.insert(SymbolId(i), i as f32 * 0.1);
+        }
+
+        let mut lod_map = HashMap::new();
+        for s in &symbols {
+            lod_map.insert(s.id, LodLevel::SignatureAndDoc);
+        }
+
+        // Test with a tight budget: 60 tokens
+        let (pruned_syms, md, pruned_lods) = ContextFormatter::format_markdown_budgeted(
+            &symbols,
+            &lod_map,
+            &sources,
+            60,
+            TokenizerModel::FastHeuristic,
+            &ppr_scores,
+            &[SymbolId(5)], // Seed is f5 (highest PPR)
+        );
+
+        let md_tokens = count_tokens(&md, TokenizerModel::FastHeuristic);
+        assert!(
+            md_tokens <= 60,
+            "Rendered markdown tokens ({}) must be <= budget (60)",
+            md_tokens
+        );
+        assert!(!pruned_syms.is_empty());
+        assert_eq!(pruned_syms.len(), pruned_lods.len());
+        // Seed f5 should be preserved
+        assert!(pruned_syms.iter().any(|s| s.name == "f5"));
     }
 }

@@ -455,6 +455,14 @@ impl ImpactAnalyzer {
             "- **Directly Mutated Symbols**: {}\n",
             summary.mutated_count
         ));
+        for m in mutated {
+            md.push_str(&format!(
+                "  - `{}` in `{}:{}`\n",
+                m.name,
+                m.file_path.display(),
+                m.span.start_row + 1
+            ));
+        }
         md.push_str(&format!(
             "- **1st-Order Callers Impacted**: {}\n",
             summary.direct_impact_count
@@ -476,12 +484,19 @@ impl ImpactAnalyzer {
         if !tests.is_empty() {
             md.push_str("## Recommended Test Suite Candidates\n\n");
             md.push_str("The following tests transitively exercise the modified code and should be executed:\n\n");
-            for t in tests {
+            let display_limit = 10;
+            for t in tests.iter().take(display_limit) {
                 md.push_str(&format!(
                     "- `{}` in `{}:{}`\n",
                     t.name,
                     t.file_path.display(),
                     t.span.start_row + 1
+                ));
+            }
+            if tests.len() > display_limit {
+                md.push_str(&format!(
+                    "- ... and {} more test targets\n",
+                    tests.len() - display_limit
                 ));
             }
             md.push('\n');
@@ -517,46 +532,33 @@ impl ImpactAnalyzer {
             lod_map.insert(s.id, LodLevel::SignatureOnly);
         }
 
-        // Check if all symbols together exceed budget, degrading LOD if necessary
-        let mut current_tokens: usize = all_symbols
-            .iter()
-            .map(|s| {
-                let lod = lod_map
-                    .get(&s.id)
-                    .copied()
-                    .unwrap_or(LodLevel::SignatureOnly);
-                let src = file_sources.get(&s.file_path).map(|f| f.as_str());
-                count_tokens(&ContextFormatter::render_symbol(s, lod, src), model)
-            })
-            .sum();
+        let header_tokens = count_tokens(&md, model);
+        let code_budget = budget.saturating_sub(header_tokens);
 
-        if current_tokens > budget {
-            // Degrade transitive and direct to SignatureOnly if exceeding budget
-            for s in transitive {
-                lod_map.insert(s.id, LodLevel::SignatureOnly);
-            }
-            for s in direct {
-                lod_map.insert(s.id, LodLevel::SignatureAndDoc);
-            }
-            current_tokens = all_symbols
-                .iter()
-                .map(|s| {
-                    let lod = lod_map
-                        .get(&s.id)
-                        .copied()
-                        .unwrap_or(LodLevel::SignatureOnly);
-                    let src = file_sources.get(&s.file_path).map(|f| f.as_str());
-                    count_tokens(&ContextFormatter::render_symbol(s, lod, src), model)
-                })
-                .sum();
-            if current_tokens > budget {
-                for s in direct {
-                    lod_map.insert(s.id, LodLevel::SignatureOnly);
-                }
-            }
+        let mut ppr_scores = HashMap::new();
+        for (i, s) in mutated.iter().enumerate() {
+            ppr_scores.insert(s.id, 1000.0 - i as f32);
         }
+        for (i, s) in direct.iter().enumerate() {
+            ppr_scores.insert(s.id, 500.0 - i as f32);
+        }
+        for (i, s) in transitive.iter().enumerate() {
+            ppr_scores.insert(s.id, 100.0 - i as f32);
+        }
+        for (i, s) in tests.iter().enumerate() {
+            ppr_scores.insert(s.id, 10.0 - i as f32);
+        }
+        let seed_ids: Vec<SymbolId> = mutated.iter().map(|s| s.id).collect();
 
-        let rendered_code = ContextFormatter::format_markdown(&all_symbols, &lod_map, file_sources);
+        let (_, rendered_code, _) = ContextFormatter::format_markdown_budgeted(
+            &all_symbols,
+            &lod_map,
+            file_sources,
+            code_budget,
+            model,
+            &ppr_scores,
+            &seed_ids,
+        );
         md.push_str(&rendered_code);
         md.push('\n');
 

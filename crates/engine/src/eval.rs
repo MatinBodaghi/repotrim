@@ -23,12 +23,13 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use crate::community::{CommunityConfig, CommunityDetector};
+use crate::formatter::ContextFormatter;
 use crate::intent::IntentResolver;
 use crate::loader::LoadedRepository;
 use crate::ppr::PprSolver;
 use crate::selector::ContextSelector;
-use crate::symbol::SymbolId;
-use crate::tokens::estimate_tokens;
+use crate::symbol::{LodLevel, SymbolId, SymbolNode};
+use crate::tokens::{count_tokens, estimate_tokens, TokenizerModel};
 
 /// Context selection strategy evaluated by the benchmark harness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -364,17 +365,25 @@ impl BenchmarkRunner {
                             let s_low = s.name.to_lowercase();
                             keywords.iter().any(|k| s_low.contains(k))
                         })
+                        .cloned()
                         .collect();
                     matched.sort_by_key(|s| s.token_cost);
 
-                    let mut tokens = 0usize;
-                    let mut sel = HashSet::new();
-                    for sym in matched {
-                        if tokens + sym.token_cost <= scenario.budget {
-                            tokens += sym.token_cost;
-                            sel.insert(sym.id.0);
-                        }
+                    let mut lod_map = HashMap::new();
+                    for s in &matched {
+                        lod_map.insert(s.id, LodLevel::SignatureOnly);
                     }
+                    let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
+                        &matched,
+                        &lod_map,
+                        &repo.file_sources,
+                        scenario.budget,
+                        TokenizerModel::default(),
+                        &HashMap::new(),
+                        &[],
+                    );
+                    let tokens = count_tokens(&md, TokenizerModel::default());
+                    let sel: HashSet<u32> = surviving.iter().map(|s| s.id.0).collect();
                     let elapsed = start.elapsed().as_micros();
                     (sel, tokens, elapsed)
                 }
@@ -394,16 +403,30 @@ impl BenchmarkRunner {
                     sorted_nodes
                         .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                    let mut tokens = 0usize;
-                    let mut sel = HashSet::new();
-                    for (sym_id, _) in sorted_nodes {
+                    let mut aider_symbols: Vec<SymbolNode> = Vec::new();
+                    let mut score_map = HashMap::new();
+                    for (sym_id, score) in sorted_nodes {
                         if let Some(sym) = graph.symbol(sym_id) {
-                            if tokens + sym.token_cost <= scenario.budget {
-                                tokens += sym.token_cost;
-                                sel.insert(sym_id.0);
-                            }
+                            aider_symbols.push(sym.clone());
+                            score_map.insert(sym_id, score);
                         }
                     }
+
+                    let mut lod_map = HashMap::new();
+                    for s in &aider_symbols {
+                        lod_map.insert(s.id, LodLevel::SignatureOnly);
+                    }
+                    let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
+                        &aider_symbols,
+                        &lod_map,
+                        &repo.file_sources,
+                        scenario.budget,
+                        TokenizerModel::default(),
+                        &score_map,
+                        &[],
+                    );
+                    let tokens = count_tokens(&md, TokenizerModel::default());
+                    let sel: HashSet<u32> = surviving.iter().map(|s| s.id.0).collect();
                     let elapsed = start.elapsed().as_micros();
                     (sel, tokens, elapsed)
                 }
@@ -416,7 +439,7 @@ impl BenchmarkRunner {
                     let ppr = PprSolver::default();
                     let scores = ppr.compute(&graph, &seed_pairs);
 
-                    let mut candidates: Vec<(SymbolId, f32)> = scores.into_iter().collect();
+                    let mut candidates: Vec<(SymbolId, f32)> = scores.clone().into_iter().collect();
                     candidates.sort_by(|a, b| {
                         let cost_a = graph.symbol(a.0).map(|s| s.token_cost).unwrap_or(1).max(1);
                         let cost_b = graph.symbol(b.0).map(|s| s.token_cost).unwrap_or(1).max(1);
@@ -427,16 +450,28 @@ impl BenchmarkRunner {
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
 
-                    let mut tokens = 0usize;
-                    let mut sel = HashSet::new();
+                    let mut vanilla_symbols: Vec<SymbolNode> = Vec::new();
                     for (sym_id, _) in candidates {
                         if let Some(sym) = graph.symbol(sym_id) {
-                            if tokens + sym.token_cost <= scenario.budget {
-                                tokens += sym.token_cost;
-                                sel.insert(sym_id.0);
-                            }
+                            vanilla_symbols.push(sym.clone());
                         }
                     }
+
+                    let mut lod_map = HashMap::new();
+                    for s in &vanilla_symbols {
+                        lod_map.insert(s.id, LodLevel::SignatureOnly);
+                    }
+                    let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
+                        &vanilla_symbols,
+                        &lod_map,
+                        &repo.file_sources,
+                        scenario.budget,
+                        TokenizerModel::default(),
+                        &scores,
+                        &resolved_seed_ids,
+                    );
+                    let tokens = count_tokens(&md, TokenizerModel::default());
+                    let sel: HashSet<u32> = surviving.iter().map(|s| s.id.0).collect();
                     let elapsed = start.elapsed().as_micros();
                     (sel, tokens, elapsed)
                 }
@@ -448,13 +483,13 @@ impl BenchmarkRunner {
                     let selector = ContextSelector::default();
                     let seed_pairs: Vec<(SymbolId, f32)> =
                         resolved_seed_ids.iter().map(|&id| (id, 1.0)).collect();
-                    let (selected, _) = selector.select_and_format_context_weighted(
+                    let (selected, md) = selector.select_and_format_context_weighted(
                         &graph,
                         &seed_pairs,
                         scenario.budget,
                         &repo.file_sources,
                     );
-                    let tokens: usize = selected.iter().map(|s| s.token_cost).sum();
+                    let tokens = count_tokens(&md, TokenizerModel::default());
                     let sel: HashSet<u32> = selected.iter().map(|s| s.id.0).collect();
                     let elapsed = start.elapsed().as_micros();
                     (sel, tokens, elapsed)

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Strict Rendered Token Budget Adherence (Phase 30)**:
+  - Eliminated the critical token budget violation where `repotrim select --budget N` produced rendered Markdown 1.5x–3.5x larger than `N` due to unpriced file headers, code fences, indentation, and container wrappers.
+  - Added framing token estimation functions (`file_framing_tokens`, `container_framing_tokens`, `symbol_framing_tokens`, `rendered_symbol_tokens`) to `ContextFormatter`.
+  - Implemented `ContextFormatter::format_markdown_budgeted` featuring a 5-stage deterministic degradation and pruning cascade that guarantees `count_tokens(&rendered_markdown, model) <= budget`.
+  - Enabled framing-aware incremental cost tracking in `CelfOptimizer` and Pareto frontier generation, accurately accounting for file opening, container enclosure, and symbol indentation overheads during knapsack admission.
+  - Updated `ContextSelector::select_and_format_context...` pipelines to enforce rendered Markdown budgeting and ensure returned symbol vectors strictly correspond to surviving symbols in the output prompt.
+  - Budgeted `ImpactAnalyzer::render_impact_markdown` context outline, explicitly displaying directly mutated symbols in executive risk summaries and capping test candidates to prevent blast radius starvation.
+  - Updated comparative evaluation harness (`crates/engine/src/eval.rs`) to measure actual rendered Markdown output tokens across all baseline strategies rather than raw unformatted symbol costs.
+
 ---
 
 ## [0.5.0] - 2026-09-11
