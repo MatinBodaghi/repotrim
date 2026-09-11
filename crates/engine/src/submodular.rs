@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::evidence::{CoverageState, ProbabilisticCoverage, SparseKernelMatrix};
+use crate::path::{PathCoverage, PathCoverageState};
 use crate::symbol::{SymbolId, SymbolNode};
 
 /// Hyperparameter configuration for the multi-objective submodular utility model.
@@ -41,6 +42,8 @@ pub struct SubmodularConfig {
     pub beta: f32,
     /// Verification test linkage weight $\delta \ge 0$.
     pub delta: f32,
+    /// Continuous execution path coverage weight $\gamma \ge 0$.
+    pub gamma: f32,
     /// Redundancy / mutual overlap penalty weight $\lambda \ge 0$.
     pub lambda: f32,
     /// Target token budget constraint for the knapsack.
@@ -53,8 +56,9 @@ impl Default for SubmodularConfig {
     fn default() -> Self {
         Self {
             alpha: 0.35,
-            beta: 0.40,
+            beta: 0.35,
             delta: 0.15,
+            gamma: 0.15,
             lambda: 0.10,
             budget: 4096,
             normalize_components: true,
@@ -69,6 +73,8 @@ pub struct UtilityState {
     pub coverage_state: CoverageState,
     /// Optional test verification coverage log-uncovered potentials.
     pub test_state: Option<CoverageState>,
+    /// Optional execution path coverage log-uncovered potentials.
+    pub path_state: Option<PathCoverageState>,
     /// Chronological list of selected symbols $S$.
     pub selected: Vec<SymbolId>,
     /// Fast set membership lookup for selected symbols.
@@ -81,6 +87,8 @@ pub struct UtilityState {
     pub total_coverage: f32,
     /// Accumulated test coverage $\mathrm{Test}(S)$.
     pub total_test: f32,
+    /// Accumulated execution path coverage $\mathrm{Path}(S)$.
+    pub total_path: f32,
     /// Accumulated redundancy penalty $\mathrm{Red}(S)$.
     pub total_redundancy: f32,
     /// Total tokens consumed by selected symbols under active cost estimator.
@@ -90,6 +98,15 @@ pub struct UtilityState {
 impl UtilityState {
     /// Creates an empty utility state for a given symbol domain size.
     pub fn empty(num_symbols: usize, has_test_coverage: bool) -> Self {
+        Self::empty_with_paths(num_symbols, has_test_coverage, None)
+    }
+
+    /// Creates an empty utility state with optional path coverage tracking.
+    pub fn empty_with_paths(
+        num_symbols: usize,
+        has_test_coverage: bool,
+        num_paths: Option<usize>,
+    ) -> Self {
         Self {
             coverage_state: CoverageState::empty(num_symbols),
             test_state: if has_test_coverage {
@@ -97,12 +114,14 @@ impl UtilityState {
             } else {
                 None
             },
+            path_state: num_paths.map(PathCoverageState::empty),
             selected: Vec::new(),
             selected_set: HashSet::new(),
             total_utility: 0.0,
             total_relevance: 0.0,
             total_coverage: 0.0,
             total_test: 0.0,
+            total_path: 0.0,
             total_redundancy: 0.0,
             total_tokens: 0,
         }
@@ -136,6 +155,7 @@ pub struct SubmodularUtility {
     config: SubmodularConfig,
     evidence_coverage: ProbabilisticCoverage,
     test_coverage: Option<ProbabilisticCoverage>,
+    path_coverage: Option<PathCoverage>,
     relevance_scores: Vec<f32>,
     total_relevance: f32,
     similarity_matrix: Option<SparseKernelMatrix>,
@@ -161,6 +181,7 @@ impl SubmodularUtility {
             config,
             evidence_coverage,
             test_coverage: None,
+            path_coverage: None,
             relevance_scores: aligned_rel,
             total_relevance: total_relevance.max(1e-6),
             similarity_matrix: None,
@@ -173,6 +194,17 @@ impl SubmodularUtility {
     pub fn with_test_coverage(mut self, test_coverage: ProbabilisticCoverage) -> Self {
         self.test_coverage = Some(test_coverage);
         self
+    }
+
+    /// Attaches an optional continuous execution path coverage evaluator.
+    pub fn with_path_coverage(mut self, path_coverage: PathCoverage) -> Self {
+        self.path_coverage = Some(path_coverage);
+        self
+    }
+
+    /// Returns a reference to the active path coverage evaluator, if configured.
+    pub fn path_coverage(&self) -> Option<&PathCoverage> {
+        self.path_coverage.as_ref()
     }
 
     /// Attaches an optional pairwise similarity matrix for redundancy calculation.
@@ -230,7 +262,11 @@ impl SubmodularUtility {
 
     /// Creates a fresh empty `UtilityState`.
     pub fn new_state(&self) -> UtilityState {
-        UtilityState::empty(self.num_symbols(), self.test_coverage.is_some())
+        UtilityState::empty_with_paths(
+            self.num_symbols(),
+            self.test_coverage.is_some(),
+            self.path_coverage.as_ref().map(|pc| pc.num_paths()),
+        )
     }
 
     /// Computes the exact marginal utility gain $\Delta_F(x \mid S) = F(S \cup \{x\}) - F(S)$.
@@ -276,7 +312,20 @@ impl SubmodularUtility {
             _ => 0.0,
         };
 
-        // 4. Redundancy penalty $\Delta_{\mathrm{Red}}(x \mid S)$
+        // 4. Continuous execution path marginal gain $\Delta_{\mathrm{Path}}(x \mid S)$
+        let path_gain = match (&self.path_coverage, &state.path_state) {
+            (Some(pc), Some(ps)) => {
+                let pg = pc.marginal_gain(ps, candidate);
+                if self.config.normalize_components && pc.total_weight() > 0.0 {
+                    pg / pc.total_weight()
+                } else {
+                    pg
+                }
+            }
+            _ => 0.0,
+        };
+
+        // 5. Redundancy penalty $\Delta_{\mathrm{Red}}(x \mid S)$
         let red_penalty = self.redundancy_penalty(state, candidate);
         let norm_red_penalty = if self.config.normalize_components && !state.selected.is_empty() {
             red_penalty / (state.selected.len() as f32)
@@ -287,6 +336,7 @@ impl SubmodularUtility {
         let net_gain = self.config.alpha * rel_gain
             + self.config.beta * norm_cov_gain
             + self.config.delta * test_gain
+            + self.config.gamma * path_gain
             - self.config.lambda * norm_red_penalty;
 
         // Monotone non-negative guarantee: net marginal gain is bounded at 0.0
@@ -387,6 +437,19 @@ impl SubmodularUtility {
                 test_marginal
             };
             state.total_test += norm_test_marginal;
+        }
+
+        if let (Some(pc), Some(ps)) = (&self.path_coverage, &mut state.path_state) {
+            let prev_path = ps.total_coverage();
+            pc.add_candidate(ps, candidate);
+            let path_marginal = ps.total_coverage() - prev_path;
+            let norm_path_marginal = if self.config.normalize_components && pc.total_weight() > 0.0
+            {
+                path_marginal / pc.total_weight()
+            } else {
+                path_marginal
+            };
+            state.total_path += norm_path_marginal;
         }
 
         let red_penalty = self.redundancy_penalty(state, candidate);
@@ -533,6 +596,7 @@ mod tests {
             alpha: 0.5,
             beta: 0.5,
             delta: 0.0,
+            gamma: 0.0,
             lambda: 0.0,
             budget: 60,
             normalize_components: true,
@@ -553,5 +617,70 @@ mod tests {
         assert!(empty_sel.is_empty());
         assert_eq!(empty_state.total_tokens, 0);
         assert_eq!(empty_state.total_utility, 0.0);
+    }
+
+    #[test]
+    fn test_path_coverage_integration_in_submodular_utility() {
+        let (cov, rel) = build_test_setup();
+        let mut path = crate::path::ExecutionPath::new(
+            vec![SymbolId(0), SymbolId(1), SymbolId(2)],
+            vec![
+                crate::symbol::RelationType::Calls,
+                crate::symbol::RelationType::Calls,
+            ],
+            vec![0.9, 0.9],
+        );
+        path.probability = 1.0;
+
+        let path_cov = crate::path::PathCoverage::new(3, vec![path]);
+
+        let config_no_path = SubmodularConfig {
+            alpha: 0.4,
+            beta: 0.6,
+            delta: 0.0,
+            gamma: 0.0,
+            lambda: 0.0,
+            ..Default::default()
+        };
+        let config_with_path = SubmodularConfig {
+            alpha: 0.3,
+            beta: 0.4,
+            delta: 0.0,
+            gamma: 0.3,
+            lambda: 0.0,
+            ..Default::default()
+        };
+
+        let util_no_path = SubmodularUtility::new(config_no_path, cov.clone(), rel.clone());
+        let util_with_path =
+            SubmodularUtility::new(config_with_path, cov, rel).with_path_coverage(path_cov);
+
+        let s_no = util_no_path.new_state();
+        assert!(s_no.path_state.is_none());
+
+        let mut s = util_with_path.new_state();
+        assert!(s.path_state.is_some());
+        assert_eq!(s.total_path, 0.0);
+
+        let gain_0 = util_with_path.marginal_gain(&s, SymbolId(0));
+        assert!(gain_0 > 0.0);
+
+        util_with_path.add_symbol(&mut s, SymbolId(0), 20);
+        assert!(s.total_path > 0.0);
+        assert_eq!(s.len(), 1);
+
+        // Path candidate 1 has positive path gain
+        let gain_1 = util_with_path.marginal_gain(&s, SymbolId(1));
+        assert!(gain_1 > 0.0);
+
+        util_with_path.add_symbol(&mut s, SymbolId(1), 20);
+        util_with_path.add_symbol(&mut s, SymbolId(2), 20);
+
+        // All 3 path symbols selected -> path coverage ~1.0
+        assert!(
+            (s.total_path - 1.0).abs() < 1e-3,
+            "Path coverage should be ~1.0 when full path is selected, got {}",
+            s.total_path
+        );
     }
 }
