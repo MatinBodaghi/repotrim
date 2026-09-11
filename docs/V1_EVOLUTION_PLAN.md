@@ -215,8 +215,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 34: Multi-Objective Utility Function & Realistic Cost Accounting
-- **Branch:** `feature/submodular-solver`
+### Phase 34: Multi-Objective Utility Function & Realistic Cost Accounting `[COMPLETED]`
+- **Branch:** `feature/submodular-solver` (completed & merged into `dev`)
 - **Objective:** Formulate the unified objective $F(S; q, G)$ and multi-factor token cost model $c(v)$.
 - **Math Formulation:**
   - Utility:
