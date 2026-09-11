@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::celf::{CelfConfig, CelfOptimizer, MckpResult, SensitivityReport};
+use crate::community::{CommunityConfig, CommunityDetector};
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::knee::KneedleDetector;
@@ -655,6 +656,120 @@ impl ContextSelector {
         };
 
         (selected_symbols, markdown, report, mckp_result)
+    }
+
+    /// Applies an intra-community cohesion boost to PPR relevance scores.
+    ///
+    /// Symbols belonging to the same topological community as any focus seed receive
+    /// a utility multiplier $(1.0 + \text{boost})$, reducing context drift into tangential hubs.
+    pub fn apply_community_boost(
+        graph: &MultiplexGraph,
+        ppr_scores: &mut HashMap<SymbolId, f32>,
+        weighted_seeds: &[(SymbolId, f32)],
+        boost: f32,
+    ) {
+        if boost <= 0.0 || weighted_seeds.is_empty() || graph.is_empty() {
+            return;
+        }
+
+        let comm_res = CommunityDetector::detect(graph, &CommunityConfig::meso_scale());
+        let seed_comms: std::collections::HashSet<usize> = weighted_seeds
+            .iter()
+            .filter_map(|&(sid, _)| comm_res.membership.get(&sid).copied())
+            .collect();
+
+        if !seed_comms.is_empty() {
+            for (sid, score) in ppr_scores.iter_mut() {
+                if let Some(&comm_id) = comm_res.membership.get(sid) {
+                    if seed_comms.contains(&comm_id) {
+                        *score *= 1.0 + boost;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Selects context with intra-community cohesion boosting.
+    pub fn select_context_with_community(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        community_boost: f32,
+    ) -> Vec<SymbolNode> {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
+            return Vec::new();
+        }
+
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        Self::apply_community_boost(graph, &mut ppr_scores, weighted_seeds, community_boost);
+
+        let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        selected_symbols
+    }
+
+    /// End-to-end pipeline with community cohesion boosting and formatted context.
+    pub fn select_and_format_context_with_community(
+        &self,
+        graph: &MultiplexGraph,
+        weighted_seeds: &[(SymbolId, f32)],
+        budget: usize,
+        community_boost: f32,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> (Vec<SymbolNode>, String) {
+        if budget == 0 || graph.is_empty() || weighted_seeds.is_empty() {
+            return (Vec::new(), String::new());
+        }
+
+        let mut ppr_scores = self.ppr.compute(graph, weighted_seeds);
+        for &(seed_id, weight) in weighted_seeds {
+            *ppr_scores.entry(seed_id).or_default() += weight;
+        }
+
+        Self::apply_community_boost(graph, &mut ppr_scores, weighted_seeds, community_boost);
+
+        let selected_ids = self.celf.optimize(graph, &ppr_scores, budget);
+
+        let mut selected_symbols: Vec<SymbolNode> = selected_ids
+            .into_iter()
+            .filter_map(|id| graph.symbol(id).cloned())
+            .collect();
+
+        selected_symbols.sort_by(|a, b| {
+            a.file_path
+                .cmp(&b.file_path)
+                .then_with(|| a.span.start_row.cmp(&b.span.start_row))
+                .then_with(|| a.span.start_byte.cmp(&b.span.start_byte))
+        });
+
+        let seed_id_list: Vec<SymbolId> = weighted_seeds.iter().map(|&(id, _)| id).collect();
+        let lod_map = ContextFormatter::assign_lod_with_model(
+            &selected_symbols,
+            &ppr_scores,
+            &seed_id_list,
+            budget,
+            file_sources,
+            self.tokenizer_model,
+        );
+        let markdown = ContextFormatter::format_markdown(&selected_symbols, &lod_map, file_sources);
+
+        (selected_symbols, markdown)
     }
 }
 

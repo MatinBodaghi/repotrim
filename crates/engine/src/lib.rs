@@ -2,6 +2,7 @@ pub mod architecture;
 pub mod cache;
 pub mod celf;
 pub mod coedit;
+pub mod community;
 pub mod csr;
 pub mod diff;
 pub mod error;
@@ -34,6 +35,10 @@ pub use celf::{
     MckpTraceStep, SensitivityReport,
 };
 pub use coedit::{CoeditCache, CoeditConfig, CoeditGraph, CoeditPair, GitCommitMiner};
+pub use community::{
+    ArchitecturalDrift, Community, CommunityConfig, CommunityDetector, CommunityHierarchy,
+    CommunityResult,
+};
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;

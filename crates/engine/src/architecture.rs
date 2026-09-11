@@ -141,6 +141,8 @@ pub struct ArchitectureReport {
     pub total_edges: usize,
     /// Graph modularity ($Q$) score (-0.5 to 1.0) measuring boundary separation.
     pub modularity: f32,
+    /// Modularity resolution parameter $\gamma$ (Reichardt & Bornholdt, 2004).
+    pub resolution: f64,
     /// Detected subsystems grouped by architectural layer.
     pub subsystems: Vec<SubsystemCommunity>,
     /// Central architectural hubs ranked by in-degree and PageRank centrality.
@@ -151,8 +153,19 @@ pub struct ArchitectureReport {
 
 impl ArchitectureReport {
     /// Analyzes the repository's `MultiplexGraph` to discover architectural subsystems,
-    /// calculate modularity, identify central hubs, and classify architectural layers.
+    /// calculate modularity at standard resolution ($\gamma = 1.0$), identify central hubs,
+    /// and classify architectural layers.
     pub fn analyze(graph: &MultiplexGraph, root_path: &Path) -> Self {
+        Self::analyze_with_resolution(graph, root_path, 1.0)
+    }
+
+    /// Analyzes the repository's `MultiplexGraph` with a custom modularity resolution parameter
+    /// $\gamma \in (0, \infty)$ (Reichardt & Bornholdt, 2004).
+    pub fn analyze_with_resolution(
+        graph: &MultiplexGraph,
+        root_path: &Path,
+        resolution: f64,
+    ) -> Self {
         let num_symbols = graph.num_symbols();
         let num_edges = graph.num_edges();
 
@@ -162,6 +175,7 @@ impl ArchitectureReport {
                 total_symbols: 0,
                 total_edges: 0,
                 modularity: 0.0,
+                resolution,
                 subsystems: Vec::new(),
                 central_hubs: Vec::new(),
                 public_apis: Vec::new(),
@@ -233,7 +247,7 @@ impl ArchitectureReport {
                 let k_out = *community_out_degree.get(comm_name).unwrap_or(&0) as f64;
                 let k_in = *community_in_degree.get(comm_name).unwrap_or(&0) as f64;
 
-                q_sum += (e_cc / m) - ((k_out * k_in) / (m * m));
+                q_sum += (e_cc / m) - (resolution * (k_out * k_in) / (m * m));
             }
             modularity = q_sum as f32;
         }
@@ -356,6 +370,7 @@ impl ArchitectureReport {
             total_symbols: num_symbols,
             total_edges: num_edges,
             modularity,
+            resolution,
             subsystems,
             central_hubs,
             public_apis,
@@ -412,6 +427,13 @@ impl ArchitectureReport {
             "| **Modularity ($Q$)** | **{:.3}** | {} |",
             self.modularity, modularity_label
         );
+        if (self.resolution - 1.0).abs() > 1e-4 {
+            let _ = writeln!(
+                doc,
+                "| **Resolution ($\\gamma$)** | **{:.2}** | Potts modularity scale parameter |",
+                self.resolution
+            );
+        }
         let _ = writeln!(
             doc,
             "| **Subsystems Discovered** | **{}** | Partitioned architectural communities |",
