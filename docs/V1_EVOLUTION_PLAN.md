@@ -49,20 +49,23 @@ $$\mathrm{Cost}(\pi) = \alpha T_{in}(\pi) + \beta T_{out}(\pi) + \gamma N_{tool}
 
 ## 2. Git Branching & Engineering Discipline
 
-### 2.1 Branch Topology
-All work originates from and integrates back into `dev`. The `main` branch remains untouched at `v0.5.0` until intermediate releases are tagged. **Version `v1.0.0` is strictly untouched**; releases continue across `v0.6.0` through `v0.11.0+` to allow ongoing empirical research and dogfooding.
+### 2.1 Branch Taxonomy & Roles
+All branches originate from and merge back into `dev`. Branches strictly follow this 3-tier taxonomy:
+
+| Branch Prefix | Purpose | Scope & Activities |
+| :--- | :--- | :--- |
+| `research/*` | **Research / Mathematical Evolution** | Formal problem formulations, mathematical modeling, proofs, algorithmic invariants, and design specifications. |
+| `feature/*` | **Isolated Implementation** | Concrete engine implementations, data structures, algorithms, trait boundaries, CLI commands, and MCP tools. |
+| `experiment/*` | **Benchmark / Hypothesis Testing** | Empirical evaluation, ablation studies, oracle approximation gap measurement, and harness exploration metrics. |
 
 ```text
 main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 tag]───[v0.9.0 tag]───►
   │                           ▲              ▲              ▲              ▲
   └───► dev (Integration) ────┴──────────────┴──────────────┴──────────────┴────────►
           │
-          ├── feature/typed-code-graph-multiplex (Milestone 1 -> v0.6.0)
-          ├── feature/submodular-coverage-utility (Milestone 2 -> v0.7.0)
-          ├── feature/path-inference-structured-context (Milestone 3 -> v0.8.0)
-          ├── feature/intelligence-primitives-mcp (Milestone 4 -> v0.9.0)
-          ├── feature/adaptive-submodular-navigation (Milestone 5 -> v0.10.0)
-          └── feature/eval-harness-ablation-paper (Milestone 6 -> v0.11.0)
+          ├── research/*    (Math formulation, theory, specification)
+          ├── feature/*     (Isolated code implementation)
+          └── experiment/*  (Ablations, oracle gaps, empirical benchmarks)
 ```
 
 ### 2.2 Quality & Commit Governance
@@ -82,14 +85,14 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 3. Master Milestone & Phase Registry
 
-| Milestone | Target Version | Scope & Focus | Feature Branch | Status |
+| Milestone | Target Version | Scope & Focus | Associated Branches | Status |
 | :--- | :--- | :--- | :--- | :---: |
-| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task-Conditioned Priors | `feature/typed-code-graph-multiplex` | `[READY]` |
-| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `feature/submodular-coverage-utility` | `[PLANNED]` |
-| **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `feature/path-inference-structured-context` | `[PLANNED]` |
-| **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives-mcp` | `[PLANNED]` |
-| **Milestone 5** | `v0.10.0` | Sequential Exploration & Adaptive Submodular Navigation | `feature/adaptive-submodular-navigation` | `[PLANNED]` |
-| **Milestone 6** | `v0.11.0` | 7-Tier Ablation Suite, Proofs & Engine Modularization | `feature/eval-harness-ablation-paper` | `[PLANNED]` |
+| **Milestone 1** | `v0.6.0` | Typed Multiplex Code Graph & Task Priors | `research/typed-multiplex-graph`<br>`feature/typed-multiplex-csr` | `[READY]` |
+| **Milestone 2** | `v0.7.0` | Monotone Submodular Coverage & Dual-Mode Solvers | `research/submodular-coverage`<br>`feature/submodular-solver`<br>`experiment/knapsack-oracle-gap` | `[PLANNED]` |
+| **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `research/path-energy-model`<br>`feature/structured-context` | `[PLANNED]` |
+| **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives`<br>`feature/intelligence-mcp` | `[PLANNED]` |
+| **Milestone 5** | `v0.10.0` | Sequential Exploration & Adaptive Navigation | `research/adaptive-navigation`<br>`feature/adaptive-navigator` | `[PLANNED]` |
+| **Milestone 6** | `v0.11.0` | 7-Tier Ablation Suite, Proofs & Engine Modularization | `experiment/ablation-suite`<br>`experiment/agent-harness-study`<br>`research/theory-proofs` | `[PLANNED]` |
 
 > [!NOTE]
 > Releases continue sequentially in `0.x` (`v0.6.0` through `v0.11.0`, and further to `v0.12.0+` if additional algorithms are developed). `v1.0.0` will NOT be released or targeted until extensive dogfooding, stability, and evaluation are established.
@@ -98,10 +101,9 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 4. Milestone 1 (`v0.6.0`): Typed Multiplex Graph & Task Priors
 
-**Branch:** `feature/typed-code-graph-multiplex`
-
 ### Phase 31: Formal Entity-Relation Vocabulary & Task Modeling
-- **Objective:** Establish the formal types for code entities $\tau_V$, edge relations $\tau_E$, and structured task representations $q = (x, z, m)$.
+- **Branch:** `research/typed-multiplex-graph`
+- **Objective:** Establish the formal mathematical types for code entities $\tau_V$, edge relations $\tau_E$, and structured task representations $q = (x, z, m)$.
 - **Math Formulation:**
   - Node types: $\tau_V \in \{\text{Package}, \text{Module}, \text{File}, \text{Class}, \text{Struct}, \text{Interface}, \text{Function}, \text{Method}, \text{Test}, \text{Config}, \text{Endpoint}\}$.
   - Edge types: $\tau_E \in \{\text{Imports}, \text{Calls}, \text{References}, \text{Inherits}, \text{Implements}, \text{Contains}, \text{Reads}, \text{Writes}, \text{IsTestedBy}, \text{CoChangesWith}\}$.
@@ -135,6 +137,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 32: Multiplex CSR Graph Representation & Layered Transition Matrices
+- **Branch:** `feature/typed-multiplex-csr`
 - **Objective:** Upgrade the graph storage to a typed multiplex Compressed Sparse Row (CSR) representation supporting layered adjacency matrices $A = \sum_{r \in \mathcal{R}} \omega_r(q) A_r$.
 - **Math Formulation:**
   $$P_q = \text{Normalize}\left(\sum_{r \in \mathcal{R}} \omega_r(q) A_r\right), \quad \mathbf{p}_q = (1 - \alpha)\mathbf{s}_q + \alpha P_q^T \mathbf{p}_q$$
@@ -178,9 +181,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 5. Milestone 2 (`v0.7.0`): Monotone Submodular Coverage & Dual-Mode Solvers
 
-**Branch:** `feature/submodular-coverage-utility`
-
 ### Phase 33: Probabilistic Evidence Coverage & Submodular Kernel Engine
+- **Branch:** `research/submodular-coverage`
 - **Objective:** Replace ad-hoc relevance scoring with a mathematically rigorous probabilistic coverage function exhibiting provable diminishing returns.
 - **Math Formulation:**
   - Evidence distribution kernel $K(v, u; q) \in [0, 1]$ measuring information $v$ provides regarding $u$.
@@ -214,6 +216,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 34: Multi-Objective Utility Function & Realistic Cost Accounting
+- **Branch:** `feature/submodular-solver`
 - **Objective:** Formulate the unified objective $F(S; q, G)$ and multi-factor token cost model $c(v)$.
 - **Math Formulation:**
   - Utility:
@@ -247,6 +250,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 35: Dual-Mode Knapsack Solvers & Research Oracle Gap Analysis
+- **Branch:** `experiment/knapsack-oracle-gap`
 - **Objective:** Introduce a dual-mode solver architecture: fast lazy CELF for production, and an exact branch-and-bound / IP oracle for small candidate sets to measure empirical approximation gaps.
 - **Math Formulation:**
   - Knapsack formulation: $\max_{S \subseteq V} F(S) \text{ s.t. } \sum_{v \in S} c(v) \le B$.
@@ -279,9 +283,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 6. Milestone 3 (`v0.8.0`): Path Reasoning & Structured Context
 
-**Branch:** `feature/path-inference-structured-context`
-
 ### Phase 36: Task-Relevant Path Inference & Probabilistic Energy Scoring
+- **Branch:** `research/path-energy-model`
 - **Objective:** Infer coherent execution and dependency paths $\mathcal{P}_q$ between task entrypoints and candidate implementations.
 - **Math Formulation:**
   - Path score:
@@ -323,6 +326,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 37: Structured Context Object & Diagnostic Explanation Metadata
+- **Branch:** `feature/structured-context`
 - **Objective:** Transition output from raw text dumps to a structured context object $\mathcal{C} = (V_C, E_C, M_C)$ with explicit rationale, confidence, and omission diagnostics.
 - **Math Formulation:**
   - Context object schema:
@@ -362,9 +366,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 7. Milestone 4 (`v0.9.0`): Codebase Intelligence Primitives & MCP
 
-**Branch:** `feature/intelligence-primitives-mcp`
-
 ### Phase 38: Six Core Codebase Intelligence Primitives
+- **Branch:** `feature/intelligence-primitives`
 - **Objective:** Expose 6 mathematically meaningful operations turning RepoTrim into a live codebase service:
   1. `locate(task)`: Entrypoint discovery via seed priors.
   2. `neighbors(symbol)`: High-value local evidence neighborhood.
@@ -406,6 +409,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 39: CLI Command Suite & Native MCP JSON-RPC Contracts
+- **Branch:** `feature/intelligence-mcp`
 - **Objective:** Expose the 6 primitives across CLI commands and native Model Context Protocol tools with structured JSON schemas.
 
 #### Commit Breakdown
@@ -435,9 +439,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 8. Milestone 5 (`v0.10.0`): Sequential & Adaptive Navigation
 
-**Branch:** `feature/adaptive-submodular-navigation`
-
 ### Phase 40: State-Aware Sequential Exploration & Action Engine
+- **Branch:** `research/adaptive-navigation`
 - **Objective:** Model the interaction between an AI harness and RepoTrim as a stateful, sequential observation process.
 - **Math Formulation:**
   - State: $s_t = (G, q, H_t, B_t, o_t)$ where $H_t$ is history, $B_t$ remaining budget, $o_t$ observations.
@@ -470,6 +473,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 41: Adaptive Submodular Greedy Policy & Dynamic Gain Updates
+- **Branch:** `feature/adaptive-navigator`
 - **Objective:** Implement the adaptive greedy policy selecting the action with highest conditional expected marginal gain per cost:
   $$a^* = \arg\max_{a \in \mathcal{A}} \frac{\Delta(a \mid \psi)}{c(a)}$$
 - **Math Formulation:**
@@ -510,9 +514,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 9. Milestone 6 (`v0.11.0`): Empirical Validation, Proofs & Engine Modularization
 
-**Branch:** `feature/eval-harness-ablation-paper`
-
 ### Phase 42: Comprehensive 7-Tier Ablation Benchmark Harness
+- **Branch:** `experiment/ablation-suite`
 - **Objective:** Expand `crates/engine/src/eval.rs` to benchmark all 7 ablation variants on identical repository tasks:
   1. Full context
   2. Lexical (BM25)
@@ -548,6 +551,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 43: Agent Harness Exploration Measurement & Real-World Validation
+- **Branch:** `experiment/agent-harness-study`
 - **Objective:** Measure real agent performance (e.g. Claude Code / Antigravity / SWE-bench task harnesses) comparing task success rates and token spend with and without RepoTrim codebase intelligence.
 
 #### Commit Breakdown
@@ -569,6 +573,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 ---
 
 ### Phase 44: Formal Theoretical Proofs, Citations & Engine Modularization
+- **Branch:** `research/theory-proofs`
 - **Objective:** Document formal mathematical proofs (monotonicity, submodularity, knapsack bounds), add all citations per `AGENTS.md`, and refine engine module organization for `v0.11.0`.
 
 #### Commit Breakdown
@@ -608,5 +613,5 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 | Step | Action | Command / Target |
 | :--- | :--- | :--- |
 | **1** | Verify current branch is `dev` | `git status` |
-| **2** | Create first feature branch for Milestone 1 | `git checkout -b feature/typed-code-graph-multiplex` |
+| **2** | Create first research branch for Milestone 1 | `git checkout -b research/typed-multiplex-graph` |
 | **3** | Begin Phase 31 (Commit 31.1) | Define `NodeType` & `RelationType` schemas in `crates/engine` |
