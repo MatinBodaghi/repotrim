@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-11
+
 ### Added
 - **Formal Entity-Relation Vocabulary & Task Modeling (Phase 31)**:
   - Introduced formal `NodeType` enum representing 12 fine-grained code entity types ($\tau_V$: package, module, file, class, struct, interface, trait, function, method, variable, constant, test, endpoint, config).
