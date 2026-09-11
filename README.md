@@ -8,7 +8,7 @@
   <a href="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml"><img src="https://github.com/matinbodaghi/repotrim/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License" /></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.90%2B-orange.svg" alt="Rust Version" /></a>
-  <a href="https://crates.io/crates/repotrim"><img src="https://img.shields.io/badge/crates.io-v0.4.0-red.svg" alt="crates.io" /></a>
+  <a href="https://crates.io/crates/repotrim"><img src="https://img.shields.io/badge/crates.io-v0.5.0-red.svg" alt="crates.io" /></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2024--11--05-green.svg" alt="MCP Compatible" /></a>
 </p>
 

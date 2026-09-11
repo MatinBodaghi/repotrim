@@ -11,6 +11,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-09-11
+
+### Added
+- **Rigorous Empirical Evaluation Harness & Aider Comparative Benchmark (Phase 29)**:
+  - In-engine comparative evaluation harness (`crates/engine/src/eval.rs`) modeling 5 context selection strategies: Whole-File Dump, Naive Grep, Aider Repo Map (uniform Global PageRank over untyped reference graph with greedy definition packing), RepoTrim Vanilla (v0.1 standard PPR), and RepoTrim Full (modern multiplex CPG pipeline).
+  - Multi-metric evaluation quantifying token budget adherence, token reduction %, target direct dependency recall ($k=1$), transitive dependency recall ($k=2$), context precision %, community cohesion %, induced subgraph orphan rate %, and execution latency.
+  - Dedicated CLI command `repotrim benchmark` (alias `repotrim eval`) with `--budget`, `--scenario`, `--strategies`, `--format table|markdown`, and `--json`.
+  - Added `run_benchmark` MCP tool, expanding server tool catalog from 10 to 11 tools.
+  - Authored comprehensive comparative study (`docs/benchmarks/aider_comparative_study.md`) proving RepoTrim's recall dominance (>100x higher direct recall vs. Aider's 0.3%) and 3x higher symbol density via MCKP joint LOD.
+- **Hybrid Lexical + Dense Semantic Query Retrieval & Intent Resolution (Phase 28)**:
+  - Principled zero-dependency hybrid retrieval combining multi-field BM25+ with term frequency lower bounding $\delta = 0.5$ (Lv & Zhai 2011) and Robertson-Zaragoza IDF.
+  - 128-dimensional dense semantic feature hashing over subword character 3..5 n-grams and 24-axis software domain concept taxonomy.
+  - Scale-invariant Reciprocal Rank Fusion ($k=60$) and Rocchio Pseudo-Relevance Feedback (PRF) query expansion.
+  - New `repotrim query` CLI command with interactive tables and `--explain` diagnostics, and `search_symbols` MCP tool.
+  - Added `--retrieval-mode` and `--query-expand` options across `select` and `blueprint`.
+- **Multi-Resolution Community Detection & Architectural Drift (Phase 27)**:
+  - Multi-resolution Reichardt-Bornholdt (2004) spin glass Potts modularity optimization resolving single-scale modularity resolution limits.
+  - Multi-scale hierarchical decomposition across Macro ($\gamma=0.5$), Meso ($\gamma=1.0$), and Micro ($\gamma=2.5$) tiers.
+  - Architectural drift detection diagnosing misplaced and leaky symbols deviating from dominant directory clusters.
+  - Community-boosted context selection (`--community-boost`) eliminating orphaned peripheral utility symbols.
+  - New `repotrim community` CLI command and `detect_communities` MCP tool.
+- **Git Co-Edit Mining & Principled Multiplex Edge Weight Learning (Phase 26)**:
+  - `GitCommitMiner` extracting historical commit co-edits with minimum support and confidence thresholds.
+  - Supervised Random Walk gradient descent optimizing multiplex layer weights $\boldsymbol{\alpha}$ for call, type, AST, and co-edit edges.
+  - New `repotrim coedit` CLI command and `mine_coedits` MCP tool.
+  - Added `--coedit` and `--learn-weights` flags across `select` and `blueprint`.
+- **Multiple-Choice Knapsack (MCKP) Joint Symbol & LOD Optimization (Phase 25)**:
+  - Dyer (1984) and Zemel (1980) convex hull slope pruning for simultaneous symbol selection and Level-of-Detail assignment (`FullSource`, `SignatureDoc`, `Outline`).
+  - Added `--joint-lod` flag to CLI and `jointLod` parameter to MCP `trim_context`.
+- **PPR Approximation Error Propagation & Sensitivity Diagnostics (Phase 24)**:
+  - Knapsack sensitivity diagnostics identifying borderline candidate symbols susceptible to perturbation.
+  - Stability index metric $\mathcal{S}(\epsilon)$ measuring ranking convergence across push thresholds.
+  - Added `--diagnostics` flag to CLI and `diagnostics` parameter to MCP `trim_context`.
+- **Exact BPE Token Accounting & Polyglot Token Calibration (Phase 23)**:
+  - Optional `exact-tokens` feature integrating `tiktoken-rs` with `cl100k_base` and `o200k_base` BPE models.
+  - Added `--tokenizer exact|o200k|heuristic` flags to CLI and MCP.
+- **Formal Algorithmic Guarantees & Property Invariants (Phase 22)**:
+  - Proptest property suite verifying submodular diminishing returns, ACL error bounds $\|\boldsymbol{\pi} - \mathbf{p}\|_\infty \le \epsilon$, mass conservation, and best-singleton knapsack approximation bounds.
+  - Pinned workspace Minimum Supported Rust Version (MSRV) to 1.90.
+
+---
+
 ## [0.4.0] - 2026-09-10
 
 ### Added
