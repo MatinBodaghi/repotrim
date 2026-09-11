@@ -19,7 +19,30 @@ pub struct CsrMatrix {
     pub num_cols: usize,
 }
 
+impl Default for CsrMatrix {
+    fn default() -> Self {
+        Self {
+            row_offsets: vec![0],
+            col_indices: Vec::new(),
+            weights: Vec::new(),
+            num_rows: 0,
+            num_cols: 0,
+        }
+    }
+}
+
 impl CsrMatrix {
+    /// Creates an empty CSR matrix with specified dimensions and zero edges.
+    pub fn empty(num_rows: usize, num_cols: usize) -> Self {
+        Self {
+            row_offsets: vec![0; num_rows + 1],
+            col_indices: Vec::new(),
+            weights: Vec::new(),
+            num_rows,
+            num_cols,
+        }
+    }
+
     /// Creates a new `CsrMatrix` from a list of directed edges `(src, dst, weight)`.
     ///
     /// Automatically validates bounds, sorts edges by `(src, dst)`, and accumulates

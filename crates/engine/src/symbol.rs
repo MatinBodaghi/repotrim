@@ -300,6 +300,58 @@ pub enum RelationType {
 }
 
 impl RelationType {
+    /// Total number of distinct relation types modeled in the multiplex graph.
+    pub const COUNT: usize = 14;
+
+    /// Complete array of all modeled relation types.
+    pub const ALL: [RelationType; 14] = [
+        RelationType::Imports,
+        RelationType::Calls,
+        RelationType::References,
+        RelationType::Inherits,
+        RelationType::Implements,
+        RelationType::Contains,
+        RelationType::BelongsTo,
+        RelationType::Returns,
+        RelationType::Accepts,
+        RelationType::Reads,
+        RelationType::Writes,
+        RelationType::Configures,
+        RelationType::IsTestedBy,
+        RelationType::CoChangesWith,
+    ];
+
+    /// Returns the 0-based dense index corresponding to this relation type.
+    #[inline]
+    pub const fn index(&self) -> usize {
+        match self {
+            RelationType::Imports => 0,
+            RelationType::Calls => 1,
+            RelationType::References => 2,
+            RelationType::Inherits => 3,
+            RelationType::Implements => 4,
+            RelationType::Contains => 5,
+            RelationType::BelongsTo => 6,
+            RelationType::Returns => 7,
+            RelationType::Accepts => 8,
+            RelationType::Reads => 9,
+            RelationType::Writes => 10,
+            RelationType::Configures => 11,
+            RelationType::IsTestedBy => 12,
+            RelationType::CoChangesWith => 13,
+        }
+    }
+
+    /// Resolves a dense index `0..14` back to its `RelationType`.
+    #[inline]
+    pub const fn from_index(idx: usize) -> Option<Self> {
+        if idx < Self::COUNT {
+            Some(Self::ALL[idx])
+        } else {
+            None
+        }
+    }
+
     /// Returns true if this relation is a structural hierarchy edge.
     pub fn is_structural(&self) -> bool {
         matches!(
