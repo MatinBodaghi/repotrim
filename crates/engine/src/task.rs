@@ -70,6 +70,8 @@ impl TaskKind {
         } else if has_any(&[
             "doc",
             "docs",
+            "documentation",
+            "guide",
             "readme",
             "explain",
             "architecture",

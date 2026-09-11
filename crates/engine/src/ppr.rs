@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
+use crate::csr::CsrMatrix;
 use crate::graph::MultiplexGraph;
+use crate::multiplex::{MultiplexCsrGraph, RelationWeights};
 use crate::symbol::SymbolId;
+use crate::task::TaskContext;
 
 /// Configuration parameters for the Andersen-Chung-Lang (ACL) Forward-Push PPR solver.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -109,14 +112,84 @@ impl PprSolver {
     /// Evaluates the Andersen-Chung-Lang (2006) forward-push algorithm and computes point-wise
     /// theoretical error bounds $\delta(v) \le \frac{\max(\varepsilon, r_{\max})}{\alpha} \max(1, d_{\text{in}}(v))$.
     pub fn compute_detailed(&self, graph: &MultiplexGraph, seeds: &[(SymbolId, f32)]) -> PprResult {
-        let n = graph.num_symbols();
+        self.compute_detailed_on_csr(graph.num_symbols(), graph.transition_csr(), seeds)
+    }
+
+    /// Computes Personalized PageRank diffusion scores on an arbitrary row-stochastic CSR matrix.
+    pub fn compute_on_csr(
+        &self,
+        num_nodes: usize,
+        csr: &CsrMatrix,
+        seeds: &[(SymbolId, f32)],
+    ) -> HashMap<SymbolId, f32> {
+        self.compute_detailed_on_csr(num_nodes, csr, seeds).scores
+    }
+
+    /// Computes Personalized PageRank diffusion scores conditioned on a `TaskContext` over a `MultiplexCsrGraph`.
+    ///
+    /// Dynamically constructs the task-conditioned transition probability matrix
+    /// $P_q = \text{Normalize}\left(\sum_r \omega_r(q) A_r\right)$ and diffuses mass using the
+    /// local forward-push algorithm in $O(1/\epsilon)$ time.
+    pub fn compute_multiplex(
+        &self,
+        graph: &MultiplexCsrGraph,
+        task: &TaskContext,
+        seeds: &[(SymbolId, f32)],
+    ) -> HashMap<SymbolId, f32> {
+        self.compute_detailed_multiplex(graph, task, seeds).scores
+    }
+
+    /// Computes detailed Personalized PageRank scores and error bounds conditioned on a `TaskContext`
+    /// over a `MultiplexCsrGraph`.
+    pub fn compute_detailed_multiplex(
+        &self,
+        graph: &MultiplexCsrGraph,
+        task: &TaskContext,
+        seeds: &[(SymbolId, f32)],
+    ) -> PprResult {
+        let p_q = graph.build_task_conditioned_matrix(task);
+        self.compute_detailed_on_csr(graph.num_symbols(), &p_q, seeds)
+    }
+
+    /// Computes Personalized PageRank diffusion scores over a `MultiplexCsrGraph` with custom relation weights.
+    pub fn compute_multiplex_with_weights(
+        &self,
+        graph: &MultiplexCsrGraph,
+        weights: &RelationWeights,
+        seeds: &[(SymbolId, f32)],
+    ) -> HashMap<SymbolId, f32> {
+        self.compute_detailed_multiplex_with_weights(graph, weights, seeds)
+            .scores
+    }
+
+    /// Computes detailed Personalized PageRank scores and error bounds over a `MultiplexCsrGraph` with custom relation weights.
+    pub fn compute_detailed_multiplex_with_weights(
+        &self,
+        graph: &MultiplexCsrGraph,
+        weights: &RelationWeights,
+        seeds: &[(SymbolId, f32)],
+    ) -> PprResult {
+        let p = graph.build_transition_matrix(weights);
+        self.compute_detailed_on_csr(graph.num_symbols(), &p, seeds)
+    }
+
+    /// Computes Personalized PageRank diffusion scores and detailed error bounds on any row-stochastic CSR matrix.
+    ///
+    /// Evaluates the Andersen-Chung-Lang (2006) forward-push algorithm and computes point-wise
+    /// theoretical error bounds $\delta(v) \le \frac{\max(\varepsilon, r_{\max})}{\alpha} \max(1, d_{\text{in}}(v))$.
+    pub fn compute_detailed_on_csr(
+        &self,
+        num_nodes: usize,
+        csr: &CsrMatrix,
+        seeds: &[(SymbolId, f32)],
+    ) -> PprResult {
+        let n = num_nodes;
         if n == 0 || seeds.is_empty() {
             return PprResult::default();
         }
 
         let alpha = self.config.alpha;
         let epsilon = self.config.epsilon;
-        let csr = graph.transition_csr();
 
         let mut p = vec![0.0_f32; n];
         let mut r = vec![0.0_f32; n];
@@ -454,5 +527,50 @@ mod tests {
 
         let res = solver.compute_detailed(&graph, &[]);
         assert_eq!(res, PprResult::default());
+    }
+
+    #[test]
+    fn test_ppr_multiplex_task_conditioned() {
+        use crate::symbol::RelationType;
+
+        let symbols = vec![
+            make_test_node(0, "entry", "main.rs"),
+            make_test_node(1, "service", "lib.rs"),
+            make_test_node(2, "test_service", "test.rs"),
+            make_test_node(3, "docs", "doc.rs"),
+        ];
+
+        let typed_edges = vec![
+            (0, 1, RelationType::Calls, 1.0),
+            (0, 3, RelationType::Contains, 1.0),
+            (2, 1, RelationType::IsTestedBy, 1.0),
+        ];
+
+        let graph = MultiplexCsrGraph::from_typed_edges(symbols, &typed_edges);
+        let solver = PprSolver::default();
+
+        let bug_task = TaskContext::from_prompt("fix regression in service");
+        let doc_task = TaskContext::from_prompt("write user guide documentation");
+
+        let res_bug = solver.compute_multiplex(&graph, &bug_task, &[(SymbolId(0), 1.0)]);
+        let res_doc = solver.compute_multiplex(&graph, &doc_task, &[(SymbolId(0), 1.0)]);
+
+        let score_1_bug = res_bug.get(&SymbolId(1)).copied().unwrap_or(0.0);
+        let score_3_bug = res_bug.get(&SymbolId(3)).copied().unwrap_or(0.0);
+        assert!(
+            score_1_bug > score_3_bug,
+            "Bug task should prioritize service over docs: {} vs {}",
+            score_1_bug,
+            score_3_bug
+        );
+
+        let score_1_doc = res_doc.get(&SymbolId(1)).copied().unwrap_or(0.0);
+        let score_3_doc = res_doc.get(&SymbolId(3)).copied().unwrap_or(0.0);
+        assert!(
+            score_3_doc > score_1_doc,
+            "Doc task should prioritize docs over service: {} vs {}",
+            score_3_doc,
+            score_1_doc
+        );
     }
 }
