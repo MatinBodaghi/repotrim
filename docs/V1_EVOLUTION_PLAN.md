@@ -1,6 +1,6 @@
-# RepoTrim: v1.0 Evolution Master Plan & Management Blueprint
+# RepoTrim: Mathematical Evolution & Codebase Intelligence Master Plan
 
-> **Mission:** "Transition RepoTrim from a static context-selection engine into a task-aware codebase intelligence layer for AI harnesses—grounded in typed multiplex graph theory, monotone submodular coverage, adaptive sequential navigation, and verifiable empirical guarantees."
+> **Mission:** "Transition RepoTrim from a static context-selection engine into a task-aware codebase intelligence layer for AI harnesses through progressive 0.x releases (`v0.6.0` → `v0.11.0+`)—grounded in typed multiplex graph theory, monotone submodular coverage, adaptive sequential navigation, and verifiable empirical guarantees, preserving rapid iteration without premature `v1.0.0` API lock-in."
 
 ---
 
@@ -10,7 +10,7 @@
 Today, RepoTrim maximizes a static set utility under a token budget:
 $$\max_{S \subseteq V} U(S \mid q, G) \quad \text{s.t.} \quad C(S) \le B$$
 
-The v1.0 evolution broadens this from one-shot retrieval into **budgeted, task-aware codebase navigation**:
+This evolution broadens the engine from one-shot retrieval into **budgeted, task-aware codebase navigation**:
 $$\max_{\pi} \Pr(\text{success} \mid q, G, \pi) \quad \text{s.t.} \quad \mathrm{Cost}(\pi) \le B$$
 where exploration cost is modeled across tokens, tool calls, and latency:
 $$\mathrm{Cost}(\pi) = \alpha T_{in}(\pi) + \beta T_{out}(\pi) + \gamma N_{tool}(\pi) + \delta N_{file}(\pi) + \eta L(\pi)$$
@@ -50,19 +50,19 @@ $$\mathrm{Cost}(\pi) = \alpha T_{in}(\pi) + \beta T_{out}(\pi) + \gamma N_{tool}
 ## 2. Git Branching & Engineering Discipline
 
 ### 2.1 Branch Topology
-All work originates from and integrates back into `v1.0-dev`. The `main` branch remains untouched at `v0.5.0` until all milestones pass verification.
+All work originates from and integrates back into `dev`. The `main` branch remains untouched at `v0.5.0` until intermediate releases are tagged. **Version `v1.0.0` is strictly untouched**; releases continue across `v0.6.0` through `v0.11.0+` to allow ongoing empirical research and dogfooding.
 
 ```text
-main (v0.5.0) ───────────────────────────────────────────────────────────────► (v1.0.0 Release)
-  │                                                                               ▲
-  └───► v1.0-dev (Primary Integration Branch) ────────────────────────────────────┤
-          │                                                                       │
-          ├── feature/typed-code-graph-multiplex (Milestone 1) ───────────────────┤
-          ├── feature/submodular-coverage-utility (Milestone 2) ──────────────────┤
-          ├── feature/path-inference-structured-context (Milestone 3) ────────────┤
-          ├── feature/intelligence-primitives-mcp (Milestone 4) ──────────────────┤
-          ├── feature/adaptive-submodular-navigation (Milestone 5) ───────────────┤
-          └── feature/eval-harness-ablation-paper (Milestone 6) ──────────────────┘
+main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 tag]───[v0.9.0 tag]───►
+  │                           ▲              ▲              ▲              ▲
+  └───► dev (Integration) ────┴──────────────┴──────────────┴──────────────┴────────►
+          │
+          ├── feature/typed-code-graph-multiplex (Milestone 1 -> v0.6.0)
+          ├── feature/submodular-coverage-utility (Milestone 2 -> v0.7.0)
+          ├── feature/path-inference-structured-context (Milestone 3 -> v0.8.0)
+          ├── feature/intelligence-primitives-mcp (Milestone 4 -> v0.9.0)
+          ├── feature/adaptive-submodular-navigation (Milestone 5 -> v0.10.0)
+          └── feature/eval-harness-ablation-paper (Milestone 6 -> v0.11.0)
 ```
 
 ### 2.2 Quality & Commit Governance
@@ -89,7 +89,10 @@ main (v0.5.0) ──────────────────────
 | **Milestone 3** | `v0.8.0` | Path Reasoning, Energy Scoring & Structured Context | `feature/path-inference-structured-context` | `[PLANNED]` |
 | **Milestone 4** | `v0.9.0` | Codebase Intelligence Primitives & MCP Contracts | `feature/intelligence-primitives-mcp` | `[PLANNED]` |
 | **Milestone 5** | `v0.10.0` | Sequential Exploration & Adaptive Submodular Navigation | `feature/adaptive-submodular-navigation` | `[PLANNED]` |
-| **Milestone 6** | `v1.0.0-rc` | 7-Tier Ablation Harness, Theoretical Proofs & API Freeze | `feature/eval-harness-ablation-paper` | `[PLANNED]` |
+| **Milestone 6** | `v0.11.0` | 7-Tier Ablation Suite, Proofs & Engine Modularization | `feature/eval-harness-ablation-paper` | `[PLANNED]` |
+
+> [!NOTE]
+> Releases continue sequentially in `0.x` (`v0.6.0` through `v0.11.0`, and further to `v0.12.0+` if additional algorithms are developed). `v1.0.0` will NOT be released or targeted until extensive dogfooding, stability, and evaluation are established.
 
 ---
 
@@ -505,7 +508,7 @@ main (v0.5.0) ──────────────────────
 
 ---
 
-## 9. Milestone 6 (`v1.0.0-rc`): Empirical Validation, Proofs & Release
+## 9. Milestone 6 (`v0.11.0`): Empirical Validation, Proofs & Engine Modularization
 
 **Branch:** `feature/eval-harness-ablation-paper`
 
@@ -565,8 +568,8 @@ main (v0.5.0) ──────────────────────
 
 ---
 
-### Phase 44: Formal Theoretical Proofs, Citations & Public API Stabilization
-- **Objective:** Document formal mathematical proofs (monotonicity, submodularity, knapsack bounds), add all citations per `AGENTS.md`, and freeze the public API in `repotrim-engine`.
+### Phase 44: Formal Theoretical Proofs, Citations & Engine Modularization
+- **Objective:** Document formal mathematical proofs (monotonicity, submodularity, knapsack bounds), add all citations per `AGENTS.md`, and refine engine module organization for `v0.11.0`.
 
 #### Commit Breakdown
 - **Commit 44.1 (`docs: Document formal mathematical proofs and theorems`)**:
@@ -583,19 +586,19 @@ main (v0.5.0) ──────────────────────
   Add formal citations for Golovin & Krause (2011), Sviridenko (2004),
   Nemhauser et al. (1978), and Haveliwala (2003) across documentation.
   ```
-- **Commit 44.3 (`refactor: Stabilize public crate exports for v1.0`)**:
+- **Commit 44.3 (`refactor: Modularize public engine exports for v0.11.0`)**:
   ```text
-  refactor: Stabilize public crate exports for v1.0
+  refactor: Modularize public engine exports for v0.11.0
 
-  Audit repotrim-engine lib.rs exports, sealing internal implementation
-  details and locking public trait interfaces for SemVer 1.0 stability.
+  Clean up repotrim-engine exports, ensuring modular trait boundaries
+  and clean separation between production and oracle modules.
   ```
-- **Commit 44.4 (`chore: Release v1.0.0 prep and changelog compilation`)**:
+- **Commit 44.4 (`chore: Prepare v0.11.0 release and documentation`)**:
   ```text
-  chore: Release v1.0.0 prep and changelog compilation
+  chore: Prepare v0.11.0 release and documentation
 
-  Update Cargo.toml workspace package versions to 1.0.0, compile master
-  v1.0 changelog, and ensure all CI verification checks pass cleanly.
+  Update Cargo.toml workspace versions to 0.11.0, compile master
+  changelog, and ensure all CI verification checks pass cleanly.
   ```
 
 ---
@@ -604,6 +607,6 @@ main (v0.5.0) ──────────────────────
 
 | Step | Action | Command / Target |
 | :--- | :--- | :--- |
-| **1** | Verify current branch is `v1.0-dev` | `git status` |
+| **1** | Verify current branch is `dev` | `git status` |
 | **2** | Create first feature branch for Milestone 1 | `git checkout -b feature/typed-code-graph-multiplex` |
 | **3** | Begin Phase 31 (Commit 31.1) | Define `NodeType` & `RelationType` schemas in `crates/engine` |
