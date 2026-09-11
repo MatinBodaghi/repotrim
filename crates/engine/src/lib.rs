@@ -24,6 +24,7 @@ pub mod resolver;
 pub mod retrieval;
 pub mod selector;
 pub mod slicer;
+pub mod submodular;
 pub mod symbol;
 pub mod task;
 pub mod tokens;
@@ -73,6 +74,7 @@ pub use retrieval::{
 };
 pub use selector::{AutoBudgetReport, ContextSelector};
 pub use slicer::AstSlicer;
+pub use submodular::{SubmodularConfig, SubmodularUtility, UtilityState};
 pub use symbol::{
     EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,
     TextSpan,
