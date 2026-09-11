@@ -325,8 +325,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 37: Structured Context Object & Diagnostic Explanation Metadata
-- **Branch:** `feature/structured-context`
+### Phase 37: Structured Context Object & Diagnostic Explanation Metadata `[COMPLETED]`
+- **Branch:** `feature/structured-context` (completed & merged into `dev`)
 - **Objective:** Transition output from raw text dumps to a structured context object $\mathcal{C} = (V_C, E_C, M_C)$ with explicit rationale, confidence, and omission diagnostics.
 - **Math Formulation:**
   - Context object schema:
