@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-12
+
+### Added
+- **Task-Relevant Path Inference & Probabilistic Energy Scoring (Phase 36)**:
+  - Implemented `ExecutionPath`, `PathFinder`, and `PathFinderConfig` for constrained multi-hop loopless dependency path discovery connecting seed entrypoints to candidate targets over `MultiplexCsrGraph`.
+  - Implemented `PathScorer` and `PathScorerConfig` calculating length-penalized path energy scores $\mathrm{Score}(p \mid q)$ and normalized Boltzmann probabilities $P(p \mid q, G) \propto \exp(\mathrm{Score}(p \mid q)/T)$ with log-sum-exp numerical stabilization.
+  - Extended `SubmodularUtility` and `SubmodularConfig` with soft path coverage $\mathrm{Path}(S; q, G) = \sum_{p} w_p [1 - \prod_{v \in S \cap p} (1 - k_{p, v})]$ and weight $\gamma \ge 0$, ensuring unbroken causal execution chains without isolated gaps.
+  - Added unit, proptest, and invariant suites in `tests/path_energy_test.rs` proving Boltzmann probability conservation ($\sum P(p) = 1.0 \pm 10^{-5}$) and path-preserving selection; added Academic Reference #27 to `README.md`.
+- **Structured Context Object & Diagnostic Explanation Metadata (Phase 37)**:
+  - Implemented `StructuredContext` encapsulating task metadata, extracted code symbols (`StructuredSymbol`), typed dependency edges (`StructuredEdge`), causal path traces (`PathTrace`), cost breakdown (`CostBreakdown`), and omission diagnostics (`OmissionDiagnostic`).
+  - Implemented `OmissionDiagnostician` analyzing candidate symbols omitted during budgeted knapsack selection, classifying pruning causes into `BudgetExhausted`, `RedundancySuppressed`, `MarginalUtilityDepleted`, and `BelowCutoffThreshold`.
+  - Implemented aggregate `confidence_score` measuring context coverage completeness combining relevance mass preservation, budget utilization, and causal path integrity.
+  - Added dual serializers: formatted JSON (`to_json`, `to_json_pretty`, `from_json`) and structured Markdown report (`to_markdown`) with embedded Mermaid flowchart topology and sequence diagrams.
+  - Integrated `ContextSelector::select_structured_context` and `select_structured_context_weighted` synthesizing complete structured context graphs end-to-end.
+  - Added integration test suite in `tests/structured_context_test.rs` verifying schema validation, JSON round-trip consistency, and omission diagnostic correctness.
+
+---
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
