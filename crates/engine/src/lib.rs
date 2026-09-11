@@ -57,7 +57,7 @@ pub use intent::IntentResolver;
 pub use knee::{KneePoint, KneedleDetector};
 pub use loader::{CacheReport, LoadedRepository};
 pub use model::ModelProfile;
-pub use multiplex::MultiplexCsrGraph;
+pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use resolver::ScopedResolver;

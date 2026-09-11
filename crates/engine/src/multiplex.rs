@@ -18,9 +18,136 @@
 use serde::{Deserialize, Serialize};
 
 use crate::csr::CsrMatrix;
+use crate::graph::LayerWeights;
 use crate::import::FileImport;
 use crate::resolver::ScopedResolver;
 use crate::symbol::{EdgeKind, ReferenceEdge, RelationType, SymbolId, SymbolNode};
+use crate::task::{TaskContext, TaskKind};
+
+/// Tensor weights assigned to orthogonal edge relation types $\mathcal{R}$ in the Multiplex CPG.
+///
+/// Enables task-conditioned scaling: $A = \sum_{r \in \mathcal{R}} \omega_r(q) A_r$.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RelationWeights {
+    /// Array of relation weights indexed by `RelationType::index()`.
+    pub weights: [f32; RelationType::COUNT],
+}
+
+impl Default for RelationWeights {
+    fn default() -> Self {
+        let mut weights = [1.0_f32; RelationType::COUNT];
+        weights[RelationType::Imports.index()] = 0.4;
+        weights[RelationType::Calls.index()] = 1.0;
+        weights[RelationType::References.index()] = 0.6;
+        weights[RelationType::Inherits.index()] = 0.8;
+        weights[RelationType::Implements.index()] = 0.9;
+        weights[RelationType::Contains.index()] = 0.7;
+        weights[RelationType::BelongsTo.index()] = 0.8;
+        weights[RelationType::Returns.index()] = 0.5;
+        weights[RelationType::Accepts.index()] = 0.5;
+        weights[RelationType::Reads.index()] = 0.6;
+        weights[RelationType::Writes.index()] = 0.7;
+        weights[RelationType::Configures.index()] = 0.4;
+        weights[RelationType::IsTestedBy.index()] = 0.7;
+        weights[RelationType::CoChangesWith.index()] = 0.6;
+        Self { weights }
+    }
+}
+
+impl RelationWeights {
+    /// Creates a uniform weight distribution where every relation has the given scalar weight.
+    pub fn uniform(weight: f32) -> Self {
+        Self {
+            weights: [weight.max(0.0); RelationType::COUNT],
+        }
+    }
+
+    /// Returns the weight assigned to the specified relation type.
+    #[inline]
+    pub fn weight_for(&self, rel: RelationType) -> f32 {
+        self.weights[rel.index()]
+    }
+
+    /// Sets the weight for a specific relation type.
+    #[inline]
+    pub fn set_weight(&mut self, rel: RelationType, weight: f32) {
+        self.weights[rel.index()] = weight.max(0.0);
+    }
+
+    /// Derives relation weights from existing `LayerWeights`.
+    pub fn from_layer_weights(lw: &LayerWeights) -> Self {
+        let mut rw = Self::default();
+        rw.set_weight(RelationType::Calls, lw.call);
+        rw.set_weight(RelationType::References, lw.type_ref);
+        rw.set_weight(RelationType::Imports, lw.import);
+        rw.set_weight(RelationType::Contains, lw.ast_parent);
+        rw.set_weight(RelationType::BelongsTo, lw.ast_parent);
+        rw.set_weight(RelationType::CoChangesWith, lw.co_edit);
+        rw
+    }
+
+    /// Derives task-conditioned relation weights $\boldsymbol{\omega}(q)$ based on the structured `TaskContext`.
+    ///
+    /// Dynamically scales edge relevance based on high-level operational intent:
+    /// - `BugFix`: upweights test linkages, call invocations, mutation accesses, and co-edits.
+    /// - `TestCreationOrFix`: heavily prioritizes `IsTestedBy` and execution call graph.
+    /// - `Refactor`: emphasizes type inheritance, interface implementations, and containment hierarchy.
+    /// - `PerformanceOptimization`: prioritizes runtime call graph and field reads/writes.
+    /// - `Documentation`: prioritizes structural containment and declarations over raw invocations.
+    /// - `SecurityHardening`: prioritizes input acceptance, mutations, and caller boundaries.
+    /// - `ArchitecturalAnalysis`: prioritizes module imports, inheritance, and implementations.
+    pub fn from_task(task: &TaskContext) -> Self {
+        let mut rw = Self::default();
+        match task.kind() {
+            TaskKind::Bugfix => {
+                rw.set_weight(RelationType::Calls, 1.2);
+                rw.set_weight(RelationType::IsTestedBy, 1.6);
+                rw.set_weight(RelationType::CoChangesWith, 1.2);
+                rw.set_weight(RelationType::Writes, 1.0);
+                rw.set_weight(RelationType::Reads, 0.8);
+                rw.set_weight(RelationType::BelongsTo, 0.9);
+            }
+            TaskKind::TestCreation => {
+                rw.set_weight(RelationType::IsTestedBy, 2.5);
+                rw.set_weight(RelationType::Calls, 1.3);
+                rw.set_weight(RelationType::Contains, 1.0);
+                rw.set_weight(RelationType::BelongsTo, 1.0);
+                rw.set_weight(RelationType::CoChangesWith, 0.9);
+            }
+            TaskKind::Refactor => {
+                rw.set_weight(RelationType::Inherits, 1.6);
+                rw.set_weight(RelationType::Implements, 1.6);
+                rw.set_weight(RelationType::Contains, 1.3);
+                rw.set_weight(RelationType::BelongsTo, 1.3);
+                rw.set_weight(RelationType::References, 1.1);
+                rw.set_weight(RelationType::Imports, 0.9);
+            }
+            TaskKind::Feature => {
+                rw.set_weight(RelationType::Calls, 1.1);
+                rw.set_weight(RelationType::Implements, 1.3);
+                rw.set_weight(RelationType::Inherits, 1.1);
+                rw.set_weight(RelationType::Contains, 1.0);
+                rw.set_weight(RelationType::Imports, 0.7);
+            }
+            TaskKind::Exploration => {
+                rw.set_weight(RelationType::Imports, 1.5);
+                rw.set_weight(RelationType::Implements, 1.5);
+                rw.set_weight(RelationType::Inherits, 1.3);
+                rw.set_weight(RelationType::Contains, 1.2);
+                rw.set_weight(RelationType::Calls, 1.1);
+            }
+            TaskKind::Documentation => {
+                rw.set_weight(RelationType::Contains, 1.6);
+                rw.set_weight(RelationType::BelongsTo, 1.3);
+                rw.set_weight(RelationType::References, 0.9);
+                rw.set_weight(RelationType::Calls, 0.4);
+                rw.set_weight(RelationType::CoChangesWith, 0.2);
+            }
+            TaskKind::General => {}
+        }
+        rw
+    }
+}
 
 /// In-memory Typed Multiplex Compressed Sparse Row (CSR) Code Property Graph.
 ///
@@ -293,6 +420,42 @@ impl MultiplexCsrGraph {
     pub fn transpose_slice(&self, rel: RelationType) -> CsrMatrix {
         self.slices[rel.index()].transpose()
     }
+
+    /// Assembles an unnormalized accumulated adjacency matrix $A = \sum_{r \in \mathcal{R}} \omega_r A_r$.
+    pub fn build_raw_matrix(&self, weights: &RelationWeights) -> CsrMatrix {
+        let n = self.num_symbols();
+        let mut directed_edges = Vec::with_capacity(self.total_edges);
+
+        for r in RelationType::ALL {
+            let w_r = weights.weight_for(r);
+            if w_r <= 0.0 {
+                continue;
+            }
+
+            let slice = self.slice(r);
+            for row in 0..n {
+                let (cols, ws) = slice.row_slice(row as u32);
+                for (&col, &weight) in cols.iter().zip(ws.iter()) {
+                    directed_edges.push((row as u32, col, w_r * weight));
+                }
+            }
+        }
+
+        CsrMatrix::from_edges(n, n, directed_edges)
+    }
+
+    /// Assembles a row-stochastic transition probability matrix $P_q = \text{Normalize}\left(\sum_{r} \omega_r A_r\right)$.
+    ///
+    /// For every non-sink node $u$, row weights sum strictly to 1.0.
+    pub fn build_transition_matrix(&self, weights: &RelationWeights) -> CsrMatrix {
+        self.build_raw_matrix(weights).row_normalized()
+    }
+
+    /// Assembles a task-conditioned row-stochastic transition matrix $P_q$ conditioned on the given `TaskContext`.
+    pub fn build_task_conditioned_matrix(&self, task: &TaskContext) -> CsrMatrix {
+        let weights = RelationWeights::from_task(task);
+        self.build_transition_matrix(&weights)
+    }
 }
 
 #[cfg(test)]
@@ -404,5 +567,48 @@ mod tests {
         let t_calls = graph.transpose_slice(RelationType::Calls);
         assert_eq!(t_calls.neighbors(1), &[0]);
         assert_eq!(t_calls.weights(1), &[1.0]);
+    }
+
+    #[test]
+    fn test_task_conditioned_transition_matrix_builder() {
+        let symbols = vec![
+            make_test_node(0, "entrypoint"),
+            make_test_node(1, "core_service"),
+            make_test_node(2, "test_core_service"),
+        ];
+
+        let typed_edges = vec![
+            (0, 1, RelationType::Calls, 1.0),
+            (2, 1, RelationType::IsTestedBy, 1.0),
+            (1, 0, RelationType::CoChangesWith, 1.0),
+            (0, 1, RelationType::Contains, 1.0),
+        ];
+
+        let graph = MultiplexCsrGraph::from_typed_edges(symbols, &typed_edges);
+
+        let uniform_weights = RelationWeights::uniform(1.0);
+        let raw_uniform = graph.build_raw_matrix(&uniform_weights);
+        assert_eq!(raw_uniform.neighbors(0), &[1]);
+        assert_eq!(raw_uniform.weights(0), &[2.0]);
+
+        let trans_uniform = graph.build_transition_matrix(&uniform_weights);
+        assert_eq!(trans_uniform.weights(0), &[1.0]);
+        assert_eq!(trans_uniform.weights(2), &[1.0]);
+
+        let bug_task = TaskContext::from_prompt("fix null pointer bug in core service");
+        let p_bug = graph.build_task_conditioned_matrix(&bug_task);
+        assert_eq!(p_bug.weights(0), &[1.0]);
+        assert_eq!(p_bug.weights(2), &[1.0]);
+
+        let doc_task = TaskContext::from_prompt("write architecture documentation and overview");
+        let w_bug = RelationWeights::from_task(&bug_task);
+        let w_doc = RelationWeights::from_task(&doc_task);
+        assert!(w_bug.weight_for(RelationType::Calls) > w_doc.weight_for(RelationType::Calls));
+        assert!(
+            w_bug.weight_for(RelationType::IsTestedBy) > w_doc.weight_for(RelationType::IsTestedBy)
+        );
+        assert!(
+            w_doc.weight_for(RelationType::Contains) > w_bug.weight_for(RelationType::Contains)
+        );
     }
 }

@@ -162,6 +162,12 @@ impl TaskContext {
         }
     }
 
+    /// Creates a new `TaskContext` from a natural language prompt string.
+    #[inline]
+    pub fn from_prompt(prompt: &str) -> Self {
+        Self::from_query(prompt)
+    }
+
     /// Creates a `TaskContext` with explicit seed symbol hints.
     pub fn with_seeds(query: &str, seeds: Vec<String>) -> Self {
         let mut ctx = Self::from_query(query);
