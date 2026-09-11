@@ -271,6 +271,193 @@ impl StructuredContext {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
+
+    /// Generates a Mermaid flowchart diagram representing the context dependency topology.
+    pub fn generate_mermaid_flowchart(&self) -> String {
+        if self.symbols.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("```mermaid\ngraph TD\n");
+        for sym in &self.symbols {
+            let clean_name = sym.name.replace('"', "'");
+            out.push_str(&format!(
+                "    s{}[\"{}\\n({})\"]\n",
+                sym.id.0, clean_name, sym.node_type
+            ));
+        }
+        for edge in &self.edges {
+            out.push_str(&format!(
+                "    s{} -->|{:?}| s{}\n",
+                edge.source.0, edge.relation, edge.target.0
+            ));
+        }
+        out.push_str("```\n");
+        out
+    }
+
+    /// Generates a Mermaid sequence diagram representing causal execution pathways.
+    pub fn generate_mermaid_sequence(&self) -> String {
+        if self.paths.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("```mermaid\nsequenceDiagram\n");
+        let mut participants = HashSet::new();
+        for path in &self.paths {
+            for &node in &path.nodes {
+                if participants.insert(node) {
+                    let name = self
+                        .symbol_by_id(node)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("Unknown");
+                    out.push_str(&format!("    participant s{} as {}\n", node.0, name));
+                }
+            }
+            for (i, pair) in path.nodes.windows(2).enumerate() {
+                let rel = path
+                    .relations
+                    .get(i)
+                    .copied()
+                    .unwrap_or(RelationType::Calls);
+                out.push_str(&format!("    s{}->>s{}: {:?}\n", pair[0].0, pair[1].0, rel));
+            }
+        }
+        out.push_str("```\n");
+        out
+    }
+
+    /// Renders the structured context into a comprehensive, transparent Markdown report.
+    pub fn to_markdown(&self) -> String {
+        let mut out = String::new();
+
+        out.push_str("# RepoTrim Structured Context Report\n\n");
+
+        // Summary metrics
+        out.push_str(&format!(
+            "- **Confidence Score:** {:.2} / 1.00\n",
+            self.confidence_score
+        ));
+        let pct = if self.budget_limit > 0 {
+            (self.tokens_used as f32 / self.budget_limit as f32) * 100.0
+        } else {
+            0.0
+        };
+        out.push_str(&format!(
+            "- **Token Consumption:** {} / {} tokens ({:.1}%)\n",
+            self.tokens_used, self.budget_limit, pct
+        ));
+        out.push_str(&format!("- **Selected Symbols:** {}\n", self.symbols.len()));
+        out.push_str(&format!("- **Dependency Edges:** {}\n", self.edges.len()));
+        out.push_str(&format!("- **Causal Paths:** {}\n", self.paths.len()));
+        out.push_str(&format!(
+            "- **Omitted Candidates:** {}\n",
+            self.omissions.len()
+        ));
+
+        if let Some(task) = &self.task {
+            out.push_str("\n## Task Context\n");
+            out.push_str(&format!("- **Task Kind:** {:?}\n", task.kind()));
+            out.push_str(&format!("- **Query:** \"{}\"\n", task.query));
+        }
+
+        // Cost Breakdown Table
+        out.push_str("\n## Token Cost Breakdown\n\n");
+        out.push_str("| Component | Tokens | Fraction |\n|:---|---:|---:|\n");
+        let tot = self.cost_breakdown.total().max(1) as f32;
+        out.push_str(&format!(
+            "| Code Text | {} | {:.1}% |\n",
+            self.cost_breakdown.text_cost,
+            (self.cost_breakdown.text_cost as f32 / tot) * 100.0
+        ));
+        out.push_str(&format!(
+            "| Entity Metadata | {} | {:.1}% |\n",
+            self.cost_breakdown.meta_cost,
+            (self.cost_breakdown.meta_cost as f32 / tot) * 100.0
+        ));
+        out.push_str(&format!(
+            "| Relation Edges | {} | {:.1}% |\n",
+            self.cost_breakdown.rel_cost,
+            (self.cost_breakdown.rel_cost as f32 / tot) * 100.0
+        ));
+        out.push_str(&format!(
+            "| Markdown Framing | {} | {:.1}% |\n",
+            self.cost_breakdown.format_cost,
+            (self.cost_breakdown.format_cost as f32 / tot) * 100.0
+        ));
+        out.push_str(&format!(
+            "| **Total** | **{}** | **100.0%** |\n",
+            self.cost_breakdown.total()
+        ));
+
+        // Causal Execution Pathways
+        if !self.paths.is_empty() {
+            out.push_str("\n## Causal Execution Pathways\n\n");
+            out.push_str(&self.generate_mermaid_sequence());
+            out.push_str("\n| Path Trace | Probability | Rationale |\n|:---|---:|:---|\n");
+            for p in &self.paths {
+                out.push_str(&format!(
+                    "| `{}` | {:.3} | {} |\n",
+                    p.trace, p.probability, p.rationale
+                ));
+            }
+        }
+
+        // Dependency Topology Diagram
+        if !self.edges.is_empty() {
+            out.push_str("\n## Context Dependency Topology\n\n");
+            out.push_str(&self.generate_mermaid_flowchart());
+        }
+
+        // Selected Code Symbols (grouped by file)
+        out.push_str("\n## Extracted Code Symbols\n");
+        let mut by_file: HashMap<&PathBuf, Vec<&StructuredSymbol>> = HashMap::new();
+        for s in &self.symbols {
+            by_file.entry(&s.file_path).or_default().push(s);
+        }
+
+        let mut sorted_files: Vec<&PathBuf> = by_file.keys().copied().collect();
+        sorted_files.sort();
+
+        for file_path in sorted_files {
+            out.push_str(&format!("\n### `{}`\n\n", file_path.display()));
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let lang = match ext {
+                "rs" => "rust",
+                "py" => "python",
+                "ts" | "tsx" => "typescript",
+                "js" | "jsx" => "javascript",
+                "go" => "go",
+                _ => "",
+            };
+
+            for sym in &by_file[file_path] {
+                out.push_str(&format!(
+                    "// [{:?} | Cost: {} tokens | Score: {:.3}]\n",
+                    sym.lod, sym.token_cost, sym.score
+                ));
+                out.push_str(&format!("```{}\n{}\n```\n\n", lang, sym.code));
+            }
+        }
+
+        // Candidate Omission Diagnostics
+        if !self.omissions.is_empty() {
+            out.push_str("\n## Candidate Omission Diagnostics\n\n");
+            out.push_str("| Symbol | File | Reason | Cost | Relevance | Marginal Gain | Explanation |\n|:---|:---|:---|---:|---:|---:|:---|\n");
+            for o in &self.omissions {
+                out.push_str(&format!(
+                    "| `{}` | `{}` | {} | {} | {:.4} | {:.4} | {} |\n",
+                    o.name,
+                    o.file_path.display(),
+                    o.reason,
+                    o.token_cost,
+                    o.relevance_score,
+                    o.marginal_utility,
+                    o.explanation
+                ));
+            }
+        }
+
+        out
+    }
 }
 
 /// Diagnostician analyzing omitted candidates after budgeted knapsack selection.
@@ -584,5 +771,97 @@ mod tests {
         ctx.update_confidence_score(1.0);
         // 0.79 + 0.10 * 0.95 = 0.885
         assert!((ctx.confidence_score - 0.885).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_structured_context_markdown_and_mermaid_serialization() {
+        let mut ctx = StructuredContext::new(2000);
+        ctx.tokens_used = 250;
+        ctx.confidence_score = 0.95;
+        ctx.task = Some(TaskContext::from_query("implement user authentication"));
+
+        let sym1 = StructuredSymbol {
+            id: SymbolId(0),
+            name: "auth_middleware".to_string(),
+            file_path: PathBuf::from("src/auth.rs"),
+            span: TextSpan::new(10, 50, 2, 5),
+            kind: SymbolKind::Function,
+            node_type: NodeType::Function,
+            lod: LodLevel::SignatureAndDoc,
+            token_cost: 35,
+            score: 0.95,
+            container_name: None,
+            trait_name: None,
+            code: "pub fn auth_middleware(req: &Request)".to_string(),
+        };
+        let sym2 = StructuredSymbol {
+            id: SymbolId(1),
+            name: "verify_token".to_string(),
+            file_path: PathBuf::from("src/jwt.rs"),
+            span: TextSpan::new(20, 80, 4, 10),
+            kind: SymbolKind::Function,
+            node_type: NodeType::Function,
+            lod: LodLevel::FullBody,
+            token_cost: 90,
+            score: 0.85,
+            container_name: None,
+            trait_name: None,
+            code: "pub fn verify_token(token: &str) -> bool { true }".to_string(),
+        };
+
+        ctx.symbols.push(sym1);
+        ctx.symbols.push(sym2);
+
+        ctx.edges.push(StructuredEdge {
+            source: SymbolId(0),
+            target: SymbolId(1),
+            relation: RelationType::Calls,
+            weight: 0.90,
+        });
+
+        ctx.paths.push(PathTrace {
+            nodes: vec![SymbolId(0), SymbolId(1)],
+            relations: vec![RelationType::Calls],
+            trace: "auth_middleware --[Calls]--> verify_token".to_string(),
+            probability: 0.88,
+            rationale: "Direct authentication call flow".to_string(),
+        });
+
+        ctx.record_omission(
+            SymbolId(2),
+            "old_hasher",
+            PathBuf::from("src/hash.rs"),
+            120,
+            0.15,
+            0.01,
+            OmissionReason::BudgetExhausted,
+            "Exceeded remaining budget limit",
+        );
+
+        ctx.cost_breakdown = CostBreakdown::new(125, 20, 15, 30);
+
+        let flowchart = ctx.generate_mermaid_flowchart();
+        assert!(flowchart.contains("graph TD"));
+        assert!(flowchart.contains("auth_middleware"));
+        assert!(flowchart.contains("verify_token"));
+        assert!(flowchart.contains("s0 -->|Calls| s1"));
+
+        let sequence = ctx.generate_mermaid_sequence();
+        assert!(sequence.contains("sequenceDiagram"));
+        assert!(sequence.contains("s0->>s1: Calls"));
+
+        let md = ctx.to_markdown();
+        assert!(md.contains("# RepoTrim Structured Context Report"));
+        assert!(md.contains("- **Confidence Score:** 0.95 / 1.00"));
+        assert!(md.contains("## Task Context"));
+        assert!(md.contains("## Token Cost Breakdown"));
+        assert!(md.contains("## Causal Execution Pathways"));
+        assert!(md.contains("## Context Dependency Topology"));
+        assert!(md.contains("## Extracted Code Symbols"));
+        assert!(md.contains("### `src/auth.rs`"));
+        assert!(md.contains("### `src/jwt.rs`"));
+        assert!(md.contains("## Candidate Omission Diagnostics"));
+        assert!(md.contains("old_hasher"));
+        assert!(md.contains("Budget Exhausted"));
     }
 }

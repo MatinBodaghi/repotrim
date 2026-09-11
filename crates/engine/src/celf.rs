@@ -443,6 +443,12 @@ impl CelfOptimizer {
         Self { config }
     }
 
+    /// Returns a borrowed reference to the optimizer configuration.
+    #[inline]
+    pub fn config(&self) -> &CelfConfig {
+        &self.config
+    }
+
     /// Sets the tokenizer model for structural framing and cost calculations.
     pub fn with_tokenizer(mut self, model: TokenizerModel) -> Self {
         self.config.tokenizer_model = model;

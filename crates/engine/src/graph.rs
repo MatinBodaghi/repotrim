@@ -227,6 +227,11 @@ impl MultiplexGraph {
     pub fn transpose_csr(&self) -> CsrMatrix {
         self.raw_csr.transpose()
     }
+
+    /// Converts this graph's transition matrix into a `MultiplexCsrGraph` for path traversal.
+    pub fn to_multiplex_csr(&self) -> crate::multiplex::MultiplexCsrGraph {
+        crate::multiplex::MultiplexCsrGraph::from_csr(self.symbols.clone(), self.raw_csr.clone())
+    }
 }
 
 #[cfg(test)]
