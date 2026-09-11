@@ -587,6 +587,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 24. **Multilayer Code Property Graphs & Probabilistic Evidence Coverage:**
     - Manlio De Domenico, Albert Solé-Ribalta, Emanuele Cozzo, Mikko Kivelä, Yamir Moreno, Mason A. Porter, Sergio Gómez, Alex Arenas. *"Mathematical Formulation of Multilayer Networks"*. In *Physical Review X*, 3(4): 041022, 2013. [DOI: 10.1103/PhysRevX.3.041022](https://doi.org/10.1103/PhysRevX.3.041022).
     - Andreas Krause, Daniel Golovin. *"Submodular Function Maximization"*. In *Tractability: Practical Approaches to Hard Problems*, Cambridge University Press, pp. 71–104, 2014. [DOI: 10.1017/CBO9781139177800.004](https://doi.org/10.1017/CBO9781139177800.004).
+25. **Multi-Objective Submodular Utility & Knapsack Cost Models:**
+    - Hui Lin, Jeff Bilmes. *"A Class of Submodular Functions for Document Summarization"*. In *Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies (ACL/HLT 2011)*, pp. 510–520, 2011. [ACL Anthology](https://aclanthology.org/P11-1052/).
+    - Maxim Sviridenko. *"A note on maximizing a submodular set function subject to a knapsack constraint"*. In *Operations Research Letters*, 32(1): 41–43, 2004. [DOI: 10.1016/S0167-6377(03)00062-2](https://doi.org/10.1016/S0167-6377(03)00062-2).
 
 ---
 
