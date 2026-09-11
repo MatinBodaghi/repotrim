@@ -64,7 +64,10 @@ pub use retrieval::{
 };
 pub use selector::{AutoBudgetReport, ContextSelector};
 pub use slicer::AstSlicer;
-pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
+pub use symbol::{
+    EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,
+    TextSpan,
+};
 pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
 pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
 pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningReport};
