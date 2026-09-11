@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::ppr::PprResult;
+use crate::submodular::{SubmodularUtility, UtilityState};
 use crate::symbol::{LodLevel, SymbolId, SymbolNode};
 use crate::tokens::{count_tokens, TokenizerModel};
 
@@ -270,6 +271,37 @@ impl Ord for CelfItem {
     }
 }
 
+/// Element stored in the Submodular CELF max-priority queue.
+#[derive(Debug, Clone)]
+struct SubmodularCelfItem {
+    symbol_id: SymbolId,
+    cost: usize,
+    marginal_density: f32,
+    iteration: usize,
+}
+
+impl PartialEq for SubmodularCelfItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.marginal_density == other.marginal_density
+    }
+}
+
+impl Eq for SubmodularCelfItem {}
+
+impl PartialOrd for SubmodularCelfItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SubmodularCelfItem {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.marginal_density
+            .partial_cmp(&other.marginal_density)
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
 /// Element stored in the MCKP upgrade max-priority queue.
 #[derive(Debug, Clone)]
 struct MckpItem {
@@ -473,6 +505,104 @@ impl CelfOptimizer {
         budget: usize,
     ) -> Vec<SymbolId> {
         self.optimize_with_trace(graph, ppr_scores, budget).0
+    }
+
+    /// Solves submodular knapsack maximization over a `SubmodularUtility` model.
+    ///
+    /// Implements Cost-Effective Lazy Forward (CELF; Leskovec et al., 2007) with
+    /// Khuller et al. (1999) / Sviridenko (2004) best-singleton correction, guaranteeing
+    /// an approximation factor of at least $\frac{1}{2}(1 - 1/e) \approx 0.316$.
+    pub fn optimize_submodular(
+        &self,
+        utility: &SubmodularUtility,
+        candidates: &[SymbolId],
+        costs: &[usize],
+        budget: usize,
+    ) -> (Vec<SymbolId>, UtilityState) {
+        assert_eq!(
+            candidates.len(),
+            costs.len(),
+            "Candidate count must match costs count"
+        );
+
+        let empty_state = utility.new_state();
+        if candidates.is_empty() || budget == 0 {
+            return (Vec::new(), empty_state);
+        }
+
+        // 1. Filter out candidates exceeding total budget and find best feasible singleton
+        let mut best_singleton_state = empty_state.clone();
+        let mut best_singleton_util = 0.0_f32;
+
+        let mut feasible_items = Vec::with_capacity(candidates.len());
+        for (&id, &cost) in candidates.iter().zip(costs.iter()) {
+            if cost <= budget {
+                feasible_items.push((id, cost));
+                let mut singleton_s = utility.new_state();
+                let g = utility.add_symbol(&mut singleton_s, id, cost);
+                if g > best_singleton_util {
+                    best_singleton_util = g;
+                    best_singleton_state = singleton_s;
+                }
+            }
+        }
+
+        if feasible_items.is_empty() {
+            return (Vec::new(), empty_state);
+        }
+
+        // 2. Initialize CELF priority queue with initial marginal densities
+        let initial_state = utility.new_state();
+        let mut heap = BinaryHeap::with_capacity(feasible_items.len());
+
+        for &(id, cost) in &feasible_items {
+            let gain = utility.marginal_gain(&initial_state, id);
+            if gain > 0.0 && cost > 0 {
+                let density = gain / (cost as f32);
+                heap.push(SubmodularCelfItem {
+                    symbol_id: id,
+                    cost,
+                    marginal_density: density,
+                    iteration: 0,
+                });
+            }
+        }
+
+        // 3. Lazy CELF greedy selection loop
+        let mut greedy_state = utility.new_state();
+        let mut current_iteration = 0usize;
+
+        while let Some(mut top) = heap.pop() {
+            if greedy_state.contains(top.symbol_id) {
+                continue;
+            }
+
+            // If candidate cannot fit in remaining budget, discard
+            if greedy_state.total_tokens + top.cost > budget {
+                continue;
+            }
+
+            if top.iteration == current_iteration {
+                // Top item's density is fresh: greedily admit
+                utility.add_symbol(&mut greedy_state, top.symbol_id, top.cost);
+                current_iteration += 1;
+            } else {
+                // Recompute marginal density under current greedy state
+                let fresh_gain = utility.marginal_gain(&greedy_state, top.symbol_id);
+                if fresh_gain > 0.0 && top.cost > 0 {
+                    top.marginal_density = fresh_gain / (top.cost as f32);
+                    top.iteration = current_iteration;
+                    heap.push(top);
+                }
+            }
+        }
+
+        // 4. Khuller-Sviridenko Best-Singleton Correction
+        if best_singleton_util > greedy_state.total_utility {
+            (best_singleton_state.selected.clone(), best_singleton_state)
+        } else {
+            (greedy_state.selected.clone(), greedy_state)
+        }
     }
 
     /// Selects the optimal subset of symbols and records the cumulative utility trajectory.

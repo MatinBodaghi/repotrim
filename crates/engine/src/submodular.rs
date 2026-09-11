@@ -404,6 +404,26 @@ impl SubmodularUtility {
 
         gain
     }
+
+    /// Optimizes candidate selection using the Lazy CELF algorithm with best-singleton correction.
+    pub fn optimize_celf(
+        &self,
+        candidates: &[SymbolId],
+        costs: &[usize],
+        budget: usize,
+    ) -> (Vec<SymbolId>, UtilityState) {
+        crate::celf::CelfOptimizer::default().optimize_submodular(self, candidates, costs, budget)
+    }
+
+    /// Solves for the exact ground-truth global optimum using branch-and-bound (for instances <= 32).
+    pub fn optimize_exact(
+        &self,
+        candidates: &[SymbolId],
+        costs: &[usize],
+        budget: usize,
+    ) -> (Vec<SymbolId>, UtilityState) {
+        crate::oracle::ExactKnapsackOracle::default().solve(self, candidates, costs, budget)
+    }
 }
 
 #[cfg(test)]
@@ -504,5 +524,34 @@ mod tests {
             gain_with_pen <= gain_no_pen,
             "Redundancy penalty must discount marginal gain"
         );
+    }
+
+    #[test]
+    fn test_optimize_celf_knapsack_and_best_singleton() {
+        let (cov, rel) = build_test_setup();
+        let config = SubmodularConfig {
+            alpha: 0.5,
+            beta: 0.5,
+            delta: 0.0,
+            lambda: 0.0,
+            budget: 60,
+            normalize_components: true,
+        };
+        let util = SubmodularUtility::new(config, cov, rel);
+
+        let candidates = vec![SymbolId(0), SymbolId(1), SymbolId(2)];
+        let costs = vec![30, 25, 55];
+
+        let (selected, state) = util.optimize_celf(&candidates, &costs, 60);
+
+        assert!(!selected.is_empty());
+        assert!(state.total_tokens <= 60);
+        assert!(state.total_utility > 0.0);
+
+        // Zero budget yields empty selection
+        let (empty_sel, empty_state) = util.optimize_celf(&candidates, &costs, 0);
+        assert!(empty_sel.is_empty());
+        assert_eq!(empty_state.total_tokens, 0);
+        assert_eq!(empty_state.total_utility, 0.0);
     }
 }
