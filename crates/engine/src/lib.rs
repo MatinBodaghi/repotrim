@@ -6,6 +6,7 @@ pub mod community;
 pub mod csr;
 pub mod diff;
 pub mod error;
+pub mod eval;
 pub mod formatter;
 pub mod graph;
 pub mod impact;
@@ -43,6 +44,9 @@ pub use community::{
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;
 pub use error::EngineError;
+pub use eval::{
+    BenchmarkMetrics, BenchmarkRunner, BenchmarkScenario, BenchmarkSummary, ContextStrategy,
+};
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use impact::{ImpactAnalyzer, ImpactReport, ImpactSummary, RiskLevel};
