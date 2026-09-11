@@ -7,6 +7,7 @@ pub mod csr;
 pub mod diff;
 pub mod error;
 pub mod eval;
+pub mod evidence;
 pub mod formatter;
 pub mod graph;
 pub mod impact;
@@ -49,6 +50,7 @@ pub use error::EngineError;
 pub use eval::{
     BenchmarkMetrics, BenchmarkRunner, BenchmarkScenario, BenchmarkSummary, ContextStrategy,
 };
+pub use evidence::{EvidenceKernel, EvidenceKernelConfig, SparseKernelMatrix};
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
 pub use impact::{ImpactAnalyzer, ImpactReport, ImpactSummary, RiskLevel};
