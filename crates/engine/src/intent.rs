@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::symbol::{SymbolId, SymbolNode};
 
@@ -17,153 +17,6 @@ use crate::symbol::{SymbolId, SymbolNode};
 ///   Gao, L., Dai, Z., & Callan, J. (2021).
 ///   *COIL: Efficient Dense-Sparse Hybrid Retrieval*. arXiv:2104.07186.
 pub struct IntentResolver;
-
-/// Static domain ontology clusters for zero-overlap semantic expansion.
-const CONCEPT_CLUSTERS: &[&[&str]] = &[
-    // Authentication / Security / Crypto
-    &[
-        "auth",
-        "authenticate",
-        "login",
-        "token",
-        "credential",
-        "jwt",
-        "session",
-        "password",
-        "key",
-        "permission",
-        "oauth",
-        "rbac",
-        "crypto",
-        "secret",
-        "verify",
-        "security",
-        "secure",
-        "hash",
-        "signature",
-        "certificate",
-        "access",
-    ],
-    // Database / Storage / Persistence
-    &[
-        "db",
-        "database",
-        "query",
-        "sql",
-        "persist",
-        "repository",
-        "model",
-        "store",
-        "table",
-        "entity",
-        "cache",
-        "redis",
-        "postgres",
-        "sqlite",
-        "insert",
-        "migration",
-        "save",
-        "storage",
-        "record",
-        "transaction",
-    ],
-    // Networking / HTTP / API / Web
-    &[
-        "http", "network", "request", "response", "client", "server", "endpoint", "api", "fetch",
-        "route", "handler", "socket", "rpc", "rest", "gateway", "connect", "url", "webhook",
-    ],
-    // Parsing / Serialization / Pipeline / AST
-    &[
-        "parse",
-        "transform",
-        "process",
-        "serialize",
-        "deserialize",
-        "json",
-        "ast",
-        "stream",
-        "codec",
-        "buffer",
-        "extractor",
-        "grammar",
-        "syntax",
-        "tree",
-        "decode",
-        "encode",
-        "compile",
-    ],
-    // Graph / Algorithms / Mathematics / Ranking
-    &[
-        "calculate",
-        "compute",
-        "algorithm",
-        "graph",
-        "pagerank",
-        "ppr",
-        "celf",
-        "matrix",
-        "score",
-        "rank",
-        "metric",
-        "distance",
-        "cost",
-        "budget",
-        "vector",
-        "similarity",
-        "heuristic",
-        "traverse",
-        "bfs",
-        "dfs",
-    ],
-    // Lifecycle / Concurrency / Asynchrony
-    &[
-        "init", "start", "stop", "close", "thread", "async", "spawn", "worker", "pool", "mutex",
-        "channel", "run", "execute", "task", "daemon", "service", "schedule", "queue", "event",
-    ],
-    // Configuration / Environment / Flags
-    &[
-        "config",
-        "configuration",
-        "setting",
-        "env",
-        "environment",
-        "option",
-        "param",
-        "parameter",
-        "flag",
-        "property",
-        "preference",
-    ],
-    // Error / Logging / Diagnostics
-    &[
-        "error",
-        "exception",
-        "fault",
-        "warn",
-        "log",
-        "logger",
-        "trace",
-        "metric",
-        "diagnostic",
-        "report",
-        "panic",
-        "debug",
-    ],
-];
-
-/// Helper to test if a token matches any keyword in a concept cluster.
-fn cluster_matches_token(cluster: &[&str], token: &str) -> bool {
-    let t = token.to_lowercase();
-    for &kw in cluster {
-        if t == kw {
-            return true;
-        }
-        if t.len() >= 4 && kw.len() >= 4 && (t.starts_with(kw) || kw.starts_with(&t)) {
-            return true;
-        }
-    }
-    false
-}
 
 impl IntentResolver {
     /// Splits a string into normalized, lowercase tokens.
@@ -255,153 +108,23 @@ impl IntentResolver {
         query: &str,
         top_k: usize,
     ) -> Vec<(SymbolId, f32)> {
-        let query_trimmed = query.trim();
-        if query_trimmed.is_empty() || symbols.is_empty() || top_k == 0 {
-            return Vec::new();
-        }
-
-        let query_tokens = Self::tokenize(query_trimmed);
-        if query_tokens.is_empty() {
-            return Vec::new();
-        }
-
-        let query_trigrams = Self::trigrams(query_trimmed);
-        let n_docs = symbols.len() as f32;
-
-        // Precompute document frequencies for each query token
-        let mut doc_freqs: HashMap<&str, usize> = HashMap::new();
-        for token in &query_tokens {
-            let count = symbols
-                .iter()
-                .filter(|s| {
-                    s.name.to_lowercase().contains(token)
-                        || s.file_path.to_string_lossy().to_lowercase().contains(token)
-                        || s.signature.to_lowercase().contains(token)
-                        || s.docstring
-                            .as_deref()
-                            .is_some_and(|d| d.to_lowercase().contains(token))
-                })
-                .count();
-            doc_freqs.insert(token.as_str(), count);
-        }
-
-        // Precompute matching semantic concept clusters for the query
-        let mut query_clusters = HashSet::new();
-        for q_token in &query_tokens {
-            for (idx, &cluster) in CONCEPT_CLUSTERS.iter().enumerate() {
-                if cluster_matches_token(cluster, q_token) {
-                    query_clusters.insert(idx);
-                }
-            }
-        }
-
-        let mut scores: Vec<(SymbolId, f32)> = Vec::with_capacity(symbols.len());
-
-        for symbol in symbols {
-            let mut score = 0.0_f32;
-            let sym_name_lower = symbol.name.to_lowercase();
-            let sym_name_tokens = Self::tokenize(&symbol.name);
-            let path_tokens = Self::tokenize(&symbol.file_path.to_string_lossy());
-            let sig_tokens = Self::tokenize(&symbol.signature);
-            let doc_tokens = symbol
-                .docstring
-                .as_deref()
-                .map(Self::tokenize)
-                .unwrap_or_default();
-
-            // 1. Exact or case-insensitive symbol name match gives an immediate anchor bonus
-            if sym_name_lower == query_trimmed.to_lowercase() {
-                score += 50.0;
-            } else if query_tokens.iter().any(|q| q == &sym_name_lower) {
-                score += 25.0;
-            }
-
-            // 2. Trigram similarity between query and symbol name (fuzzy tolerance)
-            let sym_trigrams = Self::trigrams(&symbol.name);
-            let tri_sim = Self::trigram_similarity(&query_trigrams, &sym_trigrams);
-            if tri_sim > 0.3 {
-                score += tri_sim * 15.0;
-            }
-
-            // 3. BM25-style term matching across fields
-            for token in &query_tokens {
-                let df = doc_freqs.get(token.as_str()).copied().unwrap_or(0);
-                // Standard smoothed BM25 IDF: ln(1 + (N - df + 0.5) / (df + 0.5))
-                let idf = ((n_docs - df as f32 + 0.5) / (df as f32 + 0.5) + 1.0)
-                    .ln()
-                    .max(0.2);
-
-                // Term frequencies in each field
-                let name_tf = sym_name_tokens.iter().filter(|&t| t == token).count() as f32;
-                let path_tf = path_tokens.iter().filter(|&t| t == token).count() as f32;
-                let sig_tf = sig_tokens.iter().filter(|&t| t == token).count() as f32;
-                let doc_tf = doc_tokens.iter().filter(|&t| t == token).count() as f32;
-
-                // Field multipliers: name > path > signature > docstring
-                if name_tf > 0.0 {
-                    score += idf * (name_tf * 8.0);
-                }
-                if path_tf > 0.0 {
-                    score += idf * (path_tf * 3.0);
-                }
-                if sig_tf > 0.0 {
-                    score += idf * (sig_tf * 2.0);
-                }
-                if doc_tf > 0.0 {
-                    score += idf * (doc_tf * 1.0);
-                }
-            }
-
-            // 4. Semantic Concept Expansion for zero-overlap domain affinity
-            // (Formal et al., 2021; Gao et al., 2021)
-            let mut semantic_score = 0.0_f32;
-            for &cluster_idx in &query_clusters {
-                let cluster = CONCEPT_CLUSTERS[cluster_idx];
-                let name_count = sym_name_tokens
-                    .iter()
-                    .filter(|t| cluster_matches_token(cluster, t))
-                    .count() as f32;
-                let path_count = path_tokens
-                    .iter()
-                    .filter(|t| cluster_matches_token(cluster, t))
-                    .count() as f32;
-                let sig_count = sig_tokens
-                    .iter()
-                    .filter(|t| cluster_matches_token(cluster, t))
-                    .count() as f32;
-                let doc_count = doc_tokens
-                    .iter()
-                    .filter(|t| cluster_matches_token(cluster, t))
-                    .count() as f32;
-
-                semantic_score += name_count * 15.0;
-                semantic_score += path_count * 8.0;
-                semantic_score += sig_count * 5.0;
-                semantic_score += doc_count * 3.0;
-            }
-            score += semantic_score;
-
-            if score > 0.0 {
-                scores.push((symbol.id, score));
-            }
-        }
-
-        if scores.is_empty() {
-            return Vec::new();
-        }
-
-        // Sort descending by score
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Retain top_k
-        scores.truncate(top_k);
-
-        // Normalize weights relative to the maximum score so the top candidate has weight 1.0
-        let max_score = scores[0].1.max(1e-5);
-        scores
+        let config = crate::retrieval::RetrievalConfig::hybrid(top_k);
+        let retriever = crate::retrieval::HybridRetriever::with_config(config);
+        let results = retriever.search(symbols, query);
+        results
             .into_iter()
-            .map(|(id, s)| (id, (s / max_score).clamp(0.05, 1.0)))
+            .map(|r| (r.symbol_id, r.score))
             .collect()
+    }
+
+    /// Resolves a query using a custom `RetrievalConfig`, returning detailed `SearchResult`s.
+    pub fn resolve_query_with_config(
+        symbols: &[SymbolNode],
+        query: &str,
+        config: &crate::retrieval::RetrievalConfig,
+    ) -> Vec<crate::retrieval::SearchResult> {
+        let retriever = crate::retrieval::HybridRetriever::with_config(config.clone());
+        retriever.search(symbols, query)
     }
 }
 

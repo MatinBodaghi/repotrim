@@ -17,6 +17,7 @@ pub mod model;
 pub mod parser;
 pub mod ppr;
 pub mod resolver;
+pub mod retrieval;
 pub mod selector;
 pub mod slicer;
 pub mod symbol;
@@ -53,6 +54,10 @@ pub use model::ModelProfile;
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use resolver::ScopedResolver;
+pub use retrieval::{
+    Bm25Scorer, DenseEmbedder, HybridRetriever, PolyglotTokenizer, RetrievalConfig,
+    RocchioExpander, SearchMode, SearchResult,
+};
 pub use selector::{AutoBudgetReport, ContextSelector};
 pub use slicer::AstSlicer;
 pub use symbol::{EdgeKind, LodLevel, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TextSpan};
