@@ -413,15 +413,18 @@ Add to `.agents/mcp_config.json` (workspace-level) or `~/.gemini/config/mcp_conf
 
 ---
 
-## Agent Harness Integration
+## Documentation & Architecture
 
-RepoTrim is designed natively for autonomous agent loops (SWE-bench, Antigravity, Claude Code). In-depth architectural guides and turn-key skills are available:
+Comprehensive guides, specifications, benchmarks, and roadmap plans are available in the repository:
 
+- **[Architecture & Subsystems](docs/ARCHITECTURE.md)**: Automated 4-tier architectural specification, modularity analysis, and Mermaid diagrams.
+- **[Phase Execution History](docs/PHASE_PLAN.md)**: Master engineering plan and retrospective documentation for completed phases 1 through 30.
 - **[Standardized Agent Skill](skills/repotrim/SKILL.md)**: Turn-key Antigravity / Claude Code skill implementing the 3-Tier Context Funnel and budget heuristics.
 - **[Harness Overview](docs/harness/OVERVIEW.md)**: Integrating RepoTrim between codebases and LLM reasoning loops.
 - **[Feature Blueprint Template](docs/harness/FEATURE_BLUEPRINT_TEMPLATE.md)**: High-density specification pattern for zero-hallucination agent prompting.
 - **[Token Optimization Guide](docs/harness/TOKEN_OPTIMIZATION.md)**: 3-tier context funnel and dynamic budget allocation strategies.
 - **[Local-to-Server Guide](docs/harness/LOCAL_TO_SERVER.md)**: Deploying RepoTrim on remote Linux servers, cloud VMs, and Docker containers.
+- **[Contributing Guide](CONTRIBUTING.md)**: Development workflows, coding standards, branch conventions, and citation guidelines.
 
 ---
 
@@ -430,6 +433,7 @@ RepoTrim is designed natively for autonomous agent loops (SWE-bench, Antigravity
 ```text
 repotrim/
 ├── Cargo.toml                  # Workspace manifest & package metadata
+├── CONTRIBUTING.md             # Contribution guide, code standards & commit rules
 ├── LICENSE-MIT                 # MIT License
 ├── LICENSE-APACHE              # Apache 2.0 License
 ├── .github/workflows/ci.yml    # Multi-platform CI (Ubuntu, Windows, macOS)
@@ -437,6 +441,8 @@ repotrim/
 │   └── repotrim/
 │       └── SKILL.md            # Turn-key Antigravity / Claude Code agent skill
 ├── docs/
+│   ├── ARCHITECTURE.md         # Generated 4-tier subsystem architecture spec
+│   ├── PHASE_PLAN.md           # Master roadmap & completed phase retrospectives
 │   ├── benchmarks/             # Comparative study, polyglot & dogfood benchmarks
 │   │   ├── aider_comparative_study.md
 │   │   ├── comparative_study.md
@@ -493,6 +499,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 # Format code
 cargo fmt --all -- --check
 ```
+
+---
+
+## Contributing
+
+Contributions from the community are warmly welcome! Whether you are optimizing graph algorithms, adding tree-sitter language grammars, enhancing MCP tools, or improving documentation, please review our **[Contributing Guide](CONTRIBUTING.md)** for toolchain setup, our 3-tier branch workflow (`research/*`, `feature/*`, `experiment/*`), strict commit style conventions, and pre-commit verification steps.
+
+---
 
 ## References & Academic Citations
 

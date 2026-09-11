@@ -7,9 +7,9 @@
 | Metric | Value | Architectural Interpretation |
 | :--- | :---: | :--- |
 | **Analyzed Root** | `.` | Workspace base path |
-| **Total AST Symbols** | **693** | Declared functions, methods, structs, classes, types |
-| **Multiplex Edges** | **2755** | AST containment, call references, types, imports |
-| **Modularity ($Q$)** | **0.150** | High cross-boundary integration |
+| **Total AST Symbols** | **708** | Declared functions, methods, structs, classes, types |
+| **Multiplex Edges** | **2854** | AST containment, call references, types, imports |
+| **Modularity ($Q$)** | **0.146** | High cross-boundary integration |
 | **Subsystems Discovered** | **3** | Partitioned architectural communities |
 
 ---
@@ -26,7 +26,7 @@ flowchart TD
     end
 
     subgraph Domain["Layer 2: Domain & Business Logic"]
-        subsys_crates_engine["crates-engine (556 syms)"]
+        subsys_crates_engine["crates-engine (571 syms)"]
     end
 
     subsys_crates_cli -->|"187 refs"| subsys_crates_engine
@@ -45,7 +45,7 @@ flowchart TD
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **crates-cli** | `Presentation` | `crates/cli` | 81 | 4966 | crates-engine (187), crates-mcp-server (2) |
 | **crates-mcp-server** | `Presentation` | `crates/mcp-server` | 56 | 1255 | crates-cli (3), crates-engine (119) |
-| **crates-engine** | `Domain` | `crates/engine` | 556 | 19283 | crates-cli (29), crates-mcp-server (4) |
+| **crates-engine** | `Domain` | `crates/engine` | 571 | 19805 | crates-cli (29), crates-mcp-server (4) |
 
 ---
 
@@ -66,7 +66,7 @@ flowchart TD
 
 *Algorithms, solvers, domain models, knapsack optimization, and business logic.*
 
-- **`crates-engine`** (at `crates/engine`): 556 symbols (19283 tokens).
+- **`crates-engine`** (at `crates/engine`): 571 symbols (19805 tokens).
   - Depends on: `crates-cli` (29 refs), `crates-mcp-server` (4 refs)
   - Consumed by: `crates-cli` (187 callers), `crates-mcp-server` (119 callers)
 
@@ -78,21 +78,21 @@ Symbols with the highest graph centrality (incoming references and stationary Pa
 
 | Hub Symbol | Kind | Layer | In-Degree | Out-Degree | PageRank Score | Declaring File |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **`SymbolId`** | `Struct` | `Core` | 152 | 1 | 0.06656 | `crates/engine/src/symbol.rs` |
-| **`new`** | `Method` | `Infrastructure` | 130 | 1 | 0.01372 | `crates/engine/src/cache.rs` |
-| **`insert`** | `Method` | `Infrastructure` | 77 | 2 | 0.00618 | `crates/engine/src/cache.rs` |
-| **`SymbolNode`** | `Struct` | `Core` | 69 | 3 | 0.00666 | `crates/engine/src/symbol.rs` |
-| **`MultiplexGraph`** | `Struct` | `Domain` | 63 | 18 | 0.00801 | `crates/engine/src/graph.rs` |
-| **`is_empty`** | `Method` | `Domain` | 57 | 1 | 0.00695 | `crates/engine/src/coedit.rs` |
-| **`as_str`** | `Method` | `Domain` | 56 | 1 | 0.01624 | `crates/engine/src/impact.rs` |
-| **`build`** | `Method` | `Domain` | 47 | 5 | 0.00139 | `crates/engine/src/graph.rs` |
-| **`default`** | `Method` | `Infrastructure` | 43 | 2 | 0.00327 | `crates/engine/src/cache.rs` |
-| **`from`** | `Method` | `Domain` | 38 | 1 | 0.01828 | `crates/engine/src/error.rs` |
-| **`from`** | `Method` | `Presentation` | 35 | 2 | 0.00758 | `crates/cli/src/commands/query.rs` |
-| **`new`** | `Method` | `Domain` | 33 | 1 | 0.01823 | `crates/engine/src/symbol.rs` |
-| **`repo_root`** | `Function` | `Presentation` | 31 | 1 | 0.00432 | `crates/cli/tests/cli_test.rs` |
-| **`symbol`** | `Method` | `Core` | 29 | 3 | 0.00115 | `crates/engine/src/graph.rs` |
-| **`build_graph`** | `Method` | `Infrastructure` | 25 | 4 | 0.00081 | `crates/engine/src/loader.rs` |
+| **`SymbolId`** | `Struct` | `Core` | 156 | 1 | 0.06615 | `crates/engine/src/symbol.rs` |
+| **`new`** | `Method` | `Infrastructure` | 130 | 1 | 0.01344 | `crates/engine/src/cache.rs` |
+| **`insert`** | `Method` | `Infrastructure` | 81 | 2 | 0.00628 | `crates/engine/src/cache.rs` |
+| **`SymbolNode`** | `Struct` | `Core` | 73 | 3 | 0.00671 | `crates/engine/src/symbol.rs` |
+| **`MultiplexGraph`** | `Struct` | `Domain` | 63 | 18 | 0.00795 | `crates/engine/src/graph.rs` |
+| **`is_empty`** | `Method` | `Domain` | 59 | 1 | 0.00708 | `crates/engine/src/coedit.rs` |
+| **`as_str`** | `Method` | `Domain` | 54 | 1 | 0.01685 | `crates/engine/src/impact.rs` |
+| **`build`** | `Method` | `Domain` | 49 | 5 | 0.00139 | `crates/engine/src/graph.rs` |
+| **`default`** | `Method` | `Infrastructure` | 43 | 2 | 0.00320 | `crates/engine/src/cache.rs` |
+| **`from`** | `Method` | `Domain` | 41 | 1 | 0.01821 | `crates/engine/src/error.rs` |
+| **`new`** | `Method` | `Domain` | 37 | 1 | 0.01892 | `crates/engine/src/symbol.rs` |
+| **`from`** | `Method` | `Presentation` | 35 | 2 | 0.00742 | `crates/cli/src/commands/query.rs` |
+| **`repo_root`** | `Function` | `Presentation` | 31 | 1 | 0.00423 | `crates/cli/tests/cli_test.rs` |
+| **`symbol`** | `Method` | `Core` | 29 | 3 | 0.00112 | `crates/engine/src/graph.rs` |
+| **`build_graph`** | `Method` | `Infrastructure` | 25 | 4 | 0.00079 | `crates/engine/src/loader.rs` |
 
 ---
 

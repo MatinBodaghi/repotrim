@@ -1,19 +1,39 @@
-# Rust / Cargo build artifacts
+# ==============================================================================
+# RepoTrim — Git Ignore Configuration
+# Modeled after top-tier Rust open-source projects (ripgrep, uv, tokio)
+# ==============================================================================
+
+# --- Rust & Cargo Build Artifacts ---
 /target/
 **/*.rs.bk
 *.pdb
 
-# Environment and secrets
+# --- Profiling, Benchmarks & Performance Traces ---
+perf.data
+perf.data.old
+flamegraph.svg
+*.profraw
+*.profdata
+*.callgrind
+
+# --- Code Coverage & Test Reports ---
+coverage/
+cobertura.xml
+tarpaulin-report.html
+lcov.info
+
+# --- Environment, Secrets & Local Credentials ---
 .env
 .env.*
 !.env.example
 
-# Logs and runtime artifacts
+# --- Logs, Dumps & Crash Reports ---
 *.log
 *.dmp
 *.crash
+*.stackdump
 
-# Operating System files
+# --- Operating System Artifacts ---
 # Windows
 Thumbs.db
 Thumbs.db:encryptable
@@ -35,8 +55,8 @@ $RECYCLE.BIN/
 .fuse_hidden*
 .directory
 
-# IDEs and Editors
-# VS Code
+# --- IDEs & Code Editors ---
+# Visual Studio Code
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -44,7 +64,7 @@ $RECYCLE.BIN/
 !.vscode/extensions.json
 *.code-workspace
 
-# JetBrains / IntelliJ / RustRover
+# JetBrains (IntelliJ, RustRover, CLion)
 .idea/
 *.iml
 *.iws
@@ -60,13 +80,20 @@ $RECYCLE.BIN/
 [#]*[#]
 .#*
 
-# RepoTrim cache directory
-.repotrim/
+# --- Temporary, Scratch & Backup Files ---
+scratch/
+tmp/
+*.tmp
+*.bak
+*.orig
+*.patch
 
-# Antigravity / MCP Server Configuration
+# --- RepoTrim Runtime Cache Directory ---
+.repotrim/
+crates/engine/.repotrim/
+crates/cli/.repotrim/
+crates/mcp-server/.repotrim/
+
+# --- Antigravity & Local Agent Harness Configs ---
 mcp_config.json
 .agents/mcp_config.json
-
-# Internal Development Planning
-docs/PHASE_PLAN.md
-
