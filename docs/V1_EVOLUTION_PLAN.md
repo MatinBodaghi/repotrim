@@ -623,5 +623,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 | **9** | Complete Phase 37 on `feature/structured-context` | Commits 37.1 - 37.5 | `[DONE]` |
 | **10** | Milestone 3 (`v0.8.0`) Complete & Merged to `dev` | Dual-Mode Knapsack, Path Energy & Structured Context | `[DONE]` |
 | **11** | Complete Phase 38 on `feature/intelligence-primitives` | Commits 38.1 - 38.4 | `[DONE]` |
-| **12** | Begin Phase 39 on `feature/intelligence-mcp` | CLI Command Suite & Native MCP JSON-RPC Contracts | `[NEXT]` |
+| **12** | Complete Phase 39 on `feature/intelligence-mcp` | Commits 39.1 - 39.3 | `[DONE]` |
+| **13** | Milestone 4 (`v0.9.0`) Complete & Merged to `dev` | Six Codebase Intelligence Primitives & MCP JSON-RPC Contracts | `[DONE]` |
+| **14** | Begin Phase 40 on `research/adaptive-navigation` | State-Aware Sequential Exploration & Action Engine | `[NEXT]` |
 
