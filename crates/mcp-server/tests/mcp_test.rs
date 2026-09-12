@@ -43,14 +43,32 @@ fn test_mcp_full_lifecycle_and_tools() {
             // 10. tools/call: analyze_impact
             r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"analyze_impact","arguments":{{"symbol":"ContextSelector","path":"{}"}}}}}}"#,
             "\n",
-            // 11. tools/call: unknown tool error handling
-            r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            // 11. tools/call: locate_entrypoints
+            r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"locate_entrypoints","arguments":{{"query":"context selector","limit":3,"path":"{}"}}}}}}"#,
             "\n",
-            // 12. unknown method error handling
-            r#"{{"jsonrpc":"2.0","id":11,"method":"unknown_method"}}"#,
+            // 12. tools/call: trace_paths
+            r#"{{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{{"name":"trace_paths","arguments":{{"source":"select_structured_context","target":"format_markdown","path":"{}"}}}}}}"#,
+            "\n",
+            // 13. tools/call: expand_symbol
+            r#"{{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{{"name":"expand_symbol","arguments":{{"symbol":"ContextSelector","budget":400,"path":"{}"}}}}}}"#,
+            "\n",
+            // 14. tools/call: unknown tool error handling
+            r#"{{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            "\n",
+            // 15. unknown method error handling
+            r#"{{"jsonrpc":"2.0","id":14,"method":"unknown_method"}}"#,
             "\n"
         ),
-        root_str, root_str, root_str, root_str, root_str, root_str, root_str
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str,
+        root_str
     );
 
     let reader = Cursor::new(input.as_bytes());
@@ -64,7 +82,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let output_str = String::from_utf8(writer).expect("Invalid UTF-8 from server");
     let lines: Vec<&str> = output_str.trim().lines().collect();
 
-    assert_eq!(lines.len(), 11);
+    assert_eq!(lines.len(), 14);
 
     // 1. initialize
     let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -76,7 +94,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 14);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -112,6 +130,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert_eq!(parsed_json["budget"], 300);
     assert!(parsed_json["symbols"].is_array());
     assert!(parsed_json["markdown"].is_string());
+    assert!(parsed_json["structured_context"].is_object());
 
     // 7. generate_blueprint
     let resp7: serde_json::Value = serde_json::from_str(lines[6]).unwrap();
@@ -146,18 +165,42 @@ fn test_mcp_full_lifecycle_and_tools() {
     assert!(impact_text.contains("# Semantic Change Impact Analysis Report"));
     assert!(impact_text.contains("ContextSelector"));
 
-    // 10. nonexistent_tool error
+    // 10. locate_entrypoints
     let resp10: serde_json::Value = serde_json::from_str(lines[9]).unwrap();
     assert_eq!(resp10["id"], 10);
-    assert_eq!(resp10["result"]["isError"], true);
-    let err_text = resp10["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+    assert_eq!(resp10["result"]["isError"], false);
+    let locate_text = resp10["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(locate_text.contains("Task Entrypoints for: `context selector`"));
 
-    // 11. unknown_method error
+    // 11. trace_paths
     let resp11: serde_json::Value = serde_json::from_str(lines[10]).unwrap();
     assert_eq!(resp11["id"], 11);
-    assert_eq!(resp11["error"]["code"], -32601);
-    assert!(resp11["error"]["message"]
+    assert_eq!(resp11["result"]["isError"], false);
+    let trace_text = resp11["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        trace_text.contains("Causal Path Trace: `select_structured_context` -> `format_markdown`")
+    );
+    assert!(trace_text.contains("```mermaid\nsequenceDiagram"));
+
+    // 12. expand_symbol
+    let resp12: serde_json::Value = serde_json::from_str(lines[11]).unwrap();
+    assert_eq!(resp12["id"], 12);
+    assert_eq!(resp12["result"]["isError"], false);
+    let expand_text = resp12["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(expand_text.contains("Local Submodular Context Expansion: `ContextSelector`"));
+
+    // 13. nonexistent_tool error
+    let resp13: serde_json::Value = serde_json::from_str(lines[12]).unwrap();
+    assert_eq!(resp13["id"], 13);
+    assert_eq!(resp13["result"]["isError"], true);
+    let err_text = resp13["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+
+    // 14. unknown_method error
+    let resp14: serde_json::Value = serde_json::from_str(lines[13]).unwrap();
+    assert_eq!(resp14["id"], 14);
+    assert_eq!(resp14["error"]["code"], -32601);
+    assert!(resp14["error"]["message"]
         .as_str()
         .unwrap()
         .contains("Unknown method"));

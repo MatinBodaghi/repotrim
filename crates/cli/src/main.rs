@@ -45,6 +45,12 @@ enum Commands {
     /// Run empirical evaluation harness and Aider comparative benchmark
     #[command(alias = "eval")]
     Benchmark(commands::benchmark::BenchmarkArgs),
+    /// Discover top-ranked codebase entrypoint symbols for an agent task
+    Locate(commands::locate::LocateArgs),
+    /// Trace multi-hop causal execution paths between symbols with Boltzmann scoring
+    Trace(commands::trace::TraceArgs),
+    /// Expand a localized submodular context cluster around a focal symbol
+    Expand(commands::expand::ExpandArgs),
 }
 
 fn main() {
@@ -64,6 +70,9 @@ fn main() {
         Commands::Mcp(args) => commands::mcp::execute(args),
         Commands::Watch(args) => commands::watch::execute(args),
         Commands::Benchmark(args) => commands::benchmark::execute(args),
+        Commands::Locate(args) => commands::locate::execute(args),
+        Commands::Trace(args) => commands::trace::execute(args),
+        Commands::Expand(args) => commands::expand::execute(args),
     };
 
     if let Err(e) = result {

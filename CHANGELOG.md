@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-12
+
+### Added
+- **Six Core Codebase Intelligence Primitives (Phase 38)**:
+  - Implemented `CodebaseIntelligence` engine interface exposing 6 core primitives:
+    - `locate(query, limit)`: Fast entrypoint localization via hybrid dense, BM25 lexical, and PageRank structural prior synthesis.
+    - `neighbors(symbol, direction, relations, depth)`: Directional typed graph exploration over inverted and forward multiplex CSR graphs.
+    - `trace(source, target, max_depth)`: Causal path tracing with shortest loopless path inference and sequence diagram generation.
+    - `expand(symbol, budget)`: Local submodular context expansion extracting cohesive symbol neighborhoods with budget constraints.
+    - `impact(symbol, depth)`: Semantic change impact blast radius analysis identifying downstream dependencies, dependents, and impact levels.
+    - `context(task)`: Unified task-conditioned context synthesis generating comprehensive `StructuredContext` with omission diagnostics.
+  - Implemented `MultiplexCsrGraph::transpose()` for $O(|E|)$ backward directional graph exploration.
+  - Added repository integration test suite in `tests/intelligence_primitives_test.rs`.
+- **CLI Command Suite & Native MCP JSON-RPC Contracts (Phase 39)**:
+  - Added `repotrim locate` command supporting formatted ANSI terminal tables and machine-readable JSON reports.
+  - Added `repotrim trace` command generating step-by-step causal dependency chains, Mermaid sequence diagrams, and JSON output.
+  - Added `repotrim expand` command supporting local submodular context extraction with budget limits, JSON, and markdown output formats.
+  - Expanded Model Context Protocol (MCP) tool catalog to 14 native tools, adding `locate_entrypoints`, `trace_paths`, and `expand_symbol`.
+  - Updated `trim_context` MCP tool to return full `StructuredContext` when `structured: true` is provided.
+  - Added comprehensive CLI and MCP end-to-end integration test suites in `crates/cli/tests/cli_test.rs` and `crates/mcp-server/tests/mcp_test.rs`.
+
+---
+
 ## [0.8.0] - 2026-09-12
 
 ### Added
