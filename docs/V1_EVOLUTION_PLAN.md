@@ -366,7 +366,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 7. Milestone 4 (`v0.9.0`): Codebase Intelligence Primitives & MCP
 
-### Phase 38: Six Core Codebase Intelligence Primitives
+### Phase 38: Six Core Codebase Intelligence Primitives `[COMPLETED]`
 - **Branch:** `feature/intelligence-primitives`
 - **Objective:** Expose 6 mathematically meaningful operations turning RepoTrim into a live codebase service:
   1. `locate(task)`: Entrypoint discovery via seed priors.
@@ -615,5 +615,13 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 | **1** | Complete Phase 31 on `research/typed-multiplex-graph` | Commits 31.1, 31.2, 31.3 | `[DONE]` |
 | **2** | Complete Phase 32 on `feature/typed-multiplex-csr` | Commits 32.1, 32.2, 32.3, 32.4 | `[DONE]` |
 | **3** | Milestone 1 (`v0.6.0`) Complete & Merged to `dev` | Typed Multiplex CSR & Task Priors | `[DONE]` |
-| **4** | Create research branch for Phase 33 | `git checkout -b research/submodular-coverage` | `[READY]` |
-| **5** | Begin Phase 33 (Commit 33.1) | Implement `EvidenceKernel` in `crates/engine` | `[NEXT]` |
+| **4** | Complete Phase 33 on `research/submodular-coverage` | Commits 33.1 - 33.4 | `[DONE]` |
+| **5** | Complete Phase 34 on `feature/submodular-utility` | Commits 34.1 - 34.4 | `[DONE]` |
+| **6** | Milestone 2 (`v0.7.0`) Complete & Merged to `dev` | Submodular Coverage & Multi-Objective Utility | `[DONE]` |
+| **7** | Complete Phase 35 on `feature/knapsack-solvers` | Commits 35.1 - 35.5 | `[DONE]` |
+| **8** | Complete Phase 36 on `research/path-inference` | Commits 36.1 - 36.4 | `[DONE]` |
+| **9** | Complete Phase 37 on `feature/structured-context` | Commits 37.1 - 37.5 | `[DONE]` |
+| **10** | Milestone 3 (`v0.8.0`) Complete & Merged to `dev` | Dual-Mode Knapsack, Path Energy & Structured Context | `[DONE]` |
+| **11** | Complete Phase 38 on `feature/intelligence-primitives` | Commits 38.1 - 38.4 | `[DONE]` |
+| **12** | Begin Phase 39 on `feature/intelligence-mcp` | CLI Command Suite & Native MCP JSON-RPC Contracts | `[NEXT]` |
+
