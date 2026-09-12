@@ -1,6 +1,7 @@
 use crate::{
-    compute_blake3_hash, get_mtime_nanos, AstExtractor, EngineError, FileCacheEntry, FileImport,
-    LayerWeights, MultiplexGraph, ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
+    compute_blake3_hash, get_mtime_nanos, AstExtractor, CodebaseIntelligence, EngineError,
+    FileCacheEntry, FileImport, LayerWeights, MultiplexGraph, ReferenceEdge, RepositoryCache,
+    SupportedLanguage, SymbolNode,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -238,6 +239,11 @@ impl LoadedRepository {
             coedit_edges,
             weights,
         )
+    }
+
+    /// Creates a `CodebaseIntelligence` primitives engine over this loaded repository and a graph.
+    pub fn intelligence<'a>(&'a self, graph: &'a MultiplexGraph) -> CodebaseIntelligence<'a> {
+        CodebaseIntelligence::new(graph, &self.file_sources)
     }
 
     /// Converts an absolute or relative path to a repository-relative path,

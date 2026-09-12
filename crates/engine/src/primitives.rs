@@ -25,9 +25,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use crate::context_object::StructuredContext;
 use crate::error::EngineError;
 use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
+use crate::impact::{ImpactAnalyzer, ImpactReport};
 use crate::intent::IntentResolver;
 use crate::multiplex::MultiplexCsrGraph;
 use crate::path::{ExecutionPath, PathFinder, PathScorer, PathScorerConfig};
@@ -647,5 +649,73 @@ impl<'a> CodebaseIntelligence<'a> {
             paths,
             formatted_code,
         })
+    }
+
+    // -------------------------------------------------------------------------
+    // Primitive 5: impact
+    // -------------------------------------------------------------------------
+
+    /// Evaluates the architectural blast radius and downstream ripple effects for a single symbol.
+    pub fn impact(&self, symbol: SymbolId, budget: usize) -> Result<ImpactReport, EngineError> {
+        self.impact_set(&[symbol], budget)
+    }
+
+    /// Evaluates the architectural blast radius and downstream ripple effects for a set of mutated symbols.
+    pub fn impact_set(
+        &self,
+        symbols: &[SymbolId],
+        budget: usize,
+    ) -> Result<ImpactReport, EngineError> {
+        for &sym in symbols {
+            if self.graph.symbol(sym).is_none() {
+                return Err(EngineError::SymbolNotFound(sym.0));
+            }
+        }
+
+        Ok(ImpactAnalyzer::analyze_symbols(
+            self.graph,
+            symbols,
+            budget,
+            self.file_sources,
+        ))
+    }
+
+    // -------------------------------------------------------------------------
+    // Primitive 6: context
+    // -------------------------------------------------------------------------
+
+    /// Generates an end-to-end budgeted evidence package tailored to a `TaskContext`.
+    ///
+    /// Automatically performs entrypoint discovery via `locate`, computes task-conditioned
+    /// multiplex Personalized PageRank diffusion, and packs optimal context via CELF knapsack
+    /// with causal path reconstruction and omission diagnostics.
+    pub fn context(&self, task: &TaskContext, budget: usize) -> StructuredContext {
+        let ranked = self.locate(task, 10);
+        let seeds: Vec<(SymbolId, f32)> =
+            ranked.into_iter().map(|r| (r.symbol.id, r.score)).collect();
+
+        self.selector.select_structured_context_weighted(
+            self.graph,
+            &seeds,
+            budget,
+            self.file_sources,
+            Some(task.clone()),
+        )
+    }
+
+    /// Generates an end-to-end budgeted evidence package with explicit weighted seeds.
+    pub fn context_with_seeds(
+        &self,
+        seeds: &[(SymbolId, f32)],
+        task: Option<&TaskContext>,
+        budget: usize,
+    ) -> StructuredContext {
+        self.selector.select_structured_context_weighted(
+            self.graph,
+            seeds,
+            budget,
+            self.file_sources,
+            task.cloned(),
+        )
     }
 }
