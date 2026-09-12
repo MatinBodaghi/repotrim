@@ -81,7 +81,8 @@ pub use path::{
 };
 pub use ppr::{PprConfig, PprResult, PprSolver};
 pub use primitives::{
-    CodebaseIntelligence, EdgeDirection, NeighborEdge, RankedEntrypoint, SymbolNeighborhood,
+    CausalTraceResult, CodebaseIntelligence, EdgeDirection, LocalExpansion, NeighborEdge,
+    RankedEntrypoint, SymbolNeighborhood,
 };
 pub use resolver::ScopedResolver;
 pub use retrieval::{

@@ -26,12 +26,13 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::error::EngineError;
+use crate::formatter::ContextFormatter;
 use crate::graph::MultiplexGraph;
 use crate::intent::IntentResolver;
 use crate::multiplex::MultiplexCsrGraph;
-use crate::path::PathFinder;
+use crate::path::{ExecutionPath, PathFinder, PathScorer, PathScorerConfig};
 use crate::selector::ContextSelector;
-use crate::symbol::{RelationType, SymbolId, SymbolNode};
+use crate::symbol::{LodLevel, RelationType, SymbolId, SymbolNode};
 use crate::task::TaskContext;
 
 /// Directed edge orientation relative to a focal symbol.
@@ -91,6 +92,38 @@ pub struct RankedEntrypoint {
     pub score: f32,
     /// Qualitative heuristic rationale for why this symbol was selected.
     pub reason: String,
+}
+
+/// The outcome of causal path discovery connecting source and target symbols.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CausalTraceResult {
+    /// Source entrypoint symbol.
+    pub source: SymbolNode,
+    /// Target destination symbol.
+    pub target: SymbolNode,
+    /// All discovered paths sorted by Boltzmann probability descending.
+    pub paths: Vec<ExecutionPath>,
+    /// The single most probable / lowest energy causal path.
+    pub best_path: Option<ExecutionPath>,
+    /// Rendered Mermaid sequence diagram illustrating the causal flow.
+    pub mermaid_diagram: String,
+}
+
+/// A localized submodular context cluster grown around a focal symbol.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalExpansion {
+    /// The focal symbol at the center of the expansion.
+    pub focal_symbol: SymbolNode,
+    /// Target token budget limit allocated for the expansion.
+    pub budget: usize,
+    /// Total tokens consumed by the expanded symbols.
+    pub tokens_used: usize,
+    /// Clustered symbols selected into the localized context.
+    pub symbols: Vec<SymbolNode>,
+    /// Causal execution paths connecting the focal symbol to members of the expansion.
+    pub paths: Vec<ExecutionPath>,
+    /// Contextual markdown formatted code blocks for the expansion.
+    pub formatted_code: String,
 }
 
 /// Core Codebase Intelligence Service.
@@ -409,6 +442,210 @@ impl<'a> CodebaseIntelligence<'a> {
             incoming,
             layer_counts,
             total_neighbors,
+        })
+    }
+
+    // -------------------------------------------------------------------------
+    // Primitive 3: trace
+    // -------------------------------------------------------------------------
+
+    /// Resolves the most probable causal execution paths connecting `source` to `target`.
+    pub fn trace(
+        &self,
+        source: SymbolId,
+        target: SymbolId,
+        task: Option<&TaskContext>,
+    ) -> Result<CausalTraceResult, EngineError> {
+        let src_sym = self
+            .graph
+            .symbol(source)
+            .cloned()
+            .ok_or(EngineError::SymbolNotFound(source.0))?;
+        let tgt_sym = self
+            .graph
+            .symbol(target)
+            .cloned()
+            .ok_or(EngineError::SymbolNotFound(target.0))?;
+
+        if source == target {
+            let mut trivial_path = ExecutionPath::new(vec![source], Vec::new(), Vec::new());
+            trivial_path.score = 1.0;
+            trivial_path.probability = 1.0;
+            let paths = vec![trivial_path];
+            let mermaid_diagram =
+                Self::generate_trace_mermaid(&src_sym, &tgt_sym, &paths, self.graph.symbols());
+            return Ok(CausalTraceResult {
+                source: src_sym,
+                target: tgt_sym,
+                best_path: paths.first().cloned(),
+                paths,
+                mermaid_diagram,
+            });
+        }
+
+        let multiplex_csr = self.get_multiplex_csr();
+        let paths = self
+            .path_finder
+            .find_paths_between(multiplex_csr, source, target);
+
+        let scorer = if let Some(t) = task {
+            PathScorer::with_task(PathScorerConfig::default(), t)
+        } else {
+            PathScorer::default()
+        };
+        let mut paths = scorer.score_paths(paths);
+
+        paths.sort_by(|a, b| {
+            b.probability
+                .partial_cmp(&a.probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let best_path = paths.first().cloned();
+        let mermaid_diagram =
+            Self::generate_trace_mermaid(&src_sym, &tgt_sym, &paths, self.graph.symbols());
+
+        Ok(CausalTraceResult {
+            source: src_sym,
+            target: tgt_sym,
+            paths,
+            best_path,
+            mermaid_diagram,
+        })
+    }
+
+    /// Generates a Mermaid sequence diagram for candidate causal paths.
+    pub fn generate_trace_mermaid(
+        source: &SymbolNode,
+        target: &SymbolNode,
+        paths: &[ExecutionPath],
+        symbols: &[SymbolNode],
+    ) -> String {
+        if paths.is_empty() {
+            let mut out = String::from("```mermaid\nsequenceDiagram\n");
+            out.push_str(&format!(
+                "    participant s{} as {}\n",
+                source.id.0, source.name
+            ));
+            out.push_str(&format!(
+                "    participant s{} as {}\n",
+                target.id.0, target.name
+            ));
+            out.push_str(&format!(
+                "    s{}--x s{}: No direct path found\n",
+                source.id.0, target.id.0
+            ));
+            out.push_str("```\n");
+            return out;
+        }
+
+        let mut out = String::from("```mermaid\nsequenceDiagram\n");
+        let mut participants = HashSet::new();
+
+        participants.insert(source.id);
+        out.push_str(&format!(
+            "    participant s{} as {}\n",
+            source.id.0, source.name
+        ));
+        participants.insert(target.id);
+        out.push_str(&format!(
+            "    participant s{} as {}\n",
+            target.id.0, target.name
+        ));
+
+        for path in paths.iter().take(3) {
+            for &node in &path.nodes {
+                if participants.insert(node) {
+                    let name = symbols
+                        .get(node.0 as usize)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("Unknown");
+                    out.push_str(&format!("    participant s{} as {}\n", node.0, name));
+                }
+            }
+
+            for (i, pair) in path.nodes.windows(2).enumerate() {
+                let rel = path
+                    .relations
+                    .get(i)
+                    .copied()
+                    .unwrap_or(RelationType::Calls);
+                out.push_str(&format!("    s{}->>s{}: {:?}\n", pair[0].0, pair[1].0, rel));
+            }
+        }
+        out.push_str("```\n");
+        out
+    }
+
+    // -------------------------------------------------------------------------
+    // Primitive 4: expand
+    // -------------------------------------------------------------------------
+
+    /// Expands a localized submodular context cluster centered around a focal symbol up to `budget`.
+    pub fn expand(
+        &self,
+        symbol_id: SymbolId,
+        budget: usize,
+        _task: Option<&TaskContext>,
+    ) -> Result<LocalExpansion, EngineError> {
+        let focal_symbol = self
+            .graph
+            .symbol(symbol_id)
+            .cloned()
+            .ok_or(EngineError::SymbolNotFound(symbol_id.0))?;
+
+        if budget == 0 || self.graph.is_empty() {
+            return Ok(LocalExpansion {
+                focal_symbol,
+                budget,
+                tokens_used: 0,
+                symbols: Vec::new(),
+                paths: Vec::new(),
+                formatted_code: String::new(),
+            });
+        }
+
+        // Localized knapsack optimization anchored at focal_symbol
+        let weighted_seeds = [(symbol_id, 1.0)];
+        let symbols = self
+            .selector
+            .select_context_weighted(self.graph, &weighted_seeds, budget);
+        let tokens_used: usize = symbols.iter().map(|s| s.token_cost).sum();
+        let lod_map: HashMap<SymbolId, LodLevel> =
+            symbols.iter().map(|s| (s.id, LodLevel::FullBody)).collect();
+        let formatted_code =
+            ContextFormatter::format_markdown(&symbols, &lod_map, self.file_sources);
+
+        // Discover paths connecting focal symbol to selected expansion symbols
+        let other_targets: Vec<SymbolId> = symbols
+            .iter()
+            .map(|s| s.id)
+            .filter(|&id| id != symbol_id)
+            .collect();
+
+        let paths = if other_targets.is_empty() {
+            Vec::new()
+        } else {
+            let p =
+                self.path_finder
+                    .find_paths(self.get_multiplex_csr(), &[symbol_id], &other_targets);
+            let scorer = PathScorer::default();
+            let mut p = scorer.score_paths(p);
+            p.sort_by(|a, b| {
+                b.probability
+                    .partial_cmp(&a.probability)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            p
+        };
+
+        Ok(LocalExpansion {
+            focal_symbol,
+            budget,
+            tokens_used,
+            symbols,
+            paths,
+            formatted_code,
         })
     }
 }
