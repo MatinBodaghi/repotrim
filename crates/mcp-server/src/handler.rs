@@ -8,7 +8,7 @@ use repotrim_engine::{
     CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector, ContextSelector,
     ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner, HybridRetriever,
     ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile,
-    PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind,
+    PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind, TaskContext,
     TokenizerModel,
 };
 
@@ -206,6 +206,10 @@ impl McpHandler {
                         "queryExpand": {
                             "type": "boolean",
                             "description": "Optional flag to enable Rocchio Pseudo-Relevance Feedback (PRF) query expansion for natural language queries"
+                        },
+                        "structured": {
+                            "type": "boolean",
+                            "description": "Optional flag to return a fully structured context graph with typed edges, causal paths, cost breakdown, and omission diagnostics"
                         }
                     }
                 }),
@@ -464,6 +468,99 @@ impl McpHandler {
                     }
                 }),
             },
+            ToolDefinition {
+                name: "locate_entrypoints".to_string(),
+                description: "Discovers top-ranked codebase entrypoint symbols for an agent task or issue prompt. Evaluates seed hints, concept keywords, BM25+ lexical and trigram fuzzy matching, and target file constraints.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language task prompt, issue description, or symbol hint"
+                        },
+                        "targetFiles": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of target files or globs to prioritize during search"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of ranked candidate entrypoints to return (default: 10)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            },
+            ToolDefinition {
+                name: "trace_paths".to_string(),
+                description: "Discovers and scores constrained multi-hop causal execution paths between source and target symbols using Boltzmann path energy scoring, and renders Mermaid sequence diagrams.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "Source entrypoint symbol name"
+                        },
+                        "target": {
+                            "type": "string",
+                            "description": "Target destination symbol name"
+                        },
+                        "task": {
+                            "type": "string",
+                            "description": "Optional natural language task description to condition Boltzmann path scoring"
+                        },
+                        "includeMermaid": {
+                            "type": "boolean",
+                            "description": "Whether to render a Mermaid sequence diagram in the output (default: true)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["source", "target"]
+                }),
+            },
+            ToolDefinition {
+                name: "expand_symbol".to_string(),
+                description: "Expands a localized submodular knapsack context cluster around a focal symbol within a token budget ceiling, extracting relevant syntax definitions and causal connection paths.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Focal symbol name to expand context around"
+                        },
+                        "budget": {
+                            "description": "Maximum token budget ceiling for expansion cluster (default: 1000)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["symbol"]
+                }),
+            },
         ]
     }
 
@@ -481,6 +578,9 @@ impl McpHandler {
             "detect_communities" => self.tool_detect_communities(arguments),
             "search_symbols" => self.tool_search_symbols(arguments),
             "run_benchmark" => self.tool_run_benchmark(arguments),
+            "locate_entrypoints" => self.tool_locate_entrypoints(arguments),
+            "trace_paths" => self.tool_trace_paths(arguments),
+            "expand_symbol" => self.tool_expand_symbol(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -600,6 +700,10 @@ impl McpHandler {
         let query_expand = args
             .get("queryExpand")
             .and_then(|e| e.as_bool())
+            .unwrap_or(false);
+        let structured = args
+            .get("structured")
+            .and_then(|s| s.as_bool())
             .unwrap_or(false);
         let target_path = self.resolve_path(&args);
 
@@ -824,6 +928,22 @@ impl McpHandler {
             }
             if let Some(ref mckp) = mckp_opt {
                 json_val["joint_lod"] = serde_json::to_value(mckp).unwrap();
+            }
+            if structured || format_str == "json" {
+                let task_ctx = query_opt.as_deref().map(TaskContext::from_query);
+                let target_budget = if let Some(ref rep) = auto_report_opt {
+                    rep.knee_tokens
+                } else {
+                    explicit_budget
+                };
+                let structured_ctx = selector.select_structured_context_weighted(
+                    &graph,
+                    &seed_pairs,
+                    target_budget,
+                    &repo.file_sources,
+                    task_ctx,
+                );
+                json_val["structured_context"] = serde_json::to_value(&structured_ctx).unwrap();
             }
             ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
         } else {
@@ -1904,6 +2024,301 @@ impl McpHandler {
             }
 
             ToolCallResult::success(md)
+        }
+    }
+
+    fn tool_locate_entrypoints(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let query = match args.get("query").and_then(|q| q.as_str()) {
+            Some(q) => q,
+            None => return ToolCallResult::error("Missing required parameter 'query'"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let limit = args.get("limit").and_then(|l| l.as_u64()).unwrap_or(10) as usize;
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let graph = repo.build_graph();
+        let intel = repo.intelligence(&graph);
+
+        let mut task = TaskContext::from_query(query);
+        if let Some(target_files) = args.get("targetFiles").and_then(|t| t.as_array()) {
+            let files: Vec<PathBuf> = target_files
+                .iter()
+                .filter_map(|f| f.as_str().map(PathBuf::from))
+                .collect();
+            if !files.is_empty() {
+                task.metadata.target_files = files;
+            }
+        }
+
+        let entrypoints = intel.locate(&task, limit);
+
+        if format_str == "json" {
+            ToolCallResult::success(serde_json::to_string_pretty(&entrypoints).unwrap())
+        } else {
+            let mut out = String::new();
+            let _ = writeln!(out, "### Task Entrypoints for: `{}`\n", query);
+            if entrypoints.is_empty() {
+                out.push_str("No entrypoint candidates discovered.\n");
+            } else {
+                for (idx, entry) in entrypoints.iter().enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "{}. **`{}`** ({:?}) — Score: `{:.2}`",
+                        idx + 1,
+                        entry.symbol.name,
+                        entry.symbol.kind,
+                        entry.score
+                    );
+                    let _ = writeln!(
+                        out,
+                        "   - Location: `{}:L{}-L{}`",
+                        entry.symbol.file_path.display(),
+                        entry.symbol.span.start_row + 1,
+                        entry.symbol.span.end_row + 1
+                    );
+                    let _ = writeln!(out, "   - Attribution: {}", entry.reason);
+                    if !entry.symbol.signature.trim().is_empty() {
+                        let _ =
+                            writeln!(out, "   - Signature: `{}`", entry.symbol.signature.trim());
+                    }
+                    out.push('\n');
+                }
+            }
+            ToolCallResult::success(out)
+        }
+    }
+
+    fn tool_trace_paths(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let source = match args.get("source").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => return ToolCallResult::error("Missing required parameter 'source'"),
+        };
+        let target = match args.get("target").and_then(|t| t.as_str()) {
+            Some(t) => t,
+            None => return ToolCallResult::error("Missing required parameter 'target'"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let task_query = args.get("task").and_then(|t| t.as_str());
+        let include_mermaid = args
+            .get("includeMermaid")
+            .and_then(|m| m.as_bool())
+            .unwrap_or(true);
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let graph = repo.build_graph();
+        let symbols = graph.symbols();
+
+        let src_sym = match symbols.iter().find(|s| s.name.eq_ignore_ascii_case(source)) {
+            Some(s) => s,
+            None => {
+                return ToolCallResult::error(format!(
+                    "Source symbol '{}' was not found in codebase",
+                    source
+                ))
+            }
+        };
+
+        let tgt_sym = match symbols.iter().find(|s| s.name.eq_ignore_ascii_case(target)) {
+            Some(s) => s,
+            None => {
+                return ToolCallResult::error(format!(
+                    "Target symbol '{}' was not found in codebase",
+                    target
+                ))
+            }
+        };
+
+        let intel = repo.intelligence(&graph);
+        let task_ctx = task_query.map(TaskContext::from_query);
+
+        let trace_result = match intel.trace(src_sym.id, tgt_sym.id, task_ctx.as_ref()) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(format!("Trace failed: {}", e)),
+        };
+
+        if format_str == "json" {
+            ToolCallResult::success(serde_json::to_string_pretty(&trace_result).unwrap())
+        } else {
+            let mut out = String::new();
+            let _ = writeln!(
+                out,
+                "### Causal Path Trace: `{}` -> `{}`\n",
+                trace_result.source.name, trace_result.target.name
+            );
+            let _ = writeln!(
+                out,
+                "- **Source:** `{}` ({}:L{})",
+                trace_result.source.name,
+                trace_result.source.file_path.display(),
+                trace_result.source.span.start_row + 1
+            );
+            let _ = writeln!(
+                out,
+                "- **Target:** `{}` ({}:L{})",
+                trace_result.target.name,
+                trace_result.target.file_path.display(),
+                trace_result.target.span.start_row + 1
+            );
+            let _ = writeln!(
+                out,
+                "- **Discovered Paths:** {}\n",
+                trace_result.paths.len()
+            );
+
+            if let Some(ref best) = trace_result.best_path {
+                let _ = writeln!(
+                    out,
+                    "#### Best Causal Path (Probability: {:.1}%, Energy Score: {:.2})\n",
+                    best.probability * 100.0,
+                    best.score
+                );
+
+                let mut step_strs = Vec::new();
+                for &node_id in &best.nodes {
+                    let name = symbols
+                        .get(node_id.0 as usize)
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("Unknown");
+                    step_strs.push(name);
+                }
+
+                let mut chain = String::new();
+                for (i, name) in step_strs.iter().enumerate() {
+                    if i > 0 {
+                        let rel = best
+                            .relations
+                            .get(i - 1)
+                            .copied()
+                            .unwrap_or(repotrim_engine::RelationType::Calls);
+                        chain.push_str(&format!(" --[{:?}]--> ", rel));
+                    }
+                    chain.push_str(&format!("`{}`", name));
+                }
+                let _ = writeln!(out, "{}\n", chain);
+            }
+
+            if include_mermaid && !trace_result.mermaid_diagram.is_empty() {
+                out.push_str("#### Sequence Diagram\n\n");
+                out.push_str(&trace_result.mermaid_diagram);
+                out.push('\n');
+            }
+
+            ToolCallResult::success(out)
+        }
+    }
+
+    fn tool_expand_symbol(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let symbol = match args.get("symbol").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => return ToolCallResult::error("Missing required parameter 'symbol'"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let budget: usize = match args.get("budget") {
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(1000) as usize,
+            Some(serde_json::Value::String(s)) => s.parse::<usize>().unwrap_or(1000),
+            _ => 1000,
+        };
+
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let graph = repo.build_graph();
+        let symbols = graph.symbols();
+
+        let focal_sym = match symbols.iter().find(|s| s.name.eq_ignore_ascii_case(symbol)) {
+            Some(s) => s,
+            None => {
+                return ToolCallResult::error(format!(
+                    "Focal symbol '{}' was not found in codebase",
+                    symbol
+                ))
+            }
+        };
+
+        let intel = repo.intelligence(&graph);
+        let expansion = match intel.expand(focal_sym.id, budget, None) {
+            Ok(e) => e,
+            Err(err) => return ToolCallResult::error(format!("Expansion failed: {}", err)),
+        };
+
+        if format_str == "json" {
+            ToolCallResult::success(serde_json::to_string_pretty(&expansion).unwrap())
+        } else {
+            let mut out = String::new();
+            let _ = writeln!(
+                out,
+                "### Local Submodular Context Expansion: `{}`\n",
+                expansion.focal_symbol.name
+            );
+            let _ = writeln!(
+                out,
+                "- **Focal Symbol:** `{}` ({}:L{})",
+                expansion.focal_symbol.name,
+                expansion.focal_symbol.file_path.display(),
+                expansion.focal_symbol.span.start_row + 1
+            );
+            let _ = writeln!(
+                out,
+                "- **Budget:** {} tokens | **Tokens Used:** {} ({:.1}%) | **Cluster:** {} symbols\n",
+                expansion.budget,
+                expansion.tokens_used,
+                (expansion.tokens_used as f64 / expansion.budget.max(1) as f64) * 100.0,
+                expansion.symbols.len()
+            );
+
+            if !expansion.paths.is_empty() {
+                out.push_str("#### Causal Paths to Cluster Members\n\n");
+                for (i, path) in expansion.paths.iter().take(5).enumerate() {
+                    let mut step_strs = Vec::new();
+                    for &node_id in &path.nodes {
+                        let name = symbols
+                            .get(node_id.0 as usize)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("Unknown");
+                        step_strs.push(name);
+                    }
+                    let _ = writeln!(
+                        out,
+                        "{}. {} (Prob: {:.1}%)",
+                        i + 1,
+                        step_strs.join(" -> "),
+                        path.probability * 100.0
+                    );
+                }
+                out.push('\n');
+            }
+
+            out.push_str("#### Source Context Code\n\n");
+            out.push_str(&expansion.formatted_code);
+            out.push('\n');
+
+            ToolCallResult::success(out)
         }
     }
 }
