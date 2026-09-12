@@ -861,3 +861,108 @@ fn test_cli_benchmark_json_output() {
     assert!(v["metrics"].as_array().unwrap().len() >= 2);
     assert!(v["summary"].as_array().unwrap().len() >= 2);
 }
+
+#[test]
+fn test_cli_locate_text_and_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["locate", "context selector", "--limit", "3", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim locate");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("REPOTRIM TASK-CONDITIONED ENTRYPOINT DISCOVERY"));
+    assert!(stdout.contains("select"));
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "locate",
+            "context selector",
+            "--limit",
+            "3",
+            "--json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim locate --json");
+
+    assert!(json_output.status.success());
+    let json_stdout = String::from_utf8_lossy(&json_output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_stdout).expect("Valid JSON report");
+    assert_eq!(v["query"], "context selector");
+    assert!(!v["entrypoints"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_cli_trace_text_and_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "trace",
+            "select_structured_context",
+            "format_markdown",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim trace");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("REPOTRIM CAUSAL PATH TRACE"));
+    assert!(stdout.contains("sequenceDiagram"));
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "trace",
+            "select_structured_context",
+            "format_markdown",
+            "--json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim trace --json");
+
+    assert!(json_output.status.success());
+    let json_stdout = String::from_utf8_lossy(&json_output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_stdout).expect("Valid JSON report");
+    assert_eq!(v["source"]["name"], "select_structured_context");
+    assert_eq!(v["target"]["name"], "format_markdown");
+    assert!(!v["paths"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_cli_expand_text_and_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["expand", "ContextSelector", "--budget", "300", "--path"])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim expand");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("REPOTRIM LOCAL SUBMODULAR CONTEXT EXPANSION"));
+    assert!(stdout.contains("ContextSelector"));
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "expand",
+            "ContextSelector",
+            "--budget",
+            "300",
+            "--format",
+            "json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim expand --format json");
+
+    assert!(json_output.status.success());
+    let json_stdout = String::from_utf8_lossy(&json_output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_stdout).expect("Valid JSON report");
+    assert_eq!(v["focal_symbol"]["name"], "ContextSelector");
+    assert!(v["tokens_used"].as_u64().unwrap() <= 300);
+}
