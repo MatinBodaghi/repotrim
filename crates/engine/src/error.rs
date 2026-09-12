@@ -15,6 +15,10 @@ pub enum EngineError {
     GitError(String),
     #[error("Watcher error: {0}")]
     WatcherError(String),
+    #[error("Symbol with ID {0} was not found in graph")]
+    SymbolNotFound(u32),
+    #[error("Invalid input argument: {0}")]
+    InvalidInput(String),
 }
 
 impl From<notify::Error> for EngineError {

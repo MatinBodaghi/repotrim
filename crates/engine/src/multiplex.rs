@@ -368,6 +368,16 @@ impl MultiplexCsrGraph {
         &self.slices
     }
 
+    /// Computes and returns the transposed (reverse) multiplex graph where edge directions are flipped.
+    pub fn transpose(&self) -> Self {
+        let slices: Vec<CsrMatrix> = self.slices.iter().map(|s| s.transpose()).collect();
+        Self {
+            symbols: self.symbols.clone(),
+            slices,
+            total_edges: self.total_edges,
+        }
+    }
+
     /// Returns the out-degree of a symbol in a specific relation layer.
     #[inline]
     pub fn out_degree_for(&self, id: SymbolId, rel: RelationType) -> usize {
