@@ -192,6 +192,12 @@ fn test_eval_summary_aggregation() {
             orphan_rate_pct: 0.0,
             execution_latency_us: 1200,
             symbol_count: 8,
+            input_tokens: 300,
+            output_tokens: 600,
+            tool_call_count: 2,
+            inspected_files: 3,
+            ecr_pct: 70.0,
+            spt_ratio: 13.33,
         },
         BenchmarkMetrics {
             scenario: "S2".to_string(),
@@ -208,6 +214,12 @@ fn test_eval_summary_aggregation() {
             orphan_rate_pct: 5.0,
             execution_latency_us: 800,
             symbol_count: 6,
+            input_tokens: 200,
+            output_tokens: 400,
+            tool_call_count: 1,
+            inspected_files: 2,
+            ecr_pct: 80.0,
+            spt_ratio: 15.0,
         },
     ];
 
@@ -223,6 +235,12 @@ fn test_eval_summary_aggregation() {
     assert_eq!(s.mean_cohesion_pct, 92.5);
     assert_eq!(s.mean_orphan_rate_pct, 2.5);
     assert_eq!(s.mean_latency_us, 1000);
+    assert_eq!(s.mean_input_tokens, 250);
+    assert_eq!(s.mean_output_tokens, 500);
+    assert_eq!(s.mean_tool_calls, 1.5);
+    assert_eq!(s.mean_inspected_files, 2.5);
+    assert_eq!(s.mean_ecr_pct, 75.0);
+    assert!((s.mean_spt_ratio - 14.165).abs() < 1e-4);
 }
 
 #[test]

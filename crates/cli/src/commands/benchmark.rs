@@ -23,7 +23,7 @@ pub struct BenchmarkArgs {
     #[arg(short = 's', long = "scenario")]
     pub scenario: Option<String>,
 
-    /// Comma-separated strategies to benchmark: 'whole_file', 'grep', 'aider', 'vanilla', 'full', 'all'
+    /// Comma-separated strategies to benchmark: 'whole_file', 'lexical', 'graph_only', 'ppr_only', 'static_submodular', 'path_aware', 'adaptive', 'aider', 'all', 'ablation', 'baselines'
     #[arg(long = "strategies", default_value = "all")]
     pub strategies: String,
 
@@ -160,12 +160,25 @@ fn parse_strategies(input: &str) -> Result<Vec<ContextStrategy>, Box<dyn std::er
     for part in input_trim.split(',') {
         let p = part.trim();
         match p {
+            "all" => result.extend_from_slice(ContextStrategy::all()),
+            "ablation" | "7_tier" => result.extend_from_slice(ContextStrategy::ablation_tiers()),
+            "baselines" | "legacy" => result.extend_from_slice(ContextStrategy::baselines()),
             "whole_file" | "wholefile" | "dump" => result.push(ContextStrategy::WholeFile),
-            "grep" | "naive_grep" | "keyword" => result.push(ContextStrategy::NaiveGrep),
+            "lexical" | "bm25" => result.push(ContextStrategy::Lexical),
+            "graph_only" | "graph" | "topology" => result.push(ContextStrategy::GraphOnly),
+            "ppr_only" | "ppr" => result.push(ContextStrategy::PprOnly),
+            "static_submodular" | "v0.7" => result.push(ContextStrategy::StaticSubmodular),
+            "path_aware" | "paths" | "structured" | "v0.8" => {
+                result.push(ContextStrategy::PathAware)
+            }
+            "adaptive" | "adaptive_navigation" | "navigate" | "v0.10" => {
+                result.push(ContextStrategy::AdaptiveNavigation)
+            }
             "aider" | "aider_repo_map" | "repomap" => result.push(ContextStrategy::AiderRepoMap),
+            "grep" | "naive_grep" | "keyword" => result.push(ContextStrategy::NaiveGrep),
             "vanilla" | "repotrim_vanilla" => result.push(ContextStrategy::RepoTrimVanilla),
             "full" | "repotrim_full" | "repotrim" => result.push(ContextStrategy::RepoTrimFull),
-            other => return Err(format!("Unknown context strategy '{other}'. Valid options: whole_file, grep, aider, vanilla, full, all").into()),
+            other => return Err(format!("Unknown context strategy '{other}'. Valid options: whole_file, lexical, graph_only, ppr_only, static_submodular, path_aware, adaptive, aider, all, ablation, baselines").into()),
         }
     }
 
@@ -193,15 +206,16 @@ fn print_scenario_table(scenario: &BenchmarkScenario, metrics: &[&BenchmarkMetri
     println!();
 
     println!(
-        "{:<28} | {:>6} | {:>7} | {:>8} | {:>8} | {:>7} | {:>8} | {:>7} | {:>5} | {:>8}",
+        "{:<28} | {:>6} | {:>7} | {:>7} | {:>8} | {:>8} | {:>7} | {:>8} | {:>6} | {:>5} | {:>8}",
         "Strategy",
         "Tokens",
         "Reduct%",
+        "ECR%",
         "DirRec%",
         "TrnRec%",
         "Precis%",
         "Cohesion",
-        "Orphans",
+        "SPT",
         "Syms",
         "Latency"
     );
@@ -229,15 +243,16 @@ fn print_scenario_table(scenario: &BenchmarkScenario, metrics: &[&BenchmarkMetri
         };
 
         println!(
-            "{:<28} | {:>15} | {:>6.1}% | {:>7.1}% | {:>7.1}% | {:>6.1}% | {:>7.1}% | {:>6.1}% | {:>5} | {:>8}",
+            "{:<28} | {:>15} | {:>6.1}% | {:>6.1}% | {:>7.1}% | {:>7.1}% | {:>6.1}% | {:>7.1}% | {:>6.1} | {:>5} | {:>8}",
             strategy_display,
             budget_color,
             m.token_reduction_pct,
+            m.ecr_pct,
             m.direct_dep_recall_pct,
             m.transitive_dep_recall_pct,
             m.context_precision_pct,
             m.community_cohesion_pct,
-            m.orphan_rate_pct,
+            m.spt_ratio,
             m.symbol_count,
             latency_display
         );
@@ -255,8 +270,10 @@ fn print_scenario_markdown(scenario: &BenchmarkScenario, metrics: &[&BenchmarkMe
     }
     println!("- **Description:** {}", scenario.description);
     println!();
-    println!("| Strategy | Tokens | Reduction | Direct Recall | Transitive Recall | Precision | Cohesion | Orphans | Symbols | Latency |");
-    println!("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
+    println!("| Strategy | Tokens | Reduction | ECR% | Direct Recall | Transitive Recall | Precision | Cohesion | SPT | Symbols | Latency |");
+    println!(
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+    );
 
     for m in metrics {
         let latency_display = if m.execution_latency_us >= 1000 {
@@ -272,15 +289,16 @@ fn print_scenario_markdown(scenario: &BenchmarkScenario, metrics: &[&BenchmarkMe
         };
 
         println!(
-            "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {} | {} |",
+            "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1} | {} | {} |",
             strategy_str,
             m.tokens_used,
             m.token_reduction_pct,
+            m.ecr_pct,
             m.direct_dep_recall_pct,
             m.transitive_dep_recall_pct,
             m.context_precision_pct,
             m.community_cohesion_pct,
-            m.orphan_rate_pct,
+            m.spt_ratio,
             m.symbol_count,
             latency_display
         );
@@ -295,18 +313,19 @@ fn print_summary_table(summaries: &[BenchmarkSummary]) {
             .cyan()
     );
     println!(
-        "{:<28} | {:>6} | {:>7} | {:>8} | {:>8} | {:>7} | {:>8} | {:>7} | {:>8}",
+        "{:<28} | {:>6} | {:>7} | {:>7} | {:>8} | {:>8} | {:>7} | {:>8} | {:>6} | {:>8}",
         "Strategy",
         "Tokens",
         "Reduct%",
+        "ECR%",
         "DirRec%",
         "TrnRec%",
         "Precis%",
         "Cohesion",
-        "Orphans",
+        "SPT",
         "Latency"
     );
-    println!("{:-<114}", "");
+    println!("{:-<122}", "");
 
     for s in summaries {
         let strategy_display = if s.strategy == ContextStrategy::RepoTrimFull {
@@ -324,15 +343,16 @@ fn print_summary_table(summaries: &[BenchmarkSummary]) {
         };
 
         println!(
-            "{:<28} | {:>6} | {:>6.1}% | {:>7.1}% | {:>7.1}% | {:>6.1}% | {:>7.1}% | {:>6.1}% | {:>8}",
+            "{:<28} | {:>6} | {:>6.1}% | {:>6.1}% | {:>7.1}% | {:>7.1}% | {:>6.1}% | {:>7.1}% | {:>6.1} | {:>8}",
             strategy_display,
             s.mean_tokens,
             s.mean_token_reduction_pct,
+            s.mean_ecr_pct,
             s.mean_direct_recall_pct,
             s.mean_transitive_recall_pct,
             s.mean_precision_pct,
             s.mean_cohesion_pct,
-            s.mean_orphan_rate_pct,
+            s.mean_spt_ratio,
             latency_display
         );
     }
@@ -341,8 +361,8 @@ fn print_summary_table(summaries: &[BenchmarkSummary]) {
 fn print_summary_markdown(summaries: &[BenchmarkSummary]) {
     println!("## Aggregate Benchmark Summary");
     println!();
-    println!("| Strategy | Mean Tokens | Token Reduction | Direct Recall | Transitive Recall | Precision | Cohesion | Orphans | Mean Latency |");
-    println!("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
+    println!("| Strategy | Mean Tokens | Token Reduction | ECR% | Direct Recall | Transitive Recall | Precision | Cohesion | SPT | Mean Latency |");
+    println!("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |");
 
     for s in summaries {
         let latency_display = if s.mean_latency_us >= 1000 {
@@ -358,15 +378,16 @@ fn print_summary_markdown(summaries: &[BenchmarkSummary]) {
         };
 
         println!(
-            "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {} |",
+            "| {} | {} | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1}% | {:.1} | {} |",
             strategy_str,
             s.mean_tokens,
             s.mean_token_reduction_pct,
+            s.mean_ecr_pct,
             s.mean_direct_recall_pct,
             s.mean_transitive_recall_pct,
             s.mean_precision_pct,
             s.mean_cohesion_pct,
-            s.mean_orphan_rate_pct,
+            s.mean_spt_ratio,
             latency_display
         );
     }
