@@ -1041,3 +1041,243 @@ impl ActionGenerator {
         Ok(candidates)
     }
 }
+
+/// Configuration parameters for the adaptive marginal gain estimator (Phase 41).
+///
+/// Grounded in adaptive submodularity (Golovin & Krause, 2011).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AdaptiveGainConfig {
+    /// Direct task relevance weight $\alpha \ge 0$.
+    pub alpha_relevance: f32,
+    /// Neighborhood evidence coverage weight $\beta \ge 0$.
+    pub beta_coverage: f32,
+    /// Causal execution path connectivity weight $\gamma \ge 0$.
+    pub gamma_path: f32,
+    /// Verification and test assurance weight $\delta \ge 0$.
+    pub delta_test: f32,
+    /// Stopping threshold $\epsilon_{\text{halt}}$: minimum marginal utility below which Stop is prioritized.
+    pub stop_threshold: f32,
+    /// Redundancy discount applied when observing already-discovered or adjacent entities.
+    pub redundancy_discount: f32,
+}
+
+impl Default for AdaptiveGainConfig {
+    fn default() -> Self {
+        Self {
+            alpha_relevance: 0.35,
+            beta_coverage: 0.30,
+            gamma_path: 0.20,
+            delta_test: 0.15,
+            stop_threshold: 0.05,
+            redundancy_discount: 0.10,
+        }
+    }
+}
+
+/// Decision-theoretic estimator of expected marginal utility gain for navigation actions.
+///
+/// # Academic Reference
+/// - Golovin, D., & Krause, A. (2011). "Adaptive Submodularity: Theory and Applications
+///   in Active Learning and Stochastic Optimization". *Journal of Artificial Intelligence Research*,
+///   42, 427–486.
+///
+/// Evaluates conditional expected marginal utility:
+/// $$\Delta(a \mid \psi) = \mathbb{E}[U(\psi \cup \{(a, \mathcal{O}(a))\}) - U(\psi) \mid \psi, a]$$
+#[derive(Debug, Clone)]
+pub struct AdaptiveGainEstimator {
+    /// Configuration weights for gain components.
+    pub config: AdaptiveGainConfig,
+}
+
+impl Default for AdaptiveGainEstimator {
+    fn default() -> Self {
+        Self::new(AdaptiveGainConfig::default())
+    }
+}
+
+impl AdaptiveGainEstimator {
+    /// Constructs a new `AdaptiveGainEstimator` with custom configuration.
+    pub fn new(config: AdaptiveGainConfig) -> Self {
+        Self { config }
+    }
+
+    /// Evaluates the expected marginal gain $\Delta(a \mid \psi)$ of proposing action $a$ given state $\psi$.
+    pub fn estimate_marginal_gain(
+        &self,
+        action: &NavigationAction,
+        state: &NavigationState,
+        intel: &CodebaseIntelligence,
+    ) -> f32 {
+        if state.is_terminal {
+            return 0.0;
+        }
+
+        match action {
+            NavigationAction::Stop { .. } => {
+                // If frontier is empty or budget cannot afford anything, Stop has high positive utility.
+                if state.frontier.is_empty() {
+                    return self.config.stop_threshold * 2.0;
+                }
+                if state.remaining_budget < 40 {
+                    return self.config.stop_threshold * 1.5;
+                }
+                // Otherwise nominal value so it only wins when marginal gains of other actions saturate below threshold.
+                self.config.stop_threshold * 0.5
+            }
+
+            NavigationAction::Inspect { symbol_id } => {
+                // Check if already observed at full detail
+                if let Some(&lod) = state.observed_symbols.get(symbol_id) {
+                    if lod == LodLevel::FullBody {
+                        // Diminishing returns: zero marginal gain for re-inspecting full body
+                        return 0.0;
+                    }
+                }
+
+                let symbol = match intel.graph().symbol(*symbol_id) {
+                    Some(s) => s,
+                    None => return 0.0,
+                };
+
+                // 1. Direct relevance r(v | q)
+                let relevance = self.estimate_symbol_relevance(symbol, &state.task);
+
+                // 2. Neighborhood coverage potential
+                let neighborhood = intel.neighbors(*symbol_id).ok();
+                let (unobserved_neighbors, total_neighbors) = if let Some(ref nh) = neighborhood {
+                    let unobs = nh
+                        .outgoing
+                        .iter()
+                        .chain(nh.incoming.iter())
+                        .filter(|e| !state.observed_symbols.contains_key(&e.target.id))
+                        .count();
+                    (unobs, nh.total_neighbors)
+                } else {
+                    (0, 0)
+                };
+
+                let coverage_potential = if total_neighbors > 0 {
+                    (unobserved_neighbors as f32 / (total_neighbors as f32).max(1.0)).min(1.0)
+                } else {
+                    0.1
+                };
+
+                // 3. Structural entity type prior
+                let type_weight = match symbol.node_type() {
+                    NodeType::Function | NodeType::Method => 1.0,
+                    NodeType::Struct | NodeType::Class | NodeType::Interface => 0.9,
+                    NodeType::Module | NodeType::Package => 0.7,
+                    NodeType::Type => 0.6,
+                    _ => 0.4,
+                };
+
+                // 4. Redundancy discount if already partially observed
+                let discount = if state.observed_symbols.contains_key(symbol_id) {
+                    1.0 - self.config.redundancy_discount
+                } else {
+                    1.0
+                };
+
+                let total_gain = (self.config.alpha_relevance * relevance
+                    + self.config.beta_coverage * coverage_potential)
+                    * type_weight
+                    * discount;
+
+                total_gain.max(0.01)
+            }
+
+            NavigationAction::Expand { symbol_id, budget } => {
+                let symbol = match intel.graph().symbol(*symbol_id) {
+                    Some(s) => s,
+                    None => return 0.0,
+                };
+
+                let relevance = self.estimate_symbol_relevance(symbol, &state.task);
+                let budget_efficiency = (*budget as f32 / 1000.0).clamp(0.5, 1.5);
+                let gain = (self.config.alpha_relevance * relevance
+                    + self.config.beta_coverage * 0.8)
+                    * budget_efficiency;
+
+                gain.max(0.01)
+            }
+
+            NavigationAction::Trace {
+                source_id,
+                target_id,
+            } => {
+                let src_obs = state.observed_symbols.contains_key(source_id);
+                let dst_obs = state.observed_symbols.contains_key(target_id);
+
+                let bridge_value = if src_obs && !dst_obs {
+                    0.9
+                } else if !src_obs && dst_obs {
+                    0.8
+                } else {
+                    0.5
+                };
+
+                let gain = self.config.gamma_path * bridge_value;
+                gain.max(0.01)
+            }
+
+            NavigationAction::TestLink { symbol_id } => {
+                let symbol = match intel.graph().symbol(*symbol_id) {
+                    Some(s) => s,
+                    None => return 0.0,
+                };
+
+                let has_test_linked = state.observed_edges.iter().any(|(src, dst, rel)| {
+                    (*src == *symbol_id || *dst == *symbol_id) && *rel == RelationType::IsTestedBy
+                });
+
+                if has_test_linked {
+                    return 0.01;
+                }
+
+                let relevance = self.estimate_symbol_relevance(symbol, &state.task);
+                let gain = self.config.delta_test * (0.5 + 0.5 * relevance);
+                gain.max(0.01)
+            }
+        }
+    }
+
+    /// Fast lexical and prior relevance estimator for a symbol given the active task.
+    fn estimate_symbol_relevance(&self, symbol: &SymbolNode, task: &TaskContext) -> f32 {
+        let sym_name_lower = symbol.name.to_lowercase();
+        let query_lower = task.query.to_lowercase();
+
+        if sym_name_lower == query_lower {
+            return 1.0;
+        }
+
+        if task
+            .seed_hints
+            .iter()
+            .any(|h| symbol.name.eq_ignore_ascii_case(h))
+        {
+            return 0.95;
+        }
+
+        let mut overlap: f32 = 0.0;
+        for c in &task.concepts {
+            let c_lower = c.to_lowercase();
+            if sym_name_lower.contains(&c_lower) || c_lower.contains(&sym_name_lower) {
+                overlap += 0.3;
+            }
+        }
+
+        overlap.clamp(0.1, 0.9)
+    }
+
+    /// Evaluates the efficiency ratio $\rho(a) = \frac{\Delta(a \mid \psi)}{c(a)}$ for a candidate action.
+    pub fn evaluate_candidate_efficiency(
+        &self,
+        candidate: &CandidateAction,
+        state: &NavigationState,
+        intel: &CodebaseIntelligence,
+    ) -> f32 {
+        let gain = self.estimate_marginal_gain(&candidate.action, state, intel);
+        let cost = candidate.estimated_cost.max(1) as f32;
+        gain / cost
+    }
+}

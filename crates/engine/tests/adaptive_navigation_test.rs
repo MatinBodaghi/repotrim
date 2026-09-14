@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use repotrim_engine::{
-    ActionGenerator, ActionGeneratorConfig, CodebaseIntelligence, EdgeKind, EngineError,
-    LayerWeights, LodLevel, MultiplexGraph, NavigationAction, NavigationState, Observation,
-    ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TaskContext, TextSpan,
+    ActionGenerator, ActionGeneratorConfig, AdaptiveGainConfig, AdaptiveGainEstimator,
+    CandidateAction, CodebaseIntelligence, EdgeKind, EngineError, LayerWeights, LodLevel,
+    MultiplexGraph, NavigationAction, NavigationState, Observation, ReferenceEdge, SymbolId,
+    SymbolKind, SymbolNode, TaskContext, TextSpan,
 };
 
 fn make_symbol(
@@ -447,4 +448,85 @@ fn test_navigation_state_json_roundtrip() {
     assert_eq!(deserialized.observed_symbols.len(), 1);
     assert_eq!(deserialized.frontier.len(), state.frontier.len());
     assert_eq!(deserialized.is_terminal, state.is_terminal);
+}
+
+#[test]
+fn test_adaptive_gain_estimator_marginal_utility() {
+    let (graph, sources) = build_navigation_harness();
+    let intel = CodebaseIntelligence::new(&graph, &sources);
+    let task = TaskContext::from_query("authenticate user credentials");
+    let state = NavigationState::with_entrypoints(task, 1000, &[SymbolId(0), SymbolId(1)]);
+
+    let config = AdaptiveGainConfig::default();
+    let estimator = AdaptiveGainEstimator::new(config);
+
+    // 1. Inspecting an unobserved relevant symbol yields positive gain
+    let inspect_auth = NavigationAction::Inspect {
+        symbol_id: SymbolId(1), // authenticate
+    };
+    let gain_auth = estimator.estimate_marginal_gain(&inspect_auth, &state, &intel);
+    assert!(
+        gain_auth > 0.1,
+        "Gain for relevant symbol must be substantial: {}",
+        gain_auth
+    );
+
+    // 2. Candidate efficiency computation
+    let candidate = CandidateAction {
+        action: inspect_auth,
+        estimated_cost: 60,
+        priority: 0.9,
+        rationale: "Authentication logic".to_string(),
+    };
+    let eff = estimator.evaluate_candidate_efficiency(&candidate, &state, &intel);
+    assert_eq!(eff, gain_auth / 60.0);
+    assert!(eff > 0.0);
+
+    // 3. Tracing between symbols yields path gain
+    let trace_action = NavigationAction::Trace {
+        source_id: SymbolId(0),
+        target_id: SymbolId(1),
+    };
+    let trace_gain = estimator.estimate_marginal_gain(&trace_action, &state, &intel);
+    assert!(trace_gain > 0.0);
+
+    // 4. Stop action utility when budget is healthy vs when exhausted
+    let stop_action = NavigationAction::Stop {
+        reason: "Done".to_string(),
+    };
+    let stop_gain_healthy = estimator.estimate_marginal_gain(&stop_action, &state, &intel);
+
+    let exhausted_state = NavigationState::new(TaskContext::from_query("test"), 20);
+    let stop_gain_exhausted =
+        estimator.estimate_marginal_gain(&stop_action, &exhausted_state, &intel);
+    assert!(stop_gain_exhausted > stop_gain_healthy);
+}
+
+#[test]
+fn test_adaptive_gain_estimator_diminishing_returns() {
+    let (graph, sources) = build_navigation_harness();
+    let intel = CodebaseIntelligence::new(&graph, &sources);
+    let task = TaskContext::from_query("handle request");
+    let mut state = NavigationState::with_entrypoints(task, 1000, &[SymbolId(0)]);
+
+    let estimator = AdaptiveGainEstimator::default();
+
+    // Prior to observation, inspect has positive marginal gain
+    let inspect_action = NavigationAction::Inspect {
+        symbol_id: SymbolId(0),
+    };
+    let gain_before = estimator.estimate_marginal_gain(&inspect_action, &state, &intel);
+    assert!(gain_before > 0.0);
+
+    // Apply inspect
+    state
+        .apply_action(inspect_action.clone(), &intel)
+        .expect("Inspect must succeed");
+
+    // After observation at LodLevel::FullBody, marginal gain drops to 0.0 (diminishing returns)
+    let gain_after = estimator.estimate_marginal_gain(&inspect_action, &state, &intel);
+    assert_eq!(
+        gain_after, 0.0,
+        "Re-inspecting full body symbol must yield 0.0 marginal gain"
+    );
 }
