@@ -26,25 +26,43 @@ use crate::community::{CommunityConfig, CommunityDetector};
 use crate::formatter::ContextFormatter;
 use crate::intent::IntentResolver;
 use crate::loader::LoadedRepository;
+use crate::navigation::{AdaptiveNavigator, NavigatorConfig};
 use crate::ppr::PprSolver;
+use crate::primitives::CodebaseIntelligence;
+use crate::retrieval::{HybridRetriever, RetrievalConfig};
 use crate::selector::ContextSelector;
 use crate::symbol::{LodLevel, SymbolId, SymbolNode};
+use crate::task::TaskContext;
 use crate::tokens::{count_tokens, estimate_tokens, TokenizerModel};
 
 /// Context selection strategy evaluated by the benchmark harness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextStrategy {
-    /// Naive Whole-File Dump: includes the full source files containing the seed symbols.
+    // --- 7 Canonical Ablation Tiers ---
+    /// Tier 1: Whole-File Dump (Full Context baseline).
     WholeFile,
-    /// Naive Grep/Substring Search: extracts symbols whose names match query keywords.
-    NaiveGrep,
+    /// Tier 2: Lexical search (BM25+ keyword and token matching).
+    Lexical,
+    /// Tier 3: Graph-Only topology (degree centrality without semantic query priors).
+    GraphOnly,
+    /// Tier 4: PPR-Only diffusion (Personalized PageRank + density knapsack without submodular utility).
+    PprOnly,
+    /// Tier 5: Static Submodular utility (RepoTrim v0.7: relevance, coverage, redundancy, test verification).
+    StaticSubmodular,
+    /// Tier 6: Path-Aware context (RepoTrim v0.8: Boltzmann path energy + structured context).
+    PathAware,
+    /// Tier 7: Adaptive Navigation (RepoTrim v0.10: Sequential adaptive submodular greedy exploration).
+    AdaptiveNavigation,
+
+    // --- Legacy / External Baselines ---
     /// Aider-style Repo Map: uniform Global PageRank over reference graph, greedy definition packing.
     AiderRepoMap,
-    /// RepoTrim Vanilla (v0.1): Standard Personalized PageRank with greedy knapsack selection.
+    /// Naive Grep/Substring Search (legacy keyword search baseline).
+    NaiveGrep,
+    /// RepoTrim Vanilla (v0.1: legacy alias for PPR diffusion).
     RepoTrimVanilla,
-    /// RepoTrim Full: Modern multiplex CPG, Forward-Push PPR, CELF Knapsack with Best-Singleton,
-    /// Community Cohesion Boost, and MCKP joint selection.
+    /// RepoTrim Full (v0.5-v0.7: legacy alias for static submodular knapsack).
     RepoTrimFull,
 }
 
@@ -53,19 +71,60 @@ impl ContextStrategy {
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::WholeFile => "Whole-File Dump",
-            Self::NaiveGrep => "Naive Keyword/Grep",
+            Self::Lexical => "Lexical (BM25)",
+            Self::GraphOnly => "Graph-Only (Topology)",
+            Self::PprOnly => "PPR-Only (Diffusion)",
+            Self::StaticSubmodular => "Static Submodular (v0.7)",
+            Self::PathAware => "Path-Aware Context (v0.8)",
+            Self::AdaptiveNavigation => "Adaptive Navigation (v0.10)",
             Self::AiderRepoMap => "Aider Repo Map (Global PR)",
+            Self::NaiveGrep => "Naive Keyword/Grep",
             Self::RepoTrimVanilla => "RepoTrim Vanilla (v0.1)",
             Self::RepoTrimFull => "RepoTrim Full (Modern)",
         }
     }
 
-    /// All strategies in standard comparative benchmark order.
-    pub fn all() -> &'static [Self] {
+    /// The 7 canonical ablation tiers representing RepoTrim's architectural progression.
+    pub fn ablation_tiers() -> &'static [Self] {
+        &[
+            Self::WholeFile,
+            Self::Lexical,
+            Self::GraphOnly,
+            Self::PprOnly,
+            Self::StaticSubmodular,
+            Self::PathAware,
+            Self::AdaptiveNavigation,
+        ]
+    }
+
+    /// Legacy baseline comparative set.
+    pub fn baselines() -> &'static [Self] {
         &[
             Self::WholeFile,
             Self::NaiveGrep,
             Self::AiderRepoMap,
+            Self::RepoTrimVanilla,
+            Self::RepoTrimFull,
+        ]
+    }
+
+    /// All canonical ablation strategies evaluated by default.
+    pub fn all() -> &'static [Self] {
+        Self::ablation_tiers()
+    }
+
+    /// All known strategies including ablation tiers and external baselines.
+    pub fn all_known() -> &'static [Self] {
+        &[
+            Self::WholeFile,
+            Self::Lexical,
+            Self::GraphOnly,
+            Self::PprOnly,
+            Self::StaticSubmodular,
+            Self::PathAware,
+            Self::AdaptiveNavigation,
+            Self::AiderRepoMap,
+            Self::NaiveGrep,
             Self::RepoTrimVanilla,
             Self::RepoTrimFull,
         ]
@@ -343,6 +402,41 @@ impl BenchmarkRunner {
                     (sel, whole_file_tokens, elapsed)
                 }
 
+                ContextStrategy::Lexical => {
+                    let start = Instant::now();
+                    let query_str = scenario.query.as_deref().unwrap_or(&scenario.name);
+                    let ret_config = RetrievalConfig::lexical_only(graph.num_symbols());
+                    let retriever = HybridRetriever::with_config(ret_config);
+                    let results = retriever.search(graph.symbols(), query_str);
+
+                    let mut matched_symbols = Vec::new();
+                    let mut score_map = HashMap::new();
+                    for r in results {
+                        if let Some(sym) = graph.symbol(r.symbol_id) {
+                            matched_symbols.push(sym.clone());
+                            score_map.insert(r.symbol_id, r.score);
+                        }
+                    }
+
+                    let mut lod_map = HashMap::new();
+                    for s in &matched_symbols {
+                        lod_map.insert(s.id, LodLevel::SignatureOnly);
+                    }
+                    let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
+                        &matched_symbols,
+                        &lod_map,
+                        &repo.file_sources,
+                        scenario.budget,
+                        TokenizerModel::default(),
+                        &score_map,
+                        &[],
+                    );
+                    let tokens = count_tokens(&md, TokenizerModel::default());
+                    let sel: HashSet<u32> = surviving.iter().map(|s| s.id.0).collect();
+                    let elapsed = start.elapsed().as_micros();
+                    (sel, tokens, elapsed)
+                }
+
                 ContextStrategy::NaiveGrep => {
                     let start = Instant::now();
                     let mut keywords: Vec<String> = Vec::new();
@@ -380,6 +474,43 @@ impl BenchmarkRunner {
                         scenario.budget,
                         TokenizerModel::default(),
                         &HashMap::new(),
+                        &[],
+                    );
+                    let tokens = count_tokens(&md, TokenizerModel::default());
+                    let sel: HashSet<u32> = surviving.iter().map(|s| s.id.0).collect();
+                    let elapsed = start.elapsed().as_micros();
+                    (sel, tokens, elapsed)
+                }
+
+                ContextStrategy::GraphOnly => {
+                    let start = Instant::now();
+                    let mut symbol_degrees: Vec<(SymbolId, usize)> = graph
+                        .symbols()
+                        .iter()
+                        .map(|s| (s.id, graph.neighbors(s.id).len()))
+                        .collect();
+                    symbol_degrees.sort_by_key(|b| std::cmp::Reverse(b.1));
+
+                    let mut graph_symbols = Vec::new();
+                    let mut deg_map = HashMap::new();
+                    for (sym_id, deg) in symbol_degrees {
+                        if let Some(sym) = graph.symbol(sym_id) {
+                            graph_symbols.push(sym.clone());
+                            deg_map.insert(sym_id, deg as f32);
+                        }
+                    }
+
+                    let mut lod_map = HashMap::new();
+                    for s in &graph_symbols {
+                        lod_map.insert(s.id, LodLevel::SignatureOnly);
+                    }
+                    let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
+                        &graph_symbols,
+                        &lod_map,
+                        &repo.file_sources,
+                        scenario.budget,
+                        TokenizerModel::default(),
+                        &deg_map,
                         &[],
                     );
                     let tokens = count_tokens(&md, TokenizerModel::default());
@@ -431,7 +562,7 @@ impl BenchmarkRunner {
                     (sel, tokens, elapsed)
                 }
 
-                ContextStrategy::RepoTrimVanilla => {
+                ContextStrategy::PprOnly | ContextStrategy::RepoTrimVanilla => {
                     // RepoTrim v0.1: Standard PPR from seeds, greedy knapsack
                     let start = Instant::now();
                     let seed_pairs: Vec<(SymbolId, f32)> =
@@ -450,19 +581,19 @@ impl BenchmarkRunner {
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
 
-                    let mut vanilla_symbols: Vec<SymbolNode> = Vec::new();
+                    let mut ppr_symbols: Vec<SymbolNode> = Vec::new();
                     for (sym_id, _) in candidates {
                         if let Some(sym) = graph.symbol(sym_id) {
-                            vanilla_symbols.push(sym.clone());
+                            ppr_symbols.push(sym.clone());
                         }
                     }
 
                     let mut lod_map = HashMap::new();
-                    for s in &vanilla_symbols {
+                    for s in &ppr_symbols {
                         lod_map.insert(s.id, LodLevel::SignatureOnly);
                     }
                     let (surviving, md, _) = ContextFormatter::format_markdown_budgeted(
-                        &vanilla_symbols,
+                        &ppr_symbols,
                         &lod_map,
                         &repo.file_sources,
                         scenario.budget,
@@ -476,7 +607,7 @@ impl BenchmarkRunner {
                     (sel, tokens, elapsed)
                 }
 
-                ContextStrategy::RepoTrimFull => {
+                ContextStrategy::StaticSubmodular | ContextStrategy::RepoTrimFull => {
                     // Full modern RepoTrim: Multiplex CPG, Forward-Push PPR, CELF Knapsack with Best-Singleton,
                     // Community Cohesion Boost (0.35)
                     let start = Instant::now();
@@ -491,6 +622,52 @@ impl BenchmarkRunner {
                     );
                     let tokens = count_tokens(&md, TokenizerModel::default());
                     let sel: HashSet<u32> = selected.iter().map(|s| s.id.0).collect();
+                    let elapsed = start.elapsed().as_micros();
+                    (sel, tokens, elapsed)
+                }
+
+                ContextStrategy::PathAware => {
+                    // Tier 6: Submodular knapsack with Boltzmann path energy scoring & StructuredContext
+                    let start = Instant::now();
+                    let seed_pairs: Vec<(SymbolId, f32)> =
+                        resolved_seed_ids.iter().map(|&id| (id, 1.0)).collect();
+                    let intel = CodebaseIntelligence::new(&graph, &repo.file_sources);
+                    let query_str = scenario.query.as_deref().unwrap_or(&scenario.name);
+                    let task_ctx = TaskContext::with_seeds(query_str, scenario.seeds.clone());
+                    let structured =
+                        intel.context_with_seeds(&seed_pairs, Some(&task_ctx), scenario.budget);
+                    let sel: HashSet<u32> = structured.symbols.iter().map(|s| s.id.0).collect();
+                    let tokens = structured.tokens_used;
+                    let elapsed = start.elapsed().as_micros();
+                    (sel, tokens, elapsed)
+                }
+
+                ContextStrategy::AdaptiveNavigation => {
+                    // Tier 7: Sequential adaptive submodular greedy exploration
+                    let start = Instant::now();
+                    let intel = CodebaseIntelligence::new(&graph, &repo.file_sources);
+                    let query_str = scenario.query.as_deref().unwrap_or(&scenario.name);
+                    let task_ctx = TaskContext::with_seeds(query_str, scenario.seeds.clone());
+                    let config = NavigatorConfig {
+                        max_steps: 10,
+                        min_efficiency_threshold: 0.0001,
+                        ..Default::default()
+                    };
+                    let navigator = AdaptiveNavigator::new(config);
+                    let budget_u32 = scenario.budget.min(u32::MAX as usize) as u32;
+                    let (sel, tokens) = match navigator.navigate(task_ctx, budget_u32, &intel) {
+                        Ok(trajectory) => {
+                            let ids: HashSet<u32> = trajectory
+                                .structured_context
+                                .symbols
+                                .iter()
+                                .map(|s| s.id.0)
+                                .collect();
+                            let t = trajectory.tokens_used() as usize;
+                            (ids, t)
+                        }
+                        Err(_) => (HashSet::new(), 0),
+                    };
                     let elapsed = start.elapsed().as_micros();
                     (sel, tokens, elapsed)
                 }
@@ -638,7 +815,7 @@ impl BenchmarkSummary {
         }
 
         let mut summaries = Vec::new();
-        for &strat in ContextStrategy::all() {
+        for &strat in ContextStrategy::all_known() {
             if let Some(list) = grouped.get(&strat) {
                 if list.is_empty() {
                     continue;

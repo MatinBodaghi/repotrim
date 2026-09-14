@@ -11,7 +11,9 @@ fn repo_root() -> PathBuf {
 #[test]
 fn test_eval_strategies_and_scenarios() {
     let strats = ContextStrategy::all();
-    assert_eq!(strats.len(), 5);
+    assert_eq!(strats.len(), 7);
+    let baselines = ContextStrategy::baselines();
+    assert_eq!(baselines.len(), 5);
     assert_eq!(ContextStrategy::WholeFile.to_string(), "Whole-File Dump");
     assert_eq!(
         ContextStrategy::AiderRepoMap.to_string(),
@@ -46,7 +48,7 @@ fn test_eval_runner_on_workspace_repo() {
         "Test evaluating ContextSelector under 800 tokens",
     );
 
-    let metrics = runner.evaluate_scenario(&repo, &scenario, ContextStrategy::all());
+    let metrics = runner.evaluate_scenario(&repo, &scenario, ContextStrategy::baselines());
     assert_eq!(metrics.len(), 5);
 
     let dump = metrics
@@ -221,4 +223,57 @@ fn test_eval_summary_aggregation() {
     assert_eq!(s.mean_cohesion_pct, 92.5);
     assert_eq!(s.mean_orphan_rate_pct, 2.5);
     assert_eq!(s.mean_latency_us, 1000);
+}
+
+#[test]
+fn test_eval_ablation_7_tier_on_workspace_repo() {
+    let root = repo_root();
+    let mut repo = LoadedRepository::load(&root).expect("Failed to load repo");
+    repo.load_all_sources().expect("Failed to load sources");
+
+    let runner = BenchmarkRunner::new();
+    let scenario = BenchmarkScenario::with_seeds(
+        "context_selector",
+        "ContextSelector Test",
+        vec!["ContextSelector"],
+        800,
+        "Test evaluating ContextSelector under 800 tokens",
+    );
+
+    let metrics = runner.evaluate_scenario(&repo, &scenario, ContextStrategy::ablation_tiers());
+    assert_eq!(metrics.len(), 7);
+
+    // Verify all 7 tiers are present
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::WholeFile));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::Lexical));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::GraphOnly));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::PprOnly));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::StaticSubmodular));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::PathAware));
+    assert!(metrics
+        .iter()
+        .any(|m| m.strategy == ContextStrategy::AdaptiveNavigation));
+
+    // Budget adherence on bounded strategies (all except WholeFile)
+    for m in &metrics {
+        if m.strategy != ContextStrategy::WholeFile {
+            assert!(
+                m.budget_adherence,
+                "Strategy {:?} exceeded budget constraint: {} > {}",
+                m.strategy, m.tokens_used, m.budget
+            );
+        }
+    }
 }
