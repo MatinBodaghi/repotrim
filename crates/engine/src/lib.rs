@@ -75,8 +75,8 @@ pub use loader::{CacheReport, LoadedRepository};
 pub use model::ModelProfile;
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use navigation::{
-    ActionCost, NavigationAction, NavigationState, NavigationStep, Observation,
-    DEFAULT_ACTION_INVOCATION_COST,
+    ActionCost, ActionGenerator, ActionGeneratorConfig, CandidateAction, NavigationAction,
+    NavigationState, NavigationStep, Observation, DEFAULT_ACTION_INVOCATION_COST,
 };
 pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 pub use parser::{AstExtractor, SupportedLanguage};

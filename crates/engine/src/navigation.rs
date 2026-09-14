@@ -748,3 +748,292 @@ impl NavigationState {
         })
     }
 }
+
+/// A candidate navigation action annotated with estimated cost, priority, and rationale.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CandidateAction {
+    /// Proposed concrete action primitive.
+    pub action: NavigationAction,
+    /// Estimated conservative token cost before execution.
+    pub estimated_cost: u32,
+    /// Heuristic priority or expected utility score in `[0.0, 1.0]`.
+    pub priority: f32,
+    /// Attribution rationale explaining why this action was proposed.
+    pub rationale: String,
+}
+
+/// Configuration parameters governing action candidate generation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionGeneratorConfig {
+    /// Maximum candidate actions to propose per step.
+    pub max_candidates: usize,
+    /// Default micro-budget for localized expansion candidates.
+    pub default_expand_budget: u32,
+    /// Whether to propose causal path traces between pairs of frontier nodes.
+    pub enable_trace_candidates: bool,
+    /// Whether to propose test verification linkage.
+    pub enable_test_candidates: bool,
+}
+
+impl Default for ActionGeneratorConfig {
+    fn default() -> Self {
+        Self {
+            max_candidates: 10,
+            default_expand_budget: 300,
+            enable_trace_candidates: true,
+            enable_test_candidates: true,
+        }
+    }
+}
+
+/// Generator of feasible navigation action candidates from the current exploration state.
+#[derive(Debug, Clone)]
+pub struct ActionGenerator {
+    config: ActionGeneratorConfig,
+}
+
+impl Default for ActionGenerator {
+    fn default() -> Self {
+        Self::new(ActionGeneratorConfig::default())
+    }
+}
+
+impl ActionGenerator {
+    /// Constructs a new `ActionGenerator` with custom configuration.
+    pub fn new(config: ActionGeneratorConfig) -> Self {
+        Self { config }
+    }
+
+    /// Estimates the conservative token cost for executing a given action.
+    pub fn estimate_action_cost(
+        &self,
+        action: &NavigationAction,
+        intel: &CodebaseIntelligence,
+    ) -> u32 {
+        match action {
+            NavigationAction::Stop { .. } => 0,
+            NavigationAction::Inspect { symbol_id } => {
+                let symbol_cost = intel
+                    .graph()
+                    .symbol(*symbol_id)
+                    .map(|s| s.token_cost as u32)
+                    .unwrap_or(50);
+                symbol_cost + DEFAULT_ACTION_INVOCATION_COST + 6
+            }
+            NavigationAction::Expand { budget, .. } => *budget + DEFAULT_ACTION_INVOCATION_COST + 4,
+            NavigationAction::Trace { .. } => 60 + DEFAULT_ACTION_INVOCATION_COST,
+            NavigationAction::TestLink { .. } => 30 + DEFAULT_ACTION_INVOCATION_COST,
+        }
+    }
+
+    /// Proposes a set of feasible, prioritized candidate actions given the current state.
+    pub fn propose_actions(
+        &self,
+        state: &NavigationState,
+        intel: &CodebaseIntelligence,
+    ) -> Result<Vec<CandidateAction>, EngineError> {
+        if state.is_terminal {
+            return Ok(Vec::new());
+        }
+
+        let mut candidates = Vec::new();
+        let mut seen_actions = HashSet::new();
+
+        // 1. Initial Entrypoint Localization (Bootstrap phase if frontier and observed are empty)
+        if state.frontier.is_empty() && state.observed_symbols.is_empty() {
+            let entrypoints = intel.locate(&state.task, self.config.max_candidates);
+            for ep in entrypoints {
+                let action = NavigationAction::Inspect {
+                    symbol_id: ep.symbol.id,
+                };
+                let estimated_cost = self.estimate_action_cost(&action, intel);
+                if state.can_afford(estimated_cost) && seen_actions.insert(action.clone()) {
+                    candidates.push(CandidateAction {
+                        action,
+                        estimated_cost,
+                        priority: ep.score.clamp(0.1, 1.0),
+                        rationale: ep.reason,
+                    });
+                }
+            }
+        }
+
+        // 2. Frontier Exploration (Inspect & Expand unobserved candidate symbols)
+        for &sym_id in &state.frontier {
+            if state.observed_symbols.contains_key(&sym_id) {
+                continue;
+            }
+
+            if let Some(node) = intel.graph().symbol(sym_id) {
+                // A. Propose Inspect
+                let inspect_action = NavigationAction::Inspect { symbol_id: sym_id };
+                let inspect_cost = self.estimate_action_cost(&inspect_action, intel);
+                if state.can_afford(inspect_cost) && seen_actions.insert(inspect_action.clone()) {
+                    let priority = match node.node_type() {
+                        NodeType::Function | NodeType::Method => 0.85,
+                        NodeType::Struct | NodeType::Class | NodeType::Interface => 0.80,
+                        NodeType::Module | NodeType::Package => 0.70,
+                        _ => 0.60,
+                    };
+
+                    candidates.push(CandidateAction {
+                        action: inspect_action,
+                        estimated_cost: inspect_cost,
+                        priority,
+                        rationale: format!(
+                            "Frontier symbol '{}' ({:?}): inspect declaration and typed neighborhood",
+                            node.name,
+                            node.node_type()
+                        ),
+                    });
+                }
+
+                // B. Propose Expand for central entities with available budget
+                let expand_budget = self
+                    .config
+                    .default_expand_budget
+                    .min(state.remaining_budget);
+                if expand_budget >= 100 {
+                    let expand_action = NavigationAction::Expand {
+                        symbol_id: sym_id,
+                        budget: expand_budget,
+                    };
+                    let expand_cost = self.estimate_action_cost(&expand_action, intel);
+                    if state.can_afford(expand_cost) && seen_actions.insert(expand_action.clone()) {
+                        candidates.push(CandidateAction {
+                            action: expand_action,
+                            estimated_cost: expand_cost,
+                            priority: 0.75,
+                            rationale: format!(
+                                "Frontier symbol '{}': pack cohesive submodular context cluster ({} tokens)",
+                                node.name, expand_budget
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+
+        // 3. Causal Path Tracing candidates between observed symbols and frontier
+        if self.config.enable_trace_candidates {
+            let observed_ids: Vec<SymbolId> = state.observed_symbols.keys().copied().collect();
+            let frontier_ids: Vec<SymbolId> = state.frontier.iter().copied().collect();
+
+            for &src in &observed_ids {
+                for &dst in &frontier_ids {
+                    if src == dst {
+                        continue;
+                    }
+
+                    let trace_action = NavigationAction::Trace {
+                        source_id: src,
+                        target_id: dst,
+                    };
+                    let trace_cost = self.estimate_action_cost(&trace_action, intel);
+                    if state.can_afford(trace_cost) && seen_actions.insert(trace_action.clone()) {
+                        let src_name = intel
+                            .graph()
+                            .symbol(src)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("?");
+                        let dst_name = intel
+                            .graph()
+                            .symbol(dst)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("?");
+
+                        candidates.push(CandidateAction {
+                            action: trace_action,
+                            estimated_cost: trace_cost,
+                            priority: 0.65,
+                            rationale: format!(
+                                "Trace causal dependency flow from '{}' to frontier symbol '{}'",
+                                src_name, dst_name
+                            ),
+                        });
+
+                        if candidates.len() >= self.config.max_candidates * 2 {
+                            break;
+                        }
+                    }
+                }
+                if candidates.len() >= self.config.max_candidates * 2 {
+                    break;
+                }
+            }
+        }
+
+        // 4. Test Verification candidates for observed implementation symbols
+        if self.config.enable_test_candidates {
+            for (&sym_id, &lod) in &state.observed_symbols {
+                if lod >= LodLevel::FullBody {
+                    if let Some(node) = intel.graph().symbol(sym_id) {
+                        if matches!(
+                            node.node_type(),
+                            NodeType::Function | NodeType::Method | NodeType::Struct
+                        ) {
+                            let test_action = NavigationAction::TestLink { symbol_id: sym_id };
+                            let test_cost = self.estimate_action_cost(&test_action, intel);
+                            if state.can_afford(test_cost)
+                                && seen_actions.insert(test_action.clone())
+                            {
+                                candidates.push(CandidateAction {
+                                    action: test_action,
+                                    estimated_cost: test_cost,
+                                    priority: 0.70,
+                                    rationale: format!(
+                                        "Discover test verification suites for '{}'",
+                                        node.name
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Termination Action (Stop)
+        if state.step_count() > 0 {
+            let (stop_priority, stop_reason) = if state.remaining_budget < 50 {
+                (
+                    0.95,
+                    "Remaining budget is nearly exhausted; finalize evidence context".to_string(),
+                )
+            } else if state.observed_symbols.len() >= 5 {
+                (
+                    0.50,
+                    format!(
+                        "Sufficient evidence collected ({} symbols observed)",
+                        state.observed_symbols.len()
+                    ),
+                )
+            } else {
+                (
+                    0.10,
+                    "Optional termination of exploratory navigation".to_string(),
+                )
+            };
+
+            let stop_action = NavigationAction::Stop {
+                reason: stop_reason.clone(),
+            };
+            candidates.push(CandidateAction {
+                action: stop_action,
+                estimated_cost: 0,
+                priority: stop_priority,
+                rationale: stop_reason,
+            });
+        }
+
+        // Sort descending by priority
+        candidates.sort_by(|a, b| {
+            b.priority
+                .partial_cmp(&a.priority)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        candidates.truncate(self.config.max_candidates);
+        Ok(candidates)
+    }
+}
