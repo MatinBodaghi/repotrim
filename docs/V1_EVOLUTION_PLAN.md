@@ -550,8 +550,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 43: Agent Harness Exploration Measurement & Real-World Validation
-- **Branch:** `experiment/agent-harness-study`
+### Phase 43: Agent Harness Exploration Measurement & Real-World Validation `[COMPLETED]`
+- **Branch:** `experiment/agent-harness-study` (completed & merged into `dev`)
 - **Objective:** Measure real agent performance (e.g. Claude Code / Antigravity / SWE-bench task harnesses) comparing task success rates and token spend with and without RepoTrim codebase intelligence.
 
 #### Commit Breakdown
