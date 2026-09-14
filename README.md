@@ -599,6 +599,8 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Jin Y. Yen. *"Finding the K Shortest Loopless Paths in a Network"*. In *Management Science*, 17(11): 712–716, 1971. [DOI: 10.1287/mnsc.17.11.712](https://doi.org/10.1287/mnsc.17.11.712).
 28. **Adaptive Submodularity & Sequential Active Information Gathering:**
     - Daniel Golovin, Andreas Krause. *"Adaptive Submodularity: Theory and Applications in Active Learning and Stochastic Optimization"*. In *Journal of Artificial Intelligence Research*, 42: 427–486, 2011. [DOI: 10.1613/jair.3380](https://doi.org/10.1613/jair.3380).
+29. **Comprehensive 7-Tier Ablation Benchmark Suite:**
+    - Empirical 7-tier evaluation & architectural comparative study: [`docs/benchmarks/ablation_study.md`](docs/benchmarks/ablation_study.md).
 
 ---
 
