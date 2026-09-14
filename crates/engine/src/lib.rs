@@ -19,6 +19,7 @@ pub mod knee;
 pub mod loader;
 pub mod model;
 pub mod multiplex;
+pub mod navigation;
 pub mod oracle;
 pub mod parser;
 pub mod path;
@@ -73,6 +74,11 @@ pub use knee::{KneePoint, KneedleDetector};
 pub use loader::{CacheReport, LoadedRepository};
 pub use model::ModelProfile;
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
+pub use navigation::{
+    ActionCost, ActionGenerator, ActionGeneratorConfig, AdaptiveGainConfig, AdaptiveGainEstimator,
+    AdaptiveNavigator, CandidateAction, NavigationAction, NavigationState, NavigationStep,
+    NavigationTrajectory, NavigatorConfig, Observation, DEFAULT_ACTION_INVOCATION_COST,
+};
 pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use path::{

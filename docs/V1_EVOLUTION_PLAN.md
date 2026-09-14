@@ -408,8 +408,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 39: CLI Command Suite & Native MCP JSON-RPC Contracts
-- **Branch:** `feature/intelligence-mcp`
+### Phase 39: CLI Command Suite & Native MCP JSON-RPC Contracts `[COMPLETED]`
+- **Branch:** `feature/intelligence-mcp` (completed & merged into `dev`)
 - **Objective:** Expose the 6 primitives across CLI commands and native Model Context Protocol tools with structured JSON schemas.
 
 #### Commit Breakdown
@@ -437,10 +437,10 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-## 8. Milestone 5 (`v0.10.0`): Sequential & Adaptive Navigation
+## 8. Milestone 5 (`v0.10.0`): Sequential & Adaptive Navigation `[COMPLETED]`
 
-### Phase 40: State-Aware Sequential Exploration & Action Engine
-- **Branch:** `research/adaptive-navigation`
+### Phase 40: State-Aware Sequential Exploration & Action Engine `[COMPLETED]`
+- **Branch:** `research/adaptive-navigation` (completed & merged into `dev`)
 - **Objective:** Model the interaction between an AI harness and RepoTrim as a stateful, sequential observation process.
 - **Math Formulation:**
   - State: $s_t = (G, q, H_t, B_t, o_t)$ where $H_t$ is history, $B_t$ remaining budget, $o_t$ observations.
@@ -472,8 +472,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 41: Adaptive Submodular Greedy Policy & Dynamic Gain Updates
-- **Branch:** `feature/adaptive-navigator`
+### Phase 41: Adaptive Submodular Greedy Policy & Dynamic Gain Updates `[COMPLETED]`
+- **Branch:** `feature/adaptive-navigator` (completed & merged into `dev`)
 - **Objective:** Implement the adaptive greedy policy selecting the action with highest conditional expected marginal gain per cost:
   $$a^* = \arg\max_{a \in \mathcal{A}} \frac{\Delta(a \mid \psi)}{c(a)}$$
 - **Math Formulation:**

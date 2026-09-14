@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    count_tokens, ArchitectureReport, BenchmarkMetrics, BenchmarkRunner, BenchmarkSummary,
-    CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector, ContextSelector,
-    ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner, HybridRetriever,
-    ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile,
-    PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode, SymbolId, SymbolKind, TaskContext,
-    TokenizerModel,
+    count_tokens, AdaptiveNavigator, ArchitectureReport, BenchmarkMetrics, BenchmarkRunner,
+    BenchmarkSummary, CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector,
+    ContextSelector, ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner,
+    HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
+    ModelProfile, NavigatorConfig, PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode,
+    SymbolId, SymbolKind, TaskContext, TokenizerModel,
 };
 
 use crate::protocol::{
@@ -561,6 +561,37 @@ impl McpHandler {
                     "required": ["symbol"]
                 }),
             },
+            ToolDefinition {
+                name: "navigate_codebase".to_string(),
+                description: "Autonomously navigates the codebase using an adaptive submodular greedy policy (Golovin & Krause, 2011) to discover relevant symbols, causal execution paths, and typed context within a strict token budget ceiling.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language task prompt, issue description, or symbol query"
+                        },
+                        "budget": {
+                            "type": "integer",
+                            "description": "Initial token budget ceiling for sequential exploration (default: 2000)"
+                        },
+                        "maxSteps": {
+                            "type": "integer",
+                            "description": "Maximum number of sequential exploration steps (default: 15)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target codebase directory to scan (default: '.')"
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            },
         ]
     }
 
@@ -581,6 +612,7 @@ impl McpHandler {
             "locate_entrypoints" => self.tool_locate_entrypoints(arguments),
             "trace_paths" => self.tool_trace_paths(arguments),
             "expand_symbol" => self.tool_expand_symbol(arguments),
+            "navigate_codebase" => self.tool_navigate_codebase(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         }
     }
@@ -2317,6 +2349,135 @@ impl McpHandler {
             out.push_str("#### Source Context Code\n\n");
             out.push_str(&expansion.formatted_code);
             out.push('\n');
+
+            ToolCallResult::success(out)
+        }
+    }
+
+    fn tool_navigate_codebase(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let query = match args.get("query").and_then(|s| s.as_str()) {
+            Some(q) => q,
+            None => return ToolCallResult::error("Missing required parameter 'query'"),
+        };
+
+        let target_path = self.resolve_path(&args);
+        let repo = match self.get_or_load_repo(&target_path) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(e),
+        };
+
+        let budget: u32 = match args.get("budget") {
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(2000) as u32,
+            Some(serde_json::Value::String(s)) => s.parse::<u32>().unwrap_or(2000),
+            _ => 2000,
+        };
+
+        let max_steps: usize = match args.get("maxSteps") {
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(15) as usize,
+            Some(serde_json::Value::String(s)) => s.parse::<usize>().unwrap_or(15),
+            _ => 15,
+        };
+
+        let format_str = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+
+        let graph = repo.build_graph();
+        let intel = repo.intelligence(&graph);
+
+        let task = TaskContext::from_query(query);
+        let config = NavigatorConfig {
+            max_steps,
+            ..Default::default()
+        };
+        let navigator = AdaptiveNavigator::new(config);
+
+        let trajectory = match navigator.navigate(task, budget, &intel) {
+            Ok(t) => t,
+            Err(err) => return ToolCallResult::error(format!("Navigation failed: {}", err)),
+        };
+
+        if format_str == "json" {
+            ToolCallResult::success(serde_json::to_string_pretty(&trajectory).unwrap())
+        } else {
+            let mut out = String::new();
+            let _ = writeln!(
+                out,
+                "### Autonomous Codebase Navigation: `{}`\n",
+                trajectory.task.query
+            );
+            let _ = writeln!(
+                out,
+                "- **Budget:** {} tokens | **Tokens Used:** {} ({:.1}%) | **Steps Executed:** {}",
+                trajectory.initial_budget,
+                trajectory.tokens_used(),
+                (trajectory.tokens_used() as f64 / trajectory.initial_budget.max(1) as f64) * 100.0,
+                trajectory.step_count()
+            );
+            let _ = writeln!(
+                out,
+                "- **Termination Reason:** {}\n",
+                trajectory.termination_reason
+            );
+
+            out.push_str("#### Exploration Trajectory Steps\n\n");
+            out.push_str("| Step | Action | Cost | Remaining | Observation Summary |\n");
+            out.push_str("|---|---|---|---|---|\n");
+            for step in &trajectory.steps {
+                let _ = writeln!(
+                    out,
+                    "| #{} | `{}` | {}t | {}t | {} |",
+                    step.step_index,
+                    step.action.action_type(),
+                    step.cost.total_tokens,
+                    step.remaining_budget_after,
+                    step.observation.summary().replace('|', "\\|")
+                );
+            }
+            out.push('\n');
+
+            out.push_str("#### Synthesized Context Evidence\n\n");
+            let ctx = &trajectory.structured_context;
+            let _ = writeln!(
+                out,
+                "- **Symbols Selected:** {} | **Edges:** {} | **Paths:** {} | **Confidence:** {:.1}%\n",
+                ctx.symbols.len(),
+                ctx.edges.len(),
+                ctx.paths.len(),
+                ctx.confidence_score * 100.0
+            );
+
+            if !ctx.symbols.is_empty() {
+                out.push_str("##### Discovered Symbols\n\n");
+                for sym in ctx.symbols.iter().take(10) {
+                    let _ = writeln!(
+                        out,
+                        "- `{}` ({:?}) in `{}` ({} tokens, {:?})",
+                        sym.name,
+                        sym.node_type,
+                        sym.file_path.display(),
+                        sym.token_cost,
+                        sym.lod
+                    );
+                }
+                out.push('\n');
+            }
+
+            if !ctx.paths.is_empty() {
+                out.push_str("##### Causal Paths\n\n");
+                for (i, p) in ctx.paths.iter().take(5).enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "{}. `{}` ({} hops, prob: {:.1}%)",
+                        i + 1,
+                        p.trace,
+                        p.relations.len(),
+                        p.probability * 100.0
+                    );
+                }
+                out.push('\n');
+            }
 
             ToolCallResult::success(out)
         }

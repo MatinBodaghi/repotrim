@@ -597,8 +597,11 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Brian D. Ziebart, Andrew L. Maas, J. Andrew Bagnell, Anind K. Dey. *"Maximum Entropy Inverse Reinforcement Learning"*. In *Proceedings of the 23rd AAAI Conference on Artificial Intelligence (AAAI '08)*, pp. 1433–1438, 2008.
     - H. J. Kappen. *"Path integrals and symmetry breaks for optimal control theory"*. In *Journal of Statistical Mechanics: Theory and Experiment*, 2005(11): P11011, 2005. [DOI: 10.1088/1742-5468/2005/11/P11011](https://doi.org/10.1088/1742-5468/2005/11/P11011).
     - Jin Y. Yen. *"Finding the K Shortest Loopless Paths in a Network"*. In *Management Science*, 17(11): 712–716, 1971. [DOI: 10.1287/mnsc.17.11.712](https://doi.org/10.1287/mnsc.17.11.712).
+28. **Adaptive Submodularity & Sequential Active Information Gathering:**
+    - Daniel Golovin, Andreas Krause. *"Adaptive Submodularity: Theory and Applications in Active Learning and Stochastic Optimization"*. In *Journal of Artificial Intelligence Research*, 42: 427–486, 2011. [DOI: 10.1613/jair.3380](https://doi.org/10.1613/jair.3380).
 
 ---
+
 
 ## License
 
