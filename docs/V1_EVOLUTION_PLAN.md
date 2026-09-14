@@ -514,8 +514,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ## 9. Milestone 6 (`v0.11.0`): Empirical Validation, Proofs & Engine Modularization
 
-### Phase 42: Comprehensive 7-Tier Ablation Benchmark Harness
-- **Branch:** `experiment/ablation-suite`
+### Phase 42: Comprehensive 7-Tier Ablation Benchmark Harness `[COMPLETED]`
+- **Branch:** `experiment/ablation-suite` (completed & merged into `dev`)
 - **Objective:** Expand `crates/engine/src/eval.rs` to benchmark all 7 ablation variants on identical repository tasks:
   1. Full context
   2. Lexical (BM25)
