@@ -437,7 +437,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-## 8. Milestone 5 (`v0.10.0`): Sequential & Adaptive Navigation
+## 8. Milestone 5 (`v0.10.0`): Sequential & Adaptive Navigation `[COMPLETED]`
 
 ### Phase 40: State-Aware Sequential Exploration & Action Engine `[COMPLETED]`
 - **Branch:** `research/adaptive-navigation` (completed & merged into `dev`)

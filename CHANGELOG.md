@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-15
+
+### Added
+- **State-Aware Sequential Exploration & Action Engine (Phase 40)**:
+  - Formulated codebase exploration as a sequential observation process $s_t = (G, q, H_t, B_t, o_t)$.
+  - Implemented `NavigationAction` primitives: `Inspect`, `Expand`, `Trace`, `TestLink`, and `Stop`.
+  - Implemented `ActionCost` multi-factor cost tracking (`input_tokens`, `output_tokens`, `invocation_cost`) enforcing strict non-negative budget decrementation.
+  - Implemented `Observation` hierarchy and `NavigationState` managing exploration history, discovered entities, and dynamic frontier $\mathcal{F}_t$.
+  - Implemented `ActionGenerator` proposing budget-feasible candidate actions from seeds, neighbors, and causal paths.
+  - Implemented `synthesize_context` converting sequential exploration observations into unified `StructuredContext`.
+  - Added unit and property verification suites in `tests/adaptive_navigation_test.rs`.
+- **Adaptive Submodular Greedy Policy & Dynamic Gain Updates (Phase 41)**:
+  - Implemented `AdaptiveGainEstimator` computing expected marginal utility improvements $\Delta(a \mid \psi)$ across all action primitives, grounded in adaptive submodularity (Golovin & Krause, 2011).
+  - Implemented `AdaptiveNavigator` orchestrating multi-step greedy exploration $a^* = \arg\max_{a \in \mathcal{A}} \frac{\Delta(a \mid \psi)}{c(a)}$, updating priors upon discovering new symbols.
+  - Added `repotrim navigate <QUERY>` CLI command with `--budget`, `--max-steps`, `--format <text|json>`, and `--path` options.
+  - Added `navigate_codebase` Model Context Protocol (MCP) tool (#15 in tool catalog) enabling autonomous harnesses to run sequential exploration sessions.
+  - Added efficiency and serialization test suite in `tests/adaptive_navigator_test.rs` proving adaptive exploration discovers required dependencies with fewer actions than whole-graph selection.
+  - Added Academic Citation 28 for Golovin & Krause (2011) in `README.md`.
+
 ## [0.9.0] - 2026-09-12
 
 ### Added
