@@ -409,7 +409,7 @@ impl NavigationState {
         &mut self,
         action: NavigationAction,
         intel: &CodebaseIntelligence,
-    ) -> Result<&NavigationStep, EngineError> {
+    ) -> Result<NavigationStep, EngineError> {
         if self.is_terminal {
             return Err(EngineError::InvalidInput(
                 "Cannot apply action to a terminated NavigationState".into(),
@@ -655,7 +655,11 @@ impl NavigationState {
             }
         }
 
-        Ok(self.history.last().expect("History must contain last step"))
+        Ok(self
+            .history
+            .last()
+            .expect("History must contain last step")
+            .clone())
     }
 
     /// Synthesizes a unified `StructuredContext` from the evidence accumulated during sequential exploration.
