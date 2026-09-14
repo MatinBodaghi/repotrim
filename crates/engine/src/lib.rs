@@ -1,116 +1,179 @@
-pub mod architecture;
+//! # RepoTrim Engine
+//!
+//! High-performance mathematical context extraction, multiplex graph diffusion,
+//! and submodular budget optimization for large software repositories.
+//!
+//! ## Architectural Subsystems
+//!
+//! 1. **Representation & Parsing**: Tree-sitter AST extraction, dense symbol identifiers,
+//!    multiplex CSR adjacency representation, repository loader, file-level caching,
+//!    and program slicing.
+//! 2. **Diffusion, Ranking & Graphs**: Approximate Personalized PageRank (ACL forward-push),
+//!    Louvain modularity community detection, co-editing mining, and automated weight learning.
+//! 3. **Submodular Optimization & Packing**: Budgeted submodular knapsack maximization (CELF),
+//!    probabilistic evidence coverage kernels, multi-level of detail (LOD) knapsack, and token accounting.
+//! 4. **Causal Paths & Context Assembly**: Boltzmann energy-guided causal path finding,
+//!    lossless context formatting, and omission diagnostics.
+//! 5. **Codebase Intelligence & Primitives**: Subsystem architecture discovery, impact blast-radius
+//!    analysis, commit intent inference, and query-aware task routing.
+//! 6. **Agent Navigation & Sequential Exploration**: Adaptive Markov decision process (MDP)
+//!    exploration, hybrid dense/lexical retrieval (BM25 + BGE/RRF), and feedback-driven navigation.
+//! 7. **Evaluation, Benchmarks & Diagnostics**: Ground-truth knapsack oracle, 7-tier ablation
+//!    harness, real-world agent exploration benchmark runner, and engine error models.
+
+// ============================================================================
+// 1. Representation & Parsing Subsystem
+// ============================================================================
+
 pub mod cache;
-pub mod celf;
-pub mod coedit;
-pub mod community;
-pub mod context_object;
-pub mod cost;
 pub mod csr;
 pub mod diff;
-pub mod error;
-pub mod eval;
-pub mod evidence;
-pub mod formatter;
-pub mod graph;
-pub mod harness;
-pub mod impact;
 pub mod import;
-pub mod intent;
-pub mod knee;
 pub mod loader;
-pub mod model;
 pub mod multiplex;
-pub mod navigation;
-pub mod oracle;
 pub mod parser;
-pub mod path;
-pub mod ppr;
-pub mod primitives;
 pub mod resolver;
-pub mod retrieval;
-pub mod selector;
 pub mod slicer;
-pub mod submodular;
 pub mod symbol;
-pub mod task;
-pub mod tokens;
 pub mod watcher;
-pub mod weight_learning;
 
-pub use architecture::{
-    ArchitecturalHub, ArchitecturalLayer, ArchitectureReport, PublicApiSymbol, SubsystemCommunity,
-};
 pub use cache::{
     compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };
-pub use celf::{
-    BorderlinePair, CelfConfig, CelfOptimizer, CelfTraceStep, LodOption, LodWeights, MckpResult,
-    MckpTraceStep, SensitivityReport,
+pub use csr::CsrMatrix;
+pub use diff::DiffResolver;
+pub use import::{normalize_path, resolve_module_path, FileImport};
+pub use loader::{CacheReport, LoadedRepository};
+pub use multiplex::{MultiplexCsrGraph, RelationWeights};
+pub use parser::{AstExtractor, SupportedLanguage};
+pub use resolver::ScopedResolver;
+pub use slicer::AstSlicer;
+pub use symbol::{
+    EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,
+    TextSpan,
 };
+pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
+
+// ============================================================================
+// 2. Diffusion, Ranking & Graphs Subsystem
+// ============================================================================
+
+pub mod coedit;
+pub mod community;
+pub mod graph;
+pub mod knee;
+pub mod ppr;
+pub mod weight_learning;
+
 pub use coedit::{CoeditCache, CoeditConfig, CoeditGraph, CoeditPair, GitCommitMiner};
 pub use community::{
     ArchitecturalDrift, Community, CommunityConfig, CommunityDetector, CommunityHierarchy,
     CommunityResult,
 };
+pub use graph::{LayerWeights, MultiplexGraph};
+pub use knee::{KneePoint, KneedleDetector};
+pub use ppr::{PprConfig, PprResult, PprSolver};
+pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningReport};
+
+// ============================================================================
+// 3. Submodular Optimization & Packing Subsystem
+// ============================================================================
+
+pub mod celf;
+pub mod cost;
+pub mod evidence;
+pub mod submodular;
+pub mod tokens;
+
+pub use celf::{
+    BorderlinePair, CelfConfig, CelfOptimizer, CelfTraceStep, LodOption, LodWeights, MckpResult,
+    MckpTraceStep, SensitivityReport,
+};
+pub use cost::{CostBreakdown, TokenCostConfig, TokenCostEstimator};
+pub use evidence::{
+    CoverageState, EvidenceKernel, EvidenceKernelConfig, ProbabilisticCoverage, SparseKernelMatrix,
+};
+pub use submodular::{SubmodularConfig, SubmodularUtility, UtilityState};
+pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
+
+// ============================================================================
+// 4. Causal Paths & Context Assembly Subsystem
+// ============================================================================
+
+pub mod context_object;
+pub mod formatter;
+pub mod path;
+pub mod selector;
+
 pub use context_object::{
     OmissionDiagnostic, OmissionDiagnostician, OmissionReason, PathTrace, StructuredContext,
     StructuredEdge, StructuredSymbol,
 };
-pub use cost::{CostBreakdown, TokenCostConfig, TokenCostEstimator};
-pub use csr::CsrMatrix;
-pub use diff::DiffResolver;
-pub use error::EngineError;
-pub use eval::{
-    BenchmarkMetrics, BenchmarkRunner, BenchmarkScenario, BenchmarkSummary, ContextStrategy,
-};
-pub use evidence::{
-    CoverageState, EvidenceKernel, EvidenceKernelConfig, ProbabilisticCoverage, SparseKernelMatrix,
-};
 pub use formatter::ContextFormatter;
-pub use graph::{LayerWeights, MultiplexGraph};
-pub use harness::{
-    AgentSessionTrace, AgentToolInvocation, AgentTraceRecorder, HarnessBenchmarkRunner,
-    HarnessComparison, HarnessComparisonReport, HarnessScenario, InvocationStatus,
+pub use path::{
+    ExecutionPath, PathCoverage, PathCoverageState, PathFinder, PathFinderConfig, PathScorer,
+    PathScorerConfig,
+};
+pub use selector::{AutoBudgetReport, ContextSelector};
+
+// ============================================================================
+// 5. Codebase Intelligence & Primitives Subsystem
+// ============================================================================
+
+pub mod architecture;
+pub mod impact;
+pub mod intent;
+pub mod model;
+pub mod primitives;
+pub mod task;
+
+pub use architecture::{
+    ArchitecturalHub, ArchitecturalLayer, ArchitectureReport, PublicApiSymbol, SubsystemCommunity,
 };
 pub use impact::{ImpactAnalyzer, ImpactReport, ImpactSummary, RiskLevel};
-pub use import::{normalize_path, resolve_module_path, FileImport};
 pub use intent::IntentResolver;
-pub use knee::{KneePoint, KneedleDetector};
-pub use loader::{CacheReport, LoadedRepository};
 pub use model::ModelProfile;
-pub use multiplex::{MultiplexCsrGraph, RelationWeights};
+pub use primitives::{
+    CausalTraceResult, CodebaseIntelligence, EdgeDirection, LocalExpansion, NeighborEdge,
+    RankedEntrypoint, SymbolNeighborhood,
+};
+pub use task::{TaskContext, TaskKind, TaskMetadata};
+
+// ============================================================================
+// 6. Agent Navigation & Sequential Exploration Subsystem
+// ============================================================================
+
+pub mod navigation;
+pub mod retrieval;
+
 pub use navigation::{
     ActionCost, ActionGenerator, ActionGeneratorConfig, AdaptiveGainConfig, AdaptiveGainEstimator,
     AdaptiveNavigator, CandidateAction, NavigationAction, NavigationState, NavigationStep,
     NavigationTrajectory, NavigatorConfig, Observation, DEFAULT_ACTION_INVOCATION_COST,
 };
-pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
-pub use parser::{AstExtractor, SupportedLanguage};
-pub use path::{
-    ExecutionPath, PathCoverage, PathCoverageState, PathFinder, PathFinderConfig, PathScorer,
-    PathScorerConfig,
-};
-pub use ppr::{PprConfig, PprResult, PprSolver};
-pub use primitives::{
-    CausalTraceResult, CodebaseIntelligence, EdgeDirection, LocalExpansion, NeighborEdge,
-    RankedEntrypoint, SymbolNeighborhood,
-};
-pub use resolver::ScopedResolver;
 pub use retrieval::{
     Bm25Scorer, DenseEmbedder, HybridRetriever, PolyglotTokenizer, RetrievalConfig,
     RocchioExpander, SearchMode, SearchResult,
 };
-pub use selector::{AutoBudgetReport, ContextSelector};
-pub use slicer::AstSlicer;
-pub use submodular::{SubmodularConfig, SubmodularUtility, UtilityState};
-pub use symbol::{
-    EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,
-    TextSpan,
+
+// ============================================================================
+// 7. Evaluation, Benchmarks & Diagnostics Subsystem
+// ============================================================================
+
+pub mod error;
+pub mod eval;
+pub mod harness;
+pub mod oracle;
+
+pub use error::EngineError;
+pub use eval::{
+    BenchmarkMetrics, BenchmarkRunner, BenchmarkScenario, BenchmarkSummary, ContextStrategy,
 };
-pub use task::{TaskContext, TaskKind, TaskMetadata};
-pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, TokenizerModel};
-pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
-pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningReport};
+pub use harness::{
+    AgentSessionTrace, AgentToolInvocation, AgentTraceRecorder, HarnessBenchmarkRunner,
+    HarnessComparison, HarnessComparisonReport, HarnessScenario, InvocationStatus,
+};
+pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 
 #[cfg(test)]
 mod tests {
