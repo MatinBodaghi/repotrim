@@ -817,12 +817,25 @@ impl ActionGenerator {
         match action {
             NavigationAction::Stop { .. } => 0,
             NavigationAction::Inspect { symbol_id } => {
-                let symbol_cost = intel
+                let snippet_cost = intel
                     .graph()
                     .symbol(*symbol_id)
-                    .map(|s| s.token_cost as u32)
+                    .map(|s| {
+                        if let Some(content) = intel.file_sources().get(&s.file_path) {
+                            let lines: Vec<&str> = content.lines().collect();
+                            let start = s.span.start_row;
+                            let end = (s.span.end_row + 1).min(lines.len());
+                            if start < end {
+                                estimate_tokens(&lines[start..end].join("\n")).max(1) as u32
+                            } else {
+                                s.token_cost as u32
+                            }
+                        } else {
+                            s.token_cost as u32
+                        }
+                    })
                     .unwrap_or(50);
-                symbol_cost + DEFAULT_ACTION_INVOCATION_COST + 6
+                snippet_cost + DEFAULT_ACTION_INVOCATION_COST + 2
             }
             NavigationAction::Expand { budget, .. } => *budget + DEFAULT_ACTION_INVOCATION_COST + 4,
             NavigationAction::Trace { .. } => 60 + DEFAULT_ACTION_INVOCATION_COST,
@@ -1428,9 +1441,21 @@ impl AdaptiveNavigator {
             return Ok(Some(step));
         }
 
-        // 4. Apply chosen optimal action
-        let step = state.apply_action(chosen.action, intel)?;
-        Ok(Some(step))
+        // 4. Apply chosen optimal action; if budget is exceeded, terminate with Stop
+        match state.apply_action(chosen.action, intel) {
+            Ok(step) => Ok(Some(step)),
+            Err(EngineError::BudgetExceeded(req, rem)) => {
+                let stop_action = NavigationAction::Stop {
+                    reason: format!(
+                        "Budget exhausted (required {} tokens, remaining {} tokens)",
+                        req, rem
+                    ),
+                };
+                let step = state.apply_action(stop_action, intel)?;
+                Ok(Some(step))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Runs an autonomous multi-step exploration trajectory from an initial task query

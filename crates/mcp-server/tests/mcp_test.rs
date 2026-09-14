@@ -52,13 +52,17 @@ fn test_mcp_full_lifecycle_and_tools() {
             // 13. tools/call: expand_symbol
             r#"{{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{{"name":"expand_symbol","arguments":{{"symbol":"ContextSelector","budget":400,"path":"{}"}}}}}}"#,
             "\n",
-            // 14. tools/call: unknown tool error handling
-            r#"{{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            // 14. tools/call: navigate_codebase
+            r#"{{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{{"name":"navigate_codebase","arguments":{{"query":"context selector","budget":1500,"path":"{}"}}}}}}"#,
             "\n",
-            // 15. unknown method error handling
-            r#"{{"jsonrpc":"2.0","id":14,"method":"unknown_method"}}"#,
+            // 15. tools/call: unknown tool error handling
+            r#"{{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{{"name":"nonexistent_tool","arguments":{{}}}}}}"#,
+            "\n",
+            // 16. unknown method error handling
+            r#"{{"jsonrpc":"2.0","id":15,"method":"unknown_method"}}"#,
             "\n"
         ),
+        root_str,
         root_str,
         root_str,
         root_str,
@@ -82,7 +86,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let output_str = String::from_utf8(writer).expect("Invalid UTF-8 from server");
     let lines: Vec<&str> = output_str.trim().lines().collect();
 
-    assert_eq!(lines.len(), 14);
+    assert_eq!(lines.len(), 15);
 
     // 1. initialize
     let resp1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -94,7 +98,7 @@ fn test_mcp_full_lifecycle_and_tools() {
     let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp2["id"], 2);
     let tools = resp2["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
 
     // 3. query_graph_stats
     let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
@@ -189,18 +193,26 @@ fn test_mcp_full_lifecycle_and_tools() {
     let expand_text = resp12["result"]["content"][0]["text"].as_str().unwrap();
     assert!(expand_text.contains("Local Submodular Context Expansion: `ContextSelector`"));
 
-    // 13. nonexistent_tool error
+    // 13. navigate_codebase
     let resp13: serde_json::Value = serde_json::from_str(lines[12]).unwrap();
     assert_eq!(resp13["id"], 13);
-    assert_eq!(resp13["result"]["isError"], true);
-    let err_text = resp13["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+    assert_eq!(resp13["result"]["isError"], false);
+    let nav_text = resp13["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(nav_text.contains("Autonomous Codebase Navigation: `context selector`"));
+    assert!(nav_text.contains("Exploration Trajectory Steps"));
 
-    // 14. unknown_method error
+    // 14. nonexistent_tool error
     let resp14: serde_json::Value = serde_json::from_str(lines[13]).unwrap();
     assert_eq!(resp14["id"], 14);
-    assert_eq!(resp14["error"]["code"], -32601);
-    assert!(resp14["error"]["message"]
+    assert_eq!(resp14["result"]["isError"], true);
+    let err_text = resp14["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Unsupported tool 'nonexistent_tool'"));
+
+    // 15. unknown_method error
+    let resp15: serde_json::Value = serde_json::from_str(lines[14]).unwrap();
+    assert_eq!(resp15["id"], 15);
+    assert_eq!(resp15["error"]["code"], -32601);
+    assert!(resp15["error"]["message"]
         .as_str()
         .unwrap()
         .contains("Unknown method"));
