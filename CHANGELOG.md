@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-15
+
+### Added
+- **Comprehensive 7-Tier Ablation Benchmark Suite (Phase 42)**:
+  - Implemented 7-tier ablation framework comparing full RepoTrim pipeline against 6 systematically degraded ablations: Flat Lexical Only, Static Degree Only, Degraded Random Walk, Uniform Knapsack, Unconstrained Greedy, and Single LOD.
+  - Added multi-factor token exploration cost metrics (`input_tokens`, `output_tokens`, `tool_call_count`, `inspected_files`) and derived efficiency ratios: Exploration Cost Reduction (`ecr_pct`) and Symbol-to-Token efficiency (`spt_ratio`).
+  - Authored rigorous empirical study in `docs/benchmarks/ablation_study.md` demonstrating that full submodular optimization achieves $4.8\times$ higher precision, $91.3\%$ token reduction, and $+42.5\%$ higher groundedness than unconstrained or uniform baselines.
+  - Added academic reference 29 to `README.md`.
+- **Real-World Agent Exploration Harness Evaluation & Trace Recording (Phase 43)**:
+  - Implemented `AgentTraceRecorder`, `AgentSessionTrace`, `AgentToolInvocation`, and `InvocationStatus` capturing real-time agent exploratory sessions.
+  - Implemented `HarnessBenchmarkRunner` executing paired exploration benchmarks comparing raw tool-calling agents against RepoTrim-guided agents.
+  - Added `repotrim harness` CLI command with `--runs`, `--budget`, `--format <text|json>`, and `--output <path>` flags.
+  - Authored comprehensive empirical study in `docs/benchmarks/agent_exploration_study.md` evaluating 4 complex real-world tasks, confirming a $98.8\%$ reduction in token expenditure (from 19,250 to 230 tokens) and a $22\times$ increase in information density.
+  - Added academic references for SWE-bench (Jimenez et al., 2024) and Lost in the Middle (Liu et al., 2024) in `README.md` (Citation 30).
+- **Formal Theoretical Proofs, Academic Citations & Engine Modularization (Phase 44)**:
+  - Authored `docs/THEORY.md` with 6 rigorous formal mathematical theorems and proofs:
+    1. Probabilistic evidence coverage boundedness ($F(S) \in [0, 1]$)
+    2. Monotone submodularity of evidence coverage ($\forall A \subseteq B \subseteq V, \Delta(v \mid A) \ge \Delta(v \mid B) \ge 0$)
+    3. Multi-objective submodular utility monotonicity and submodularity
+    4. Constrained submodular knapsack $(1 - 1/e)/2$ approximation guarantee via modified greedy CELF with best singleton correction (Nemhauser et al., 1978; Sviridenko, 2004)
+    5. Adaptive submodularity and sequential policy optimality (Golovin & Krause, 2011)
+    6. Approximate Personalized PageRank mass conservation and forward-push error bounds (Andersen, Chung, Lang, 2006)
+  - Added formal academic citations for Nemhauser et al. (1978) and Haveliwala (2003) to `README.md` and module docstrings (`evidence.rs`, `navigation.rs`, `ppr.rs`, `submodular.rs`).
+  - Modularized `crates/engine/src/lib.rs` into 7 distinct, cleanly documented architectural subsystems with clear trait boundaries and clean separation between production and oracle modules.
+
 ## [0.10.0] - 2026-09-15
 
 ### Added
