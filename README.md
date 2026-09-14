@@ -514,6 +514,7 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 
 1. **Personalized PageRank Local Diffusion (ACL Forward-Push) & Approximation Error Bounds:**
    - Reid Andersen, Fan Chung, Kevin Lang. *"Local Graph Partitioning using PageRank Vectors"*. In *Foundations of Computer Science (FOCS)*, 2006. [DOI: 10.1109/FOCS.2006.44](https://doi.org/10.1109/FOCS.2006.44).
+   - Taher H. Haveliwala. *"Topic-Sensitive PageRank: A Context-Sensitive Ranking Algorithm for the Web"*. In *IEEE Transactions on Knowledge and Data Engineering*, 15(4): 784–796, 2003. [DOI: 10.1109/TKDE.2003.1208999](https://doi.org/10.1109/TKDE.2003.1208999).
    - Empirical validation & sensitivity diagnostics: [`docs/benchmarks/sensitivity_analysis.md`](docs/benchmarks/sensitivity_analysis.md).
 2. **Submodular Knapsack Optimization (CELF):**
    - Jure Leskovec, Andreas Krause, Carlos Guestrin, Christos Faloutsos, Jeanne VanBriesen, Natalie Glance. *"Cost-effective Outbreak Detection in Networks"*. In *ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)*, 2007. [DOI: 10.1145/1281192.1281239](https://doi.org/10.1145/1281192.1281239).
@@ -605,6 +606,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Carlos E. Jimenez et al. *"SWE-bench: Can Language Models Resolve Real-World GitHub Issues?"* In *ICLR 2024*. [arXiv:2310.06770](https://arxiv.org/abs/2310.06770).
     - Nelson F. Liu et al. *"Lost in the Middle: How Language Models Use Long Contexts"*. In *TACL*, 12: 157–173, 2024. [DOI: 10.1162/tacl_a_00638](https://doi.org/10.1162/tacl_a_00638).
     - Empirical agent exploration evaluation & comparative study: [`docs/benchmarks/agent_exploration_study.md`](docs/benchmarks/agent_exploration_study.md).
+31. **Formal Mathematical Foundations & Theoretical Proofs:**
+    - Formal theorems and proofs of monotonicity, submodularity, knapsack approximation bounds, and adaptive exploration optimality: [`docs/THEORY.md`](docs/THEORY.md).
+    - George L. Nemhauser, Laurence A. Wolsey, Marshall L. Fisher. *"An analysis of approximations for maximizing submodular set functions — I"*. In *Mathematical Programming*, 14(1): 265–294, 1978. [DOI: 10.1007/BF01588971](https://doi.org/10.1007/BF01588971).
 
 ---
 
