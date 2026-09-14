@@ -512,7 +512,7 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-## 9. Milestone 6 (`v0.11.0`): Empirical Validation, Proofs & Engine Modularization
+## 9. Milestone 6 (`v0.11.0`): Empirical Validation, Proofs & Engine Modularization `[COMPLETED]`
 
 ### Phase 42: Comprehensive 7-Tier Ablation Benchmark Harness `[COMPLETED]`
 - **Branch:** `experiment/ablation-suite` (completed & merged into `dev`)
@@ -572,8 +572,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 44: Formal Theoretical Proofs, Citations & Engine Modularization
-- **Branch:** `research/theory-proofs`
+### Phase 44: Formal Theoretical Proofs, Citations & Engine Modularization `[COMPLETED]`
+- **Branch:** `research/theory-proofs` (completed & merged into `dev`)
 - **Objective:** Document formal mathematical proofs (monotonicity, submodularity, knapsack bounds), add all citations per `AGENTS.md`, and refine engine module organization for `v0.11.0`.
 
 #### Commit Breakdown
@@ -625,5 +625,11 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 | **11** | Complete Phase 38 on `feature/intelligence-primitives` | Commits 38.1 - 38.4 | `[DONE]` |
 | **12** | Complete Phase 39 on `feature/intelligence-mcp` | Commits 39.1 - 39.3 | `[DONE]` |
 | **13** | Milestone 4 (`v0.9.0`) Complete & Merged to `dev` | Six Codebase Intelligence Primitives & MCP JSON-RPC Contracts | `[DONE]` |
-| **14** | Begin Phase 40 on `research/adaptive-navigation` | State-Aware Sequential Exploration & Action Engine | `[NEXT]` |
+| **14** | Complete Phase 40 on `research/adaptive-navigation` | State-Aware Sequential Exploration & Action Engine | `[DONE]` |
+| **15** | Complete Phase 41 on `feature/adaptive-navigator` | Adaptive Submodular Greedy Policy & Dynamic Gain | `[DONE]` |
+| **16** | Milestone 5 (`v0.10.0`) Complete & Merged to `dev` | Adaptive Information Exploration & Agent Action Policy | `[DONE]` |
+| **17** | Complete Phase 42 on `experiment/ablation-suite` | Comprehensive 7-Tier Ablation Benchmark Suite | `[DONE]` |
+| **18** | Complete Phase 43 on `experiment/agent-harness-study` | Agent Harness Exploration Measurement & SWE-bench Study | `[DONE]` |
+| **19** | Complete Phase 44 on `research/theory-proofs` | Formal Theoretical Proofs, Citations & Engine Modularization | `[DONE]` |
+| **20** | Milestone 6 (`v0.11.0`) Complete & Merged to `dev` | Empirical Validation, Proofs & Engine Modularization | `[DONE]` |
 
