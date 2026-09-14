@@ -966,3 +966,57 @@ fn test_cli_expand_text_and_json() {
     assert_eq!(v["focal_symbol"]["name"], "ContextSelector");
     assert!(v["tokens_used"].as_u64().unwrap() <= 300);
 }
+
+#[test]
+fn test_cli_harness_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args(["harness", "--help"])
+        .output()
+        .expect("Failed to execute repotrim harness --help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Measure agent exploration performance"));
+    assert!(stdout.contains("--scenario"));
+    assert!(stdout.contains("--format"));
+}
+
+#[test]
+fn test_cli_harness_table_and_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "harness",
+            "--scenario",
+            "feature_context_selector",
+            "--format",
+            "table",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim harness");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Agent Exploration Harness Study"));
+    assert!(stdout.contains("ContextSelector API Refactoring"));
+
+    let json_output = Command::new(env!("CARGO_BIN_EXE_repotrim"))
+        .args([
+            "harness",
+            "--scenario",
+            "feature_context_selector",
+            "--format",
+            "json",
+            "--path",
+        ])
+        .arg(repo_root())
+        .output()
+        .expect("Failed to execute repotrim harness --format json");
+
+    assert!(json_output.status.success());
+    let json_stdout = String::from_utf8_lossy(&json_output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_stdout).expect("Valid JSON report");
+    assert!(!v["comparisons"].as_array().unwrap().is_empty());
+    assert!(v["mean_token_reduction_pct"].as_f64().unwrap() > 0.0);
+}

@@ -5,6 +5,7 @@ pub mod clean;
 pub mod coedit;
 pub mod community;
 pub mod expand;
+pub mod harness;
 pub mod impact;
 pub mod inspect;
 pub mod locate;

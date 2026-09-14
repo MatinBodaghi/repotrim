@@ -12,6 +12,7 @@ pub mod eval;
 pub mod evidence;
 pub mod formatter;
 pub mod graph;
+pub mod harness;
 pub mod impact;
 pub mod import;
 pub mod intent;
@@ -67,6 +68,10 @@ pub use evidence::{
 };
 pub use formatter::ContextFormatter;
 pub use graph::{LayerWeights, MultiplexGraph};
+pub use harness::{
+    AgentSessionTrace, AgentToolInvocation, AgentTraceRecorder, HarnessBenchmarkRunner,
+    HarnessComparison, HarnessComparisonReport, HarnessScenario, InvocationStatus,
+};
 pub use impact::{ImpactAnalyzer, ImpactReport, ImpactSummary, RiskLevel};
 pub use import::{normalize_path, resolve_module_path, FileImport};
 pub use intent::IntentResolver;

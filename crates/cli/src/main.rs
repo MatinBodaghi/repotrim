@@ -53,6 +53,8 @@ enum Commands {
     Expand(commands::expand::ExpandArgs),
     /// Autonomously navigate codebase using adaptive submodular greedy exploration
     Navigate(commands::navigate::NavigateArgs),
+    /// Measure agent exploration performance comparing with and without RepoTrim
+    Harness(commands::harness::HarnessArgs),
 }
 
 fn main() {
@@ -76,6 +78,7 @@ fn main() {
         Commands::Trace(args) => commands::trace::execute(args),
         Commands::Expand(args) => commands::expand::execute(args),
         Commands::Navigate(args) => commands::navigate::execute(args),
+        Commands::Harness(args) => commands::harness::execute(args),
     };
 
     if let Err(e) = result {
