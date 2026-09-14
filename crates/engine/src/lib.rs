@@ -76,8 +76,8 @@ pub use model::ModelProfile;
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use navigation::{
     ActionCost, ActionGenerator, ActionGeneratorConfig, AdaptiveGainConfig, AdaptiveGainEstimator,
-    CandidateAction, NavigationAction, NavigationState, NavigationStep, Observation,
-    DEFAULT_ACTION_INVOCATION_COST,
+    AdaptiveNavigator, CandidateAction, NavigationAction, NavigationState, NavigationStep,
+    NavigationTrajectory, NavigatorConfig, Observation, DEFAULT_ACTION_INVOCATION_COST,
 };
 pub use oracle::{ExactKnapsackConfig, ExactKnapsackOracle};
 pub use parser::{AstExtractor, SupportedLanguage};

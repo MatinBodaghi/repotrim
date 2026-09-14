@@ -1281,3 +1281,243 @@ impl AdaptiveGainEstimator {
         gain / cost
     }
 }
+
+/// Configuration for the adaptive exploration policy.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NavigatorConfig {
+    /// Maximum sequential exploration steps before forced termination.
+    pub max_steps: usize,
+    /// Minimum efficiency threshold $\rho_{\min}$; below this, Stop action is triggered on saturated evidence.
+    pub min_efficiency_threshold: f32,
+    /// Configuration for action candidate generation.
+    pub generator_config: ActionGeneratorConfig,
+    /// Configuration for adaptive submodular marginal gain estimation.
+    pub gain_config: AdaptiveGainConfig,
+}
+
+impl Default for NavigatorConfig {
+    fn default() -> Self {
+        Self {
+            max_steps: 15,
+            min_efficiency_threshold: 0.0001,
+            generator_config: ActionGeneratorConfig::default(),
+            gain_config: AdaptiveGainConfig::default(),
+        }
+    }
+}
+
+/// The synthesized record of an autonomous navigation exploration session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavigationTrajectory {
+    /// The originating task context $q$.
+    pub task: TaskContext,
+    /// Initial allocated token budget $B_0$.
+    pub initial_budget: u32,
+    /// Remaining token budget immediately prior to termination.
+    pub remaining_budget: u32,
+    /// Sequential step trajectory $H_T$.
+    pub steps: Vec<NavigationStep>,
+    /// Termination justification reason.
+    pub termination_reason: String,
+    /// Cumulative marginal utility realized over exploration.
+    pub total_utility: f32,
+    /// Synthesized structured context object generated from accumulated evidence.
+    pub structured_context: StructuredContext,
+}
+
+impl NavigationTrajectory {
+    /// Returns the total tokens consumed during the exploration trajectory.
+    pub fn tokens_used(&self) -> u32 {
+        self.initial_budget.saturating_sub(self.remaining_budget)
+    }
+
+    /// Returns the total number of navigation steps executed.
+    pub fn step_count(&self) -> usize {
+        self.steps.len()
+    }
+}
+
+/// Autonomous agent navigation coordinator executing adaptive submodular greedy exploration.
+///
+/// # Theoretical Formulation (Golovin & Krause, 2011)
+/// Implements the adaptive greedy policy selecting the action with highest conditional
+/// expected marginal gain per token cost:
+/// $$a^* = \arg\max_{a \in \mathcal{A}_{\text{feasible}}} \frac{\Delta(a \mid \psi)}{c(a)}$$
+#[derive(Debug, Clone)]
+pub struct AdaptiveNavigator {
+    /// Configuration settings for navigation.
+    pub config: NavigatorConfig,
+    /// Action candidate proposer.
+    pub generator: ActionGenerator,
+    /// Marginal utility gain estimator.
+    pub estimator: AdaptiveGainEstimator,
+}
+
+impl Default for AdaptiveNavigator {
+    fn default() -> Self {
+        Self::new(NavigatorConfig::default())
+    }
+}
+
+impl AdaptiveNavigator {
+    /// Constructs a new `AdaptiveNavigator` with the specified configuration.
+    pub fn new(config: NavigatorConfig) -> Self {
+        let generator = ActionGenerator::new(config.generator_config.clone());
+        let estimator = AdaptiveGainEstimator::new(config.gain_config);
+        Self {
+            config,
+            generator,
+            estimator,
+        }
+    }
+
+    /// Executes a single greedy exploration step, advancing the navigation state.
+    pub fn step(
+        &self,
+        state: &mut NavigationState,
+        intel: &CodebaseIntelligence,
+    ) -> Result<Option<NavigationStep>, EngineError> {
+        if state.is_terminal {
+            return Ok(None);
+        }
+
+        // 1. Propose candidate actions
+        let candidates = self.generator.propose_actions(state, intel)?;
+        if candidates.is_empty() {
+            let stop_action = NavigationAction::Stop {
+                reason: "No feasible candidate actions available".to_string(),
+            };
+            let step = state.apply_action(stop_action, intel)?;
+            return Ok(Some(step));
+        }
+
+        // 2. Score candidates by efficiency ratio rho(a) = Delta(a | psi) / c(a)
+        let mut best_candidate: Option<CandidateAction> = None;
+        let mut best_efficiency = -f32::INFINITY;
+
+        for candidate in candidates {
+            let eff = self
+                .estimator
+                .evaluate_candidate_efficiency(&candidate, state, intel);
+            if eff > best_efficiency {
+                best_efficiency = eff;
+                best_candidate = Some(candidate);
+            }
+        }
+
+        let chosen = match best_candidate {
+            Some(c) => c,
+            None => {
+                let stop_action = NavigationAction::Stop {
+                    reason: "No candidate actions selected".to_string(),
+                };
+                let step = state.apply_action(stop_action, intel)?;
+                return Ok(Some(step));
+            }
+        };
+
+        // 3. Dynamic stopping: if marginal efficiency saturates below threshold after at least 1 step
+        if best_efficiency < self.config.min_efficiency_threshold && state.step_count() > 0 {
+            let stop_action = NavigationAction::Stop {
+                reason: format!(
+                    "Evidence saturated: marginal efficiency {:.6} below threshold {:.6}",
+                    best_efficiency, self.config.min_efficiency_threshold
+                ),
+            };
+            let step = state.apply_action(stop_action, intel)?;
+            return Ok(Some(step));
+        }
+
+        // 4. Apply chosen optimal action
+        let step = state.apply_action(chosen.action, intel)?;
+        Ok(Some(step))
+    }
+
+    /// Runs an autonomous multi-step exploration trajectory from an initial task query
+    /// until budget exhaustion, evidence saturation, or maximum step horizon.
+    pub fn navigate(
+        &self,
+        task: TaskContext,
+        budget: u32,
+        intel: &CodebaseIntelligence,
+    ) -> Result<NavigationTrajectory, EngineError> {
+        // 1. Seed entrypoints via locate primitive
+        let entrypoints = intel.locate(&task, 3);
+        let seed_ids: Vec<SymbolId> = entrypoints.iter().map(|ep| ep.symbol.id).collect();
+        let mut state = NavigationState::with_entrypoints(task.clone(), budget, &seed_ids);
+
+        let mut total_utility = 0.0;
+
+        // 2. Sequential greedy loop
+        for step_idx in 0..self.config.max_steps {
+            if state.is_terminal {
+                break;
+            }
+
+            // On the last allowable step horizon, force Stop so total steps never exceed max_steps
+            if step_idx == self.config.max_steps.saturating_sub(1) {
+                let stop_action = NavigationAction::Stop {
+                    reason: format!(
+                        "Reached maximum exploration step horizon ({})",
+                        self.config.max_steps
+                    ),
+                };
+                let _ = state.apply_action(stop_action, intel);
+                break;
+            }
+
+            match self.step(&mut state, intel)? {
+                Some(step) => {
+                    let step_gain =
+                        self.estimator
+                            .estimate_marginal_gain(&step.action, &state, intel);
+                    total_utility += step_gain;
+
+                    if let NavigationAction::Stop { .. } = step.action {
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
+
+        // 3. Ensure termination reason is captured
+        let termination_reason = if !state.is_terminal {
+            let stop_action = NavigationAction::Stop {
+                reason: format!(
+                    "Reached maximum exploration step horizon ({})",
+                    self.config.max_steps
+                ),
+            };
+            let _ = state.apply_action(stop_action, intel);
+            format!("Maximum step horizon ({}) reached", self.config.max_steps)
+        } else {
+            state
+                .history
+                .last()
+                .and_then(|s| {
+                    if let NavigationAction::Stop { ref reason } = s.action {
+                        Some(reason.clone())
+                    } else if s.remaining_budget_after == 0 {
+                        Some("Budget exhausted (0 tokens remaining)".to_string())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| "Navigation terminated".to_string())
+        };
+
+        // 4. Synthesize structured context from discovered evidence
+        let structured_context = state.synthesize_context(intel)?;
+
+        Ok(NavigationTrajectory {
+            task,
+            initial_budget: state.initial_budget,
+            remaining_budget: state.remaining_budget,
+            steps: state.history,
+            termination_reason,
+            total_utility,
+            structured_context,
+        })
+    }
+}

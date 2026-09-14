@@ -14,9 +14,10 @@ use std::path::PathBuf;
 
 use repotrim_engine::{
     ActionGenerator, ActionGeneratorConfig, AdaptiveGainConfig, AdaptiveGainEstimator,
-    CandidateAction, CodebaseIntelligence, EdgeKind, EngineError, LayerWeights, LodLevel,
-    MultiplexGraph, NavigationAction, NavigationState, Observation, ReferenceEdge, SymbolId,
-    SymbolKind, SymbolNode, TaskContext, TextSpan,
+    AdaptiveNavigator, CandidateAction, CodebaseIntelligence, EdgeKind, EngineError, LayerWeights,
+    LodLevel, MultiplexGraph, NavigationAction, NavigationState, NavigationTrajectory,
+    NavigatorConfig, Observation, ReferenceEdge, SymbolId, SymbolKind, SymbolNode, TaskContext,
+    TextSpan,
 };
 
 fn make_symbol(
@@ -529,4 +530,65 @@ fn test_adaptive_gain_estimator_diminishing_returns() {
         gain_after, 0.0,
         "Re-inspecting full body symbol must yield 0.0 marginal gain"
     );
+}
+
+#[test]
+fn test_adaptive_navigator_step_execution() {
+    let (graph, sources) = build_navigation_harness();
+    let intel = CodebaseIntelligence::new(&graph, &sources);
+    let task = TaskContext::from_query("handle incoming user request");
+    let mut state = NavigationState::with_entrypoints(task, 1200, &[SymbolId(0)]);
+
+    let navigator = AdaptiveNavigator::default();
+
+    // Step 1: Should execute an action (e.g. Inspect)
+    let step1 = navigator
+        .step(&mut state, &intel)
+        .expect("Step 1 must succeed")
+        .expect("Must produce a step");
+
+    assert_eq!(step1.step_index, 0);
+    assert!(step1.cost.total_tokens > 0);
+    assert_eq!(state.step_count(), 1);
+    assert!(state.remaining_budget < 1200);
+
+    // Step 2: Executes next action from frontier
+    let step2 = navigator
+        .step(&mut state, &intel)
+        .expect("Step 2 must succeed")
+        .expect("Must produce a step");
+
+    assert_eq!(step2.step_index, 1);
+    assert_eq!(state.step_count(), 2);
+}
+
+#[test]
+fn test_adaptive_navigator_autonomous_run() {
+    let (graph, sources) = build_navigation_harness();
+    let intel = CodebaseIntelligence::new(&graph, &sources);
+    let task = TaskContext::from_query("authenticate user credentials");
+
+    let config = NavigatorConfig {
+        max_steps: 6,
+        min_efficiency_threshold: 0.0001,
+        ..Default::default()
+    };
+    let navigator = AdaptiveNavigator::new(config);
+
+    let trajectory: NavigationTrajectory = navigator
+        .navigate(task, 1500, &intel)
+        .expect("Autonomous navigation must succeed");
+
+    assert!(trajectory.step_count() > 0);
+    assert!(trajectory.step_count() <= 6);
+    assert!(trajectory.tokens_used() > 0);
+    assert!(trajectory.remaining_budget <= 1500);
+    assert!(!trajectory.termination_reason.is_empty());
+    assert!(!trajectory.steps.is_empty());
+
+    // Verify structured context synthesis attached to trajectory
+    let structured = &trajectory.structured_context;
+    assert_eq!(structured.budget_limit, 1500);
+    assert!(!structured.symbols.is_empty());
+    assert!(structured.confidence_score > 0.0);
 }
