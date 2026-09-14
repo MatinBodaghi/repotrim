@@ -51,6 +51,8 @@ enum Commands {
     Trace(commands::trace::TraceArgs),
     /// Expand a localized submodular context cluster around a focal symbol
     Expand(commands::expand::ExpandArgs),
+    /// Autonomously navigate codebase using adaptive submodular greedy exploration
+    Navigate(commands::navigate::NavigateArgs),
 }
 
 fn main() {
@@ -73,6 +75,7 @@ fn main() {
         Commands::Locate(args) => commands::locate::execute(args),
         Commands::Trace(args) => commands::trace::execute(args),
         Commands::Expand(args) => commands::expand::execute(args),
+        Commands::Navigate(args) => commands::navigate::execute(args),
     };
 
     if let Err(e) = result {

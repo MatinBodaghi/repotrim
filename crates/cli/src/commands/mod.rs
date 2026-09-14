@@ -9,6 +9,7 @@ pub mod impact;
 pub mod inspect;
 pub mod locate;
 pub mod mcp;
+pub mod navigate;
 pub mod query;
 pub mod select;
 pub mod stats;
