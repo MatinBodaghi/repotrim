@@ -18,9 +18,16 @@
 //! is computed in $O(|\mathrm{Supp}(K(x, \cdot))|)$ sparse time:
 //! $$\Delta_F(x \mid S) = \alpha \Delta_{\mathrm{Rel}}(x) + \beta \Delta_{\mathrm{Cov}}(x \mid S) + \delta \Delta_{\mathrm{Test}}(x \mid S) - \lambda \Delta_{\mathrm{Red}}(x \mid S)$$
 //!
+//! # Mathematical Proofs & Invariants
+//! See [`docs/THEORY.md`](../../docs/THEORY.md) for formal proofs of:
+//! - **Theorem 3**: Submodularity and diminishing marginal returns ($\Delta_F(x \mid A) \ge \Delta_F(x \mid B)$).
+//! - **Theorem 4**: Submodular knapsack approximation guarantees with best-singleton correction.
+//!
 //! # Academic Citations
 //! - Nemhauser, G. L., Wolsey, L. A., & Fisher, M. L. (1978). "An analysis of approximations for
 //!   maximizing submodular set functions—I". *Mathematical Programming*, 14(1), 265–294.
+//! - Sviridenko, M. (2004). "A note on maximizing a submodular set function subject to a knapsack constraint".
+//!   *Operations Research Letters*, 32(1), 41–45.
 //! - Lin, H., & Bilmes, J. (2011). "A Class of Submodular Functions for Document Summarization".
 //!   In *ACL/HLT 2011*, pp. 510–520.
 //! - Krause, A., & Golovin, D. (2014). "Submodular Function Maximization". In *Tractability:

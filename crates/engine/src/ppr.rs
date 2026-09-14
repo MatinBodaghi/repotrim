@@ -41,6 +41,11 @@ impl Default for PprConfig {
 /// $$\delta(v) \le \frac{\max(\varepsilon, r_{\max})}{\alpha} \cdot \max(1.0, d_{\text{in}}(v))$$
 /// where $r_{\max} = \max_{u \in V} r(u)$, $\alpha$ is the teleportation damping factor, and
 /// $d_{\text{in}}(v)$ is the in-degree of $v$ in the graph.
+///
+/// # Mathematical Proofs & Invariants
+/// See [`docs/THEORY.md`](../../docs/THEORY.md) for formal proofs of:
+/// - **Theorem 6**: Matrix invariant preservation, exact mass conservation ($\|\boldsymbol{p}\|_1 + \|\boldsymbol{r}\|_1 = 1$),
+///   and bounded $O(1/(\alpha \epsilon))$ convergence (Andersen, Chung & Lang, 2006).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PprResult {
     /// Personalized PageRank relevance scores p(v) for symbols with score > 0.

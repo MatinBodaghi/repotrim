@@ -9,6 +9,12 @@
 //! The total context utility is evaluated via a monotone probabilistic coverage function:
 //! $$\mathrm{Cov}(S; q, G) = \sum_{u \in V} \omega(u, q) \left[ 1 - \prod_{v \in S} (1 - K(v, u; q)) \right]$$
 //!
+//! # Mathematical Proofs & Invariants
+//! See [`docs/THEORY.md`](../../docs/THEORY.md) for formal proofs of:
+//! - **Theorem 1**: Normalized non-negativity and boundedness ($0 \le \mathrm{Cov}(S) \le \sum w(u)$).
+//! - **Theorem 2**: Monotonicity under set inclusion ($A \subseteq B \implies \mathrm{Cov}(A) \le \mathrm{Cov}(B)$).
+//! - **Theorem 3**: Diminishing marginal returns / submodularity ($\Delta(e \mid A) \ge \Delta(e \mid B)$).
+//!
 //! # Academic Citations
 //! - Nemhauser, G. L., Wolsey, L. A., & Fisher, M. L. (1978). "An analysis of approximations
 //!   for maximizing submodular set functions—I". *Mathematical Programming*, 14(1), 265-294.

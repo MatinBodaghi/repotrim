@@ -14,6 +14,11 @@
 //!   histories $\psi \subseteq V \times \mathcal{O}$.
 //! - **Submodular Knapsack Selection** (Nemhauser et al., 1978): Strict cost decrementation
 //!   ensuring total exploration expenditure does not violate budget $B$.
+//!
+//! # Mathematical Proofs & Invariants
+//! See [`docs/THEORY.md`](../../docs/THEORY.md) for formal proofs of:
+//! - **Theorem 5**: Adaptive submodularity and near-optimal sequential policy convergence
+//!   under budget constraints (Golovin & Krause, 2011).
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
