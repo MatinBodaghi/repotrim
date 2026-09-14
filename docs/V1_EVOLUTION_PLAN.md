@@ -472,8 +472,8 @@ main (v0.5.0 stable) ───[v0.6.0 tag]───[v0.7.0 tag]───[v0.8.0 
 
 ---
 
-### Phase 41: Adaptive Submodular Greedy Policy & Dynamic Gain Updates
-- **Branch:** `feature/adaptive-navigator`
+### Phase 41: Adaptive Submodular Greedy Policy & Dynamic Gain Updates `[COMPLETED]`
+- **Branch:** `feature/adaptive-navigator` (completed & merged into `dev`)
 - **Objective:** Implement the adaptive greedy policy selecting the action with highest conditional expected marginal gain per cost:
   $$a^* = \arg\max_{a \in \mathcal{A}} \frac{\Delta(a \mid \psi)}{c(a)}$$
 - **Math Formulation:**
