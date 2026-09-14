@@ -601,6 +601,10 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
     - Daniel Golovin, Andreas Krause. *"Adaptive Submodularity: Theory and Applications in Active Learning and Stochastic Optimization"*. In *Journal of Artificial Intelligence Research*, 42: 427–486, 2011. [DOI: 10.1613/jair.3380](https://doi.org/10.1613/jair.3380).
 29. **Comprehensive 7-Tier Ablation Benchmark Suite:**
     - Empirical 7-tier evaluation & architectural comparative study: [`docs/benchmarks/ablation_study.md`](docs/benchmarks/ablation_study.md).
+30. **Real-World Agent Exploration Harness Evaluation & Trace Recording:**
+    - Carlos E. Jimenez et al. *"SWE-bench: Can Language Models Resolve Real-World GitHub Issues?"* In *ICLR 2024*. [arXiv:2310.06770](https://arxiv.org/abs/2310.06770).
+    - Nelson F. Liu et al. *"Lost in the Middle: How Language Models Use Long Contexts"*. In *TACL*, 12: 157–173, 2024. [DOI: 10.1162/tacl_a_00638](https://doi.org/10.1162/tacl_a_00638).
+    - Empirical agent exploration evaluation & comparative study: [`docs/benchmarks/agent_exploration_study.md`](docs/benchmarks/agent_exploration_study.md).
 
 ---
 
