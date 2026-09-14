@@ -17,6 +17,8 @@ pub enum EngineError {
     WatcherError(String),
     #[error("Symbol with ID {0} was not found in graph")]
     SymbolNotFound(u32),
+    #[error("Budget exceeded: required {0} tokens, remaining {1} tokens")]
+    BudgetExceeded(usize, usize),
     #[error("Invalid input argument: {0}")]
     InvalidInput(String),
 }
