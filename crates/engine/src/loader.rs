@@ -31,12 +31,16 @@ pub const IGNORED_DIRS: &[&str] = &[
     "Pods",
 ];
 
+/// Default maximum file size (2 MB) before skipping parsing to prevent out-of-memory errors.
+pub const DEFAULT_MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+
 /// Metrics describing cache hits and recomputed files during repository ingestion.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CacheReport {
     pub total_files: usize,
     pub cached_files: usize,
     pub recomputed_files: usize,
+    pub skipped_files: usize,
     pub hit_ratio: f32,
 }
 
@@ -51,6 +55,7 @@ pub struct LoadedRepository {
     pub total_bytes: usize,
     pub cache_report: CacheReport,
     pub cache: RepositoryCache,
+    pub max_file_bytes: usize,
 }
 
 impl LoadedRepository {
@@ -64,6 +69,15 @@ impl LoadedRepository {
     pub fn load_with_options<P: AsRef<Path>>(
         root: P,
         use_cache: bool,
+    ) -> Result<Self, EngineError> {
+        Self::load_with_config(root, use_cache, DEFAULT_MAX_FILE_BYTES)
+    }
+
+    /// Recursively scans a root directory with optional caching and configurable max file size limit.
+    pub fn load_with_config<P: AsRef<Path>>(
+        root: P,
+        use_cache: bool,
+        max_file_bytes: usize,
     ) -> Result<Self, EngineError> {
         let root_path = if root.as_ref().is_relative() {
             std::env::current_dir()
@@ -89,24 +103,40 @@ impl LoadedRepository {
         source_files.sort_by(|a, b| a.1.cmp(&b.1));
 
         let mut existing_paths = HashSet::with_capacity(source_files.len());
+        let mut accepted_files = Vec::with_capacity(source_files.len());
         let mut cached_files = 0;
         let mut recomputed_files = 0;
+        let mut skipped_files = 0;
         let mut extractor_opt: Option<AstExtractor> = None;
         let mut file_sources = HashMap::new();
         let mut total_bytes = 0usize;
 
-        for (abs_path, rel_path) in &source_files {
+        for (abs_path, rel_path) in source_files {
+            let metadata = match fs::symlink_metadata(&abs_path) {
+                Ok(m) => m,
+                Err(err) => return Err(EngineError::IoError(err)),
+            };
+
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+
+            if metadata.len() > max_file_bytes as u64 {
+                skipped_files += 1;
+                continue;
+            }
+
+            accepted_files.push(rel_path.clone());
             existing_paths.insert(rel_path.clone());
-            let metadata = fs::metadata(abs_path).map_err(EngineError::IoError)?;
             let mtime = get_mtime_nanos(&metadata);
 
-            let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
+            let content_bytes = fs::read(&abs_path).map_err(EngineError::IoError)?;
             let content_hash = compute_blake3_hash(&content_bytes);
             total_bytes += content_bytes.len();
 
             let mut is_cached = false;
             if use_cache {
-                if let Some(entry) = cache.get_valid_entry(rel_path, content_hash) {
+                if let Some(entry) = cache.get_valid_entry(&rel_path, content_hash) {
                     is_cached = true;
                     cached_files += 1;
                     if entry.mtime_nanos != mtime {
@@ -129,7 +159,7 @@ impl LoadedRepository {
 
                 let mut dummy_id = 0u32;
                 let (file_symbols, file_edges, file_imports) = extractor
-                    .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
+                    .parse_file_with_imports(&rel_path, &content_bytes, &mut dummy_id)?;
 
                 let entry = FileCacheEntry {
                     relative_path: rel_path.clone(),
@@ -152,7 +182,7 @@ impl LoadedRepository {
             let _ = cache.save_to_file(&cache_file);
         }
 
-        let ordered_paths: Vec<PathBuf> = source_files.into_iter().map(|(_, rel)| rel).collect();
+        let ordered_paths: Vec<PathBuf> = accepted_files;
         let (symbols, edges, imports) = cache.compile_symbols_edges_and_imports(&ordered_paths);
 
         let total_files = ordered_paths.len();
@@ -166,6 +196,7 @@ impl LoadedRepository {
             total_files,
             cached_files,
             recomputed_files,
+            skipped_files,
             hit_ratio,
         };
 
@@ -178,6 +209,7 @@ impl LoadedRepository {
             total_bytes,
             cache_report,
             cache,
+            max_file_bytes,
         })
     }
 
@@ -296,8 +328,11 @@ impl LoadedRepository {
             return Ok(false);
         }
 
-        let metadata = fs::metadata(&abs_path).map_err(EngineError::IoError)?;
-        if metadata.is_dir() {
+        let metadata = fs::symlink_metadata(&abs_path).map_err(EngineError::IoError)?;
+        if metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || metadata.len() > self.max_file_bytes as u64
+        {
             return Ok(false);
         }
 
@@ -387,6 +422,7 @@ fn scan_directory(
         .git_global(true)
         .git_exclude(true)
         .require_git(false)
+        .follow_links(false)
         .filter_entry(|entry| {
             if entry.depth() > 0 && entry.file_type().is_some_and(|ft| ft.is_dir()) {
                 if let Some(name) = entry.file_name().to_str() {
@@ -399,6 +435,9 @@ fn scan_directory(
         });
 
     for entry in builder.build().flatten() {
+        if entry.file_type().is_some_and(|ft| ft.is_symlink()) {
+            continue;
+        }
         let path = entry.into_path();
         if path.is_file() && SupportedLanguage::from_path(&path).is_some() {
             let rel_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();

@@ -47,7 +47,7 @@ pub use cache::{
 pub use csr::CsrMatrix;
 pub use diff::{is_valid_git_revision, DiffResolver};
 pub use import::{normalize_path, resolve_module_path, FileImport};
-pub use loader::{CacheReport, LoadedRepository};
+pub use loader::{CacheReport, LoadedRepository, DEFAULT_MAX_FILE_BYTES};
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use resolver::ScopedResolver;
