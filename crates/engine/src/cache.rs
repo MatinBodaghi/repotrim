@@ -11,6 +11,29 @@ use crate::symbol::{ReferenceEdge, SymbolId, SymbolNode};
 /// Current cache schema version. Incremented whenever the binary structure changes.
 pub const CACHE_VERSION: u32 = 4;
 
+/// Returns the externalized user cache directory for a given codebase root,
+/// preventing any unsolicited cache directory creation inside the analyzed codebase.
+pub fn get_cache_dir_for_root(root: &Path) -> PathBuf {
+    let canonical = crate::security::canonicalize_clean(root)
+        .unwrap_or_else(|_| crate::security::normalize_path_lexical(root));
+    let hash = blake3::hash(canonical.to_string_lossy().as_bytes());
+    let hash_hex = hash.to_hex();
+    let base_cache = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("repotrim");
+    base_cache.join(&hash_hex[..16])
+}
+
+/// Returns the path to `cache.bin` within the externalized cache directory for the given root.
+pub fn get_cache_file_for_root(root: &Path) -> PathBuf {
+    get_cache_dir_for_root(root).join("cache.bin")
+}
+
+/// Returns the path to `coedit.bin` within the externalized cache directory for the given root.
+pub fn get_coedit_file_for_root(root: &Path) -> PathBuf {
+    get_cache_dir_for_root(root).join("coedit.bin")
+}
+
 /// Extracted AST symbol and edge metadata cached per individual source file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCacheEntry {

@@ -1,7 +1,7 @@
 use crate::{
-    compute_blake3_hash, get_mtime_nanos, AstExtractor, CodebaseIntelligence, EngineError,
-    FileCacheEntry, FileImport, LayerWeights, MultiplexGraph, ReferenceEdge, RepositoryCache,
-    SupportedLanguage, SymbolNode,
+    compute_blake3_hash, get_cache_file_for_root, get_mtime_nanos, AstExtractor,
+    CodebaseIntelligence, EngineError, FileCacheEntry, FileImport, LayerWeights, MultiplexGraph,
+    ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -66,8 +66,7 @@ impl LoadedRepository {
         #[cfg(not(windows))]
         let root_path = fs::canonicalize(&root_path).unwrap_or(root_path);
 
-        let cache_dir = root_path.join(".repotrim");
-        let cache_file = cache_dir.join("cache.bin");
+        let cache_file = get_cache_file_for_root(&root_path);
 
         let mut cache = if use_cache {
             RepositoryCache::load_from_file(&cache_file)
@@ -340,7 +339,7 @@ impl LoadedRepository {
         self.imports = imports;
         self.total_bytes = self.cache.entries.values().map(|e| e.source_bytes).sum();
 
-        let cache_file = self.root_path.join(".repotrim").join("cache.bin");
+        let cache_file = get_cache_file_for_root(&self.root_path);
         let _ = self.cache.save_to_file(&cache_file);
 
         Ok(true)
@@ -367,7 +366,7 @@ impl LoadedRepository {
             self.imports = imports;
             self.total_bytes = self.cache.entries.values().map(|e| e.source_bytes).sum();
 
-            let cache_file = self.root_path.join(".repotrim").join("cache.bin");
+            let cache_file = get_cache_file_for_root(&self.root_path);
             let _ = self.cache.save_to_file(&cache_file);
 
             Ok(true)

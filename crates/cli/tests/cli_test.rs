@@ -140,7 +140,9 @@ fn test_cli_clean_and_incremental_cache() {
     let _stderr_cold = String::from_utf8_lossy(&output_cold.stderr);
     let stdout_cold = String::from_utf8_lossy(&output_cold.stdout);
     assert!(stdout_cold.contains("Incremental Cache:"));
-    assert!(temp_dir.join(".repotrim/cache.bin").exists());
+    let cache_file = repotrim_engine::get_cache_file_for_root(&temp_dir);
+    assert!(cache_file.exists());
+    assert!(!temp_dir.join(".repotrim").exists());
 
     // 2. Warm stats run (cache hit)
     let output_warm = Command::new(env!("CARGO_BIN_EXE_repotrim"))
@@ -179,6 +181,8 @@ fn test_cli_clean_and_incremental_cache() {
         .output()
         .expect("Failed to execute clean");
     assert!(output_clean.status.success());
+    let cache_dir = repotrim_engine::get_cache_dir_for_root(&temp_dir);
+    assert!(!cache_dir.exists());
     assert!(!temp_dir.join(".repotrim").exists());
 
     let _ = std::fs::remove_dir_all(&temp_dir);

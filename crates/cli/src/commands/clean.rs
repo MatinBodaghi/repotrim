@@ -11,7 +11,10 @@ pub struct CleanArgs {
 }
 
 pub fn execute(args: CleanArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let cache_dir = args.path.join(".repotrim");
+    let cache_dir = repotrim_engine::get_cache_dir_for_root(&args.path);
+    let legacy_dir = args.path.join(".repotrim");
+    let mut removed = false;
+
     if cache_dir.exists() {
         fs::remove_dir_all(&cache_dir)?;
         eprintln!(
@@ -19,11 +22,19 @@ pub fn execute(args: CleanArgs) -> Result<(), Box<dyn std::error::Error>> {
             "✓".green().bold(),
             cache_dir.display().to_string().bold()
         );
-    } else {
+        removed = true;
+    }
+
+    if legacy_dir.exists() {
+        let _ = fs::remove_dir_all(&legacy_dir);
+        removed = true;
+    }
+
+    if !removed {
         eprintln!(
-            "{} No cache directory found at '{}'",
+            "{} No cache directory found for '{}'",
             "•".dimmed(),
-            cache_dir.display().to_string().dimmed()
+            args.path.display().to_string().dimmed()
         );
     }
     Ok(())

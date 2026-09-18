@@ -1,8 +1,9 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
 use repotrim_engine::{
-    count_tokens, CoeditCache, CoeditConfig, ContextSelector, DiffResolver, EdgeWeightLearner,
-    GitCommitMiner, LayerWeights, LodLevel, ModelProfile, SymbolId, TokenizerModel,
+    count_tokens, get_coedit_file_for_root, CoeditCache, CoeditConfig, ContextSelector,
+    DiffResolver, EdgeWeightLearner, GitCommitMiner, LayerWeights, LodLevel, ModelProfile,
+    SymbolId, TokenizerModel,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -322,7 +323,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     if args.coedit || args.learn_weights {
         if let Ok(head_hash) = GitCommitMiner::get_head_hash(&repo.root_path) {
-            let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+            let cache_file = get_coedit_file_for_root(&repo.root_path);
             let coedit_graph = if !args.no_cache {
                 if let Some(cached) = CoeditCache::load_from_file(&cache_file, &head_hash) {
                     cached

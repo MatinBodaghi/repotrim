@@ -134,7 +134,7 @@ pub fn execute(args: BlueprintArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     if args.coedit {
         if let Ok(head_hash) = repotrim_engine::GitCommitMiner::get_head_hash(&repo.root_path) {
-            let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+            let cache_file = repotrim_engine::get_coedit_file_for_root(&repo.root_path);
             let coedit_graph = if !args.no_cache {
                 repotrim_engine::CoeditCache::load_from_file(&cache_file, &head_hash)
                     .unwrap_or_else(|| {

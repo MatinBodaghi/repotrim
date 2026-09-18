@@ -10,6 +10,7 @@ use repotrim_engine::{
     HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
     ModelProfile, NavigatorConfig, PprSolver, RepositoryWatcher, RetrievalConfig, RootGuard,
     SearchMode, SecurityError, SymbolId, SymbolKind, TaskContext, TokenizerModel,
+    get_cache_dir_for_root, get_coedit_file_for_root,
 };
 
 use crate::protocol::{
@@ -905,7 +906,7 @@ impl McpHandler {
 
         if use_coedits || learn_weights {
             if let Ok(head_hash) = GitCommitMiner::get_head_hash(&repo.root_path) {
-                let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+                let cache_file = get_coedit_file_for_root(&repo.root_path);
                 let coedit_graph = if let Some(cached) =
                     CoeditCache::load_from_file(&cache_file, &head_hash)
                 {
@@ -1309,17 +1310,28 @@ impl McpHandler {
 
     fn tool_clean_cache(&mut self, args: serde_json::Value) -> ToolCallResult {
         let target_path = self.resolve_path(&args);
-        let cache_dir = target_path.join(".repotrim");
+        let cache_dir = get_cache_dir_for_root(&target_path);
+        let legacy_dir = target_path.join(".repotrim");
         self.cached_repo = None;
 
+        let mut removed = false;
         if cache_dir.exists() {
-            match fs::remove_dir_all(&cache_dir) {
-                Ok(_) => ToolCallResult::success(format!(
-                    "Successfully removed cache at '{}'",
-                    cache_dir.display()
-                )),
-                Err(e) => ToolCallResult::error(format!("Failed to remove cache: {}", e)),
+            if let Err(e) = fs::remove_dir_all(&cache_dir) {
+                return ToolCallResult::error(format!("Failed to remove cache: {}", e));
             }
+            removed = true;
+        }
+
+        if legacy_dir.exists() {
+            let _ = fs::remove_dir_all(&legacy_dir);
+            removed = true;
+        }
+
+        if removed {
+            ToolCallResult::success(format!(
+                "Successfully removed cache at '{}'",
+                cache_dir.display()
+            ))
         } else {
             ToolCallResult::success(format!(
                 "No cache directory found at '{}'",
@@ -1636,7 +1648,7 @@ impl McpHandler {
             Err(e) => return ToolCallResult::error(format!("Git error: {}", e)),
         };
 
-        let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+        let cache_file = get_coedit_file_for_root(&repo.root_path);
         let config = CoeditConfig {
             max_commits,
             min_support,

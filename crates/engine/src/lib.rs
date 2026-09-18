@@ -39,7 +39,8 @@ pub mod symbol;
 pub mod watcher;
 
 pub use cache::{
-    compute_blake3_hash, get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
+    compute_blake3_hash, get_cache_dir_for_root, get_cache_file_for_root, get_coedit_file_for_root,
+    get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };
 pub use csr::CsrMatrix;
 pub use diff::DiffResolver;

@@ -1,6 +1,9 @@
 use clap::Args;
 use colored::Colorize;
-use repotrim_engine::{CoeditCache, CoeditConfig, EdgeWeightLearner, GitCommitMiner, LayerWeights};
+use repotrim_engine::{
+    get_coedit_file_for_root, CoeditCache, CoeditConfig, EdgeWeightLearner, GitCommitMiner,
+    LayerWeights,
+};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -83,7 +86,7 @@ pub fn execute(args: CoeditArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let cache_file = repo.root_path.join(".repotrim").join("coedit.bin");
+    let cache_file = get_coedit_file_for_root(&repo.root_path);
     let mut from_cache = false;
 
     let config = CoeditConfig {
