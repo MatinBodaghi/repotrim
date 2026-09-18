@@ -184,7 +184,6 @@ pub fn is_valid_git_revision(revision: &str) -> bool {
 }
 
 impl DiffResolver {
-
     /// Executes `git diff` in the specified directory to extract uncommitted changes (both staged and unstaged).
     pub fn get_git_diff(working_dir: &Path) -> Result<String, EngineError> {
         // Try `git diff HEAD --` first to capture both staged and unstaged changes against HEAD
@@ -208,13 +207,7 @@ impl DiffResolver {
                 }
                 // If diff HEAD was empty, also try `git diff --` alone in case HEAD was identical
                 let unstaged_output = Command::new("git")
-                    .args([
-                        "-c",
-                        "core.hooksPath=/dev/null",
-                        "--no-pager",
-                        "diff",
-                        "--",
-                    ])
+                    .args(["-c", "core.hooksPath=/dev/null", "--no-pager", "diff", "--"])
                     .current_dir(working_dir)
                     .output();
                 if let Ok(u_out) = unstaged_output {
@@ -228,13 +221,7 @@ impl DiffResolver {
             Ok(out) => {
                 // If `git diff HEAD` failed (e.g. unborn branch), try `git diff --` alone
                 let fallback = Command::new("git")
-                    .args([
-                        "-c",
-                        "core.hooksPath=/dev/null",
-                        "--no-pager",
-                        "diff",
-                        "--",
-                    ])
+                    .args(["-c", "core.hooksPath=/dev/null", "--no-pager", "diff", "--"])
                     .current_dir(working_dir)
                     .output();
                 if let Ok(fb) = fallback {
@@ -416,4 +403,3 @@ index 111..222 100644
         );
     }
 }
-

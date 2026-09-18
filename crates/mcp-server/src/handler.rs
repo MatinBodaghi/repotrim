@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use repotrim_engine::{
-    count_tokens, AdaptiveNavigator, ArchitectureReport, BenchmarkMetrics, BenchmarkRunner,
-    BenchmarkSummary, CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector,
-    ContextSelector, ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner,
-    HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
-    ModelProfile, NavigatorConfig, PprSolver, RepositoryWatcher, RetrievalConfig, RootGuard,
-    SearchMode, SecurityError, SymbolId, SymbolKind, TaskContext, TokenizerModel,
-    get_cache_dir_for_root, get_coedit_file_for_root,
+    count_tokens, get_cache_dir_for_root, get_coedit_file_for_root, AdaptiveNavigator,
+    ArchitectureReport, BenchmarkMetrics, BenchmarkRunner, BenchmarkSummary, CoeditCache,
+    CoeditConfig, CommunityConfig, CommunityDetector, ContextSelector, ContextStrategy,
+    DiffResolver, EdgeWeightLearner, GitCommitMiner, HybridRetriever, ImpactAnalyzer,
+    IntentResolver, LayerWeights, LoadedRepository, LodLevel, ModelProfile, NavigatorConfig,
+    PprSolver, RepositoryWatcher, RetrievalConfig, RootGuard, SearchMode, SecurityError, SymbolId,
+    SymbolKind, TaskContext, TokenizerModel,
 };
 
 use crate::protocol::{

@@ -14,11 +14,15 @@ fn test_root_guard_confinement_invariants() {
     let guard = RootGuard::with_root(&temp);
 
     // 1. Valid file inside root
-    let resolved = guard.resolve(&safe_file).expect("Contained file must resolve");
+    let resolved = guard
+        .resolve(&safe_file)
+        .expect("Contained file must resolve");
     assert!(resolved.ends_with("main.rs"));
 
     // 2. Relative path resolution inside root
-    let resolved_rel = guard.resolve("workspace/src/main.rs").expect("Relative path must resolve");
+    let resolved_rel = guard
+        .resolve("workspace/src/main.rs")
+        .expect("Relative path must resolve");
     assert!(resolved_rel.ends_with("main.rs"));
 
     // 3. Parent escape attempts
@@ -85,13 +89,13 @@ fn test_multiple_roots_confinement() {
 
 #[test]
 fn test_cache_isolation_ignores_hostile_repo_cache_fixtures() {
-    use repotrim_engine::{
-        get_cache_dir_for_root, get_cache_file_for_root, LoadedRepository,
-    };
+    use repotrim_engine::{get_cache_dir_for_root, get_cache_file_for_root, LoadedRepository};
     use std::io::Write;
 
-    let temp_repo =
-        std::env::temp_dir().join(format!("repotrim_hostile_cache_test_{}", std::process::id()));
+    let temp_repo = std::env::temp_dir().join(format!(
+        "repotrim_hostile_cache_test_{}",
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&temp_repo);
 
     let src_dir = temp_repo.join("src");
@@ -179,5 +183,3 @@ fn test_git_revision_argument_injection_blocked() {
         );
     }
 }
-
-

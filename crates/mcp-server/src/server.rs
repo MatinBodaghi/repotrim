@@ -30,7 +30,10 @@ impl McpServer {
     }
 
     /// Creates an MCP server initialized with a default root and explicit allowed roots.
-    pub fn with_allowed_roots<P: Into<std::path::PathBuf>, I: IntoIterator<Item = std::path::PathBuf>>(
+    pub fn with_allowed_roots<
+        P: Into<std::path::PathBuf>,
+        I: IntoIterator<Item = std::path::PathBuf>,
+    >(
         root: P,
         allowed_roots: I,
     ) -> Self {

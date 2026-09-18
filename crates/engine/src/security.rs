@@ -56,7 +56,9 @@ impl RootGuard {
         for r in roots {
             let p = r.as_ref();
             let canonical = canonicalize_clean(p).unwrap_or_else(|_| normalize_path_lexical(p));
-            if !allowed.iter().any(|existing: &PathBuf| path_starts_with(existing, &canonical) && path_starts_with(&canonical, existing)) {
+            if !allowed.iter().any(|existing: &PathBuf| {
+                path_starts_with(existing, &canonical) && path_starts_with(&canonical, existing)
+            }) {
                 allowed.push(canonical);
             }
         }

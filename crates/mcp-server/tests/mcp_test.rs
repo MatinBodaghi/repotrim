@@ -689,9 +689,15 @@ fn test_mcp_path_confinement_blocks_unauthorized_access() {
 
     let resp: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(resp["id"], 2);
-    assert!(resp.get("error").is_some(), "Expected JSON-RPC error for path escape");
+    assert!(
+        resp.get("error").is_some(),
+        "Expected JSON-RPC error for path escape"
+    );
     let error_code = resp["error"]["code"].as_i64().unwrap();
-    assert_eq!(error_code, -32602, "Error code must be INVALID_PARAMS (-32602)");
+    assert_eq!(
+        error_code, -32602,
+        "Error code must be INVALID_PARAMS (-32602)"
+    );
     let error_msg = resp["error"]["message"].as_str().unwrap();
     assert!(
         error_msg.contains("escapes allowed root boundaries"),
@@ -746,4 +752,3 @@ fn test_mcp_analyze_impact_rejects_git_flag_injection() {
         text
     );
 }
-

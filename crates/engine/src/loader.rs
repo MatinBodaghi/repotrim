@@ -143,43 +143,45 @@ impl LoadedRepository {
 
         let processed_results: Vec<ProcessedFile> = accepted_files
             .par_iter()
-            .map(|(abs_path, rel_path, mtime)| -> Result<ProcessedFile, EngineError> {
-                let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
-                let content_hash = compute_blake3_hash(&content_bytes);
+            .map(
+                |(abs_path, rel_path, mtime)| -> Result<ProcessedFile, EngineError> {
+                    let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
+                    let content_hash = compute_blake3_hash(&content_bytes);
 
-                if use_cache {
-                    if let Some(entry) = cache.get_valid_entry(rel_path, content_hash) {
-                        let needs_mtime_update = entry.mtime_nanos != *mtime;
-                        return Ok(ProcessedFile::Cached {
-                            rel_path: rel_path.clone(),
-                            mtime: *mtime,
-                            needs_mtime_update,
-                            cached_entry: entry.clone(),
-                        });
+                    if use_cache {
+                        if let Some(entry) = cache.get_valid_entry(rel_path, content_hash) {
+                            let needs_mtime_update = entry.mtime_nanos != *mtime;
+                            return Ok(ProcessedFile::Cached {
+                                rel_path: rel_path.clone(),
+                                mtime: *mtime,
+                                needs_mtime_update,
+                                cached_entry: entry.clone(),
+                            });
+                        }
                     }
-                }
 
-                let content_str = String::from_utf8_lossy(&content_bytes).to_string();
-                let mut dummy_id = 0u32;
-                let (file_symbols, file_edges, file_imports) = extractor
-                    .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
+                    let content_str = String::from_utf8_lossy(&content_bytes).to_string();
+                    let mut dummy_id = 0u32;
+                    let (file_symbols, file_edges, file_imports) = extractor
+                        .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
 
-                let entry = FileCacheEntry {
-                    relative_path: rel_path.clone(),
-                    blake3_hash: content_hash,
-                    mtime_nanos: *mtime,
-                    symbols: file_symbols,
-                    edges: file_edges,
-                    imports: file_imports,
-                    source_bytes: content_bytes.len(),
-                };
+                    let entry = FileCacheEntry {
+                        relative_path: rel_path.clone(),
+                        blake3_hash: content_hash,
+                        mtime_nanos: *mtime,
+                        symbols: file_symbols,
+                        edges: file_edges,
+                        imports: file_imports,
+                        source_bytes: content_bytes.len(),
+                    };
 
-                Ok(ProcessedFile::Recomputed {
-                    rel_path: rel_path.clone(),
-                    content_str,
-                    entry,
-                })
-            })
+                    Ok(ProcessedFile::Recomputed {
+                        rel_path: rel_path.clone(),
+                        content_str,
+                        entry,
+                    })
+                },
+            )
             .collect::<Result<Vec<_>, EngineError>>()?;
 
         let mut existing_paths = HashSet::with_capacity(processed_results.len());
@@ -485,10 +487,7 @@ impl LoadedRepository {
     }
 }
 
-fn scan_directory(
-    root: &Path,
-    files: &mut Vec<(PathBuf, PathBuf)>,
-) -> Result<(), EngineError> {
+fn scan_directory(root: &Path, files: &mut Vec<(PathBuf, PathBuf)>) -> Result<(), EngineError> {
     let mut builder = WalkBuilder::new(root);
     builder
         .hidden(true)
@@ -658,7 +657,9 @@ mod tests {
             .find(|s| s.name == "first_func")
             .unwrap()
             .clone();
-        let first_source = repo.read_symbol_source(&first_sym).expect("read first symbol");
+        let first_source = repo
+            .read_symbol_source(&first_sym)
+            .expect("read first symbol");
         assert!(first_source.contains("pub fn first_func"));
         assert!(first_source.contains("42"));
 
@@ -668,7 +669,9 @@ mod tests {
             .find(|s| s.name == "second_func")
             .unwrap()
             .clone();
-        let second_source = repo.read_symbol_source(&second_sym).expect("read second symbol");
+        let second_source = repo
+            .read_symbol_source(&second_sym)
+            .expect("read second symbol");
         assert!(second_source.contains("pub fn second_func"));
         assert!(second_source.contains("\"hello\""));
 

@@ -100,7 +100,10 @@ impl ContextFormatter {
                     use std::io::{Read, Seek, SeekFrom};
                     if symbol.span.start_byte < symbol.span.end_byte {
                         let len = symbol.span.end_byte - symbol.span.start_byte;
-                        if file.seek(SeekFrom::Start(symbol.span.start_byte as u64)).is_ok() {
+                        if file
+                            .seek(SeekFrom::Start(symbol.span.start_byte as u64))
+                            .is_ok()
+                        {
                             let mut buf = vec![0u8; len];
                             if file.read_exact(&mut buf).is_ok() {
                                 return String::from_utf8_lossy(&buf).trim().to_string();
@@ -1494,7 +1497,10 @@ mod tests {
 
     #[test]
     fn test_render_symbol_with_root_streaming() {
-        let temp_dir = std::env::temp_dir().join(format!("repotrim_format_stream_test_{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "repotrim_format_stream_test_{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(temp_dir.join("src")).unwrap();
 
@@ -1506,15 +1512,23 @@ mod tests {
         let sym = repo.symbols.iter().find(|s| s.name == "compute").unwrap();
 
         // Render with empty in-memory sources using render_symbol_with_root
-        let rendered = ContextFormatter::render_symbol_with_root(&temp_dir, sym, LodLevel::FullBody, None);
+        let rendered =
+            ContextFormatter::render_symbol_with_root(&temp_dir, sym, LodLevel::FullBody, None);
         assert!(rendered.contains("pub fn compute"));
         assert!(rendered.contains("val * 2"));
 
         let mut lods = HashMap::new();
         lods.insert(sym.id, LodLevel::FullBody);
         let empty_sources = HashMap::new();
-        let md = ContextFormatter::format_markdown_with_root(&temp_dir, &repo.symbols, &lods, &empty_sources);
-        assert!(md.contains("### File: `src/example.rs`") || md.contains("### File: `src\\example.rs`"));
+        let md = ContextFormatter::format_markdown_with_root(
+            &temp_dir,
+            &repo.symbols,
+            &lods,
+            &empty_sources,
+        );
+        assert!(
+            md.contains("### File: `src/example.rs`") || md.contains("### File: `src\\example.rs`")
+        );
         assert!(md.contains("pub fn compute() -> usize"));
         assert!(md.contains("val * 2"));
 

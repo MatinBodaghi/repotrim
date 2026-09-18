@@ -5,18 +5,15 @@ use std::path::Path;
 
 #[test]
 fn test_gitignore_exclusions_honored() {
-    let temp_dir = std::env::temp_dir().join(format!("repotrim_gitignore_test_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("repotrim_gitignore_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(temp_dir.join("src")).unwrap();
     fs::create_dir_all(temp_dir.join("vendor")).unwrap();
 
     // Create .gitignore
     let gitignore_path = temp_dir.join(".gitignore");
-    fs::write(
-        &gitignore_path,
-        "vendor/\nsecret.rs\n*.ignored.rs\n",
-    )
-    .unwrap();
+    fs::write(&gitignore_path, "vendor/\nsecret.rs\n*.ignored.rs\n").unwrap();
 
     // Included file
     let lib_file = temp_dir.join("src/lib.rs");
@@ -39,17 +36,30 @@ fn test_gitignore_exclusions_honored() {
     assert_eq!(repo.symbols.len(), 1);
     assert_eq!(repo.symbols[0].name, "active_code");
     assert_eq!(repo.max_file_bytes, DEFAULT_MAX_FILE_BYTES);
-    assert!(repo.file_sources.keys().any(|p| p == Path::new("src/lib.rs")));
-    assert!(!repo.file_sources.keys().any(|p| p.to_string_lossy().contains("vendor")));
-    assert!(!repo.file_sources.keys().any(|p| p.to_string_lossy().contains("secret")));
-    assert!(!repo.file_sources.keys().any(|p| p.to_string_lossy().contains("ignored")));
+    assert!(repo
+        .file_sources
+        .keys()
+        .any(|p| p == Path::new("src/lib.rs")));
+    assert!(!repo
+        .file_sources
+        .keys()
+        .any(|p| p.to_string_lossy().contains("vendor")));
+    assert!(!repo
+        .file_sources
+        .keys()
+        .any(|p| p.to_string_lossy().contains("secret")));
+    assert!(!repo
+        .file_sources
+        .keys()
+        .any(|p| p.to_string_lossy().contains("ignored")));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
 fn test_max_file_bytes_limit_skips_oversized_files() {
-    let temp_dir = std::env::temp_dir().join(format!("repotrim_max_bytes_test_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("repotrim_max_bytes_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(temp_dir.join("src")).unwrap();
 
@@ -80,7 +90,8 @@ fn test_max_file_bytes_limit_skips_oversized_files() {
 
 #[test]
 fn test_default_ignored_directories_without_gitignore() {
-    let temp_dir = std::env::temp_dir().join(format!("repotrim_ignored_dirs_test_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("repotrim_ignored_dirs_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(temp_dir.join("src")).unwrap();
     fs::create_dir_all(temp_dir.join(".venv/lib")).unwrap();
@@ -115,7 +126,8 @@ fn test_default_ignored_directories_without_gitignore() {
 
 #[test]
 fn test_traversal_cycle_defense_with_symlinks() {
-    let temp_dir = std::env::temp_dir().join(format!("repotrim_symlink_test_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("repotrim_symlink_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     let sub_dir = temp_dir.join("nested");
     fs::create_dir_all(&sub_dir).unwrap();
