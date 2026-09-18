@@ -701,3 +701,49 @@ fn test_mcp_path_confinement_blocks_unauthorized_access() {
 
     let _ = std::fs::remove_dir_all(&temp);
 }
+
+#[test]
+fn test_mcp_analyze_impact_rejects_git_flag_injection() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. tools/call: analyze_impact with malicious diffAgainst flag
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"analyze_impact","arguments":{{"path":"{}","diffAgainst":"--output=/tmp/leak"}}}}}}"#,
+            "\n",
+        ),
+        root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 2);
+
+    let resp: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp["id"], 2);
+    let result = &resp["result"];
+    assert_eq!(
+        result["isError"], true,
+        "Expected isError: true when malicious flag argument is injected"
+    );
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("cannot start with '-'"),
+        "Error message must specify rejection of flag injection: {}",
+        text
+    );
+}
+

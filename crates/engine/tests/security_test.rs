@@ -141,3 +141,43 @@ fn test_cache_isolation_ignores_hostile_repo_cache_fixtures() {
     let _ = fs::remove_dir_all(&external_cache_dir);
 }
 
+#[test]
+fn test_git_revision_argument_injection_blocked() {
+    use repotrim_engine::diff::{is_valid_git_revision, DiffResolver};
+    use repotrim_engine::EngineError;
+
+    let malicious_revisions = [
+        "--output=/tmp/leak",
+        "-o/tmp/leak",
+        "--exec=touch /tmp/hacked",
+        "--upload-pack=touch /tmp/hacked",
+        "-c core.hooksPath=/tmp",
+        "; rm -rf /",
+        "HEAD & touch /tmp/pwned",
+        "HEAD; echo pwned",
+        "| cat /etc/passwd",
+        "> /tmp/overwrite",
+        "`id`",
+        "$(whoami)",
+    ];
+
+    let temp_dir = std::env::temp_dir();
+    for rev in malicious_revisions {
+        assert!(
+            !is_valid_git_revision(rev),
+            "Revision '{}' should be flagged as invalid",
+            rev
+        );
+
+        let err = DiffResolver::get_git_diff_against(&temp_dir, rev)
+            .expect_err("Malicious revision must return an error");
+        assert!(
+            matches!(err, EngineError::InvalidInput(_)),
+            "Expected InvalidInput error for '{}', got {:?}",
+            rev,
+            err
+        );
+    }
+}
+
+
