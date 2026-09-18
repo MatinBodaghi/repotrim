@@ -4,6 +4,7 @@ use crate::{
     ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
 };
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -42,6 +43,20 @@ pub struct CacheReport {
     pub recomputed_files: usize,
     pub skipped_files: usize,
     pub hit_ratio: f32,
+}
+
+enum ProcessedFile {
+    Cached {
+        rel_path: PathBuf,
+        mtime: u128,
+        needs_mtime_update: bool,
+        cached_entry: FileCacheEntry,
+    },
+    Recomputed {
+        rel_path: PathBuf,
+        content_str: String,
+        entry: FileCacheEntry,
+    },
 }
 
 /// Encapsulates parsed repository files, AST symbol/edge data, and cache diagnostics.
@@ -102,14 +117,8 @@ impl LoadedRepository {
         scan_directory(&root_path, &mut source_files)?;
         source_files.sort_by(|a, b| a.1.cmp(&b.1));
 
-        let mut existing_paths = HashSet::with_capacity(source_files.len());
         let mut accepted_files = Vec::with_capacity(source_files.len());
-        let mut cached_files = 0;
-        let mut recomputed_files = 0;
         let mut skipped_files = 0;
-        let mut extractor_opt: Option<AstExtractor> = None;
-        let mut file_sources = HashMap::new();
-        let mut total_bytes = 0usize;
 
         for (abs_path, rel_path) in source_files {
             let metadata = match fs::symlink_metadata(&abs_path) {
@@ -126,51 +135,90 @@ impl LoadedRepository {
                 continue;
             }
 
-            accepted_files.push(rel_path.clone());
-            existing_paths.insert(rel_path.clone());
             let mtime = get_mtime_nanos(&metadata);
+            accepted_files.push((abs_path, rel_path, mtime));
+        }
 
-            let content_bytes = fs::read(&abs_path).map_err(EngineError::IoError)?;
-            let content_hash = compute_blake3_hash(&content_bytes);
-            total_bytes += content_bytes.len();
+        let extractor = AstExtractor::new()?;
 
-            let mut is_cached = false;
-            if use_cache {
-                if let Some(entry) = cache.get_valid_entry(&rel_path, content_hash) {
-                    is_cached = true;
-                    cached_files += 1;
-                    if entry.mtime_nanos != mtime {
-                        let mut updated_entry = entry.clone();
-                        updated_entry.mtime_nanos = mtime;
-                        cache.insert(updated_entry);
+        let processed_results: Vec<ProcessedFile> = accepted_files
+            .par_iter()
+            .map(|(abs_path, rel_path, mtime)| -> Result<ProcessedFile, EngineError> {
+                let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
+                let content_hash = compute_blake3_hash(&content_bytes);
+
+                if use_cache {
+                    if let Some(entry) = cache.get_valid_entry(rel_path, content_hash) {
+                        let needs_mtime_update = entry.mtime_nanos != *mtime;
+                        return Ok(ProcessedFile::Cached {
+                            rel_path: rel_path.clone(),
+                            mtime: *mtime,
+                            needs_mtime_update,
+                            cached_entry: entry.clone(),
+                        });
                     }
                 }
-            }
 
-            if !is_cached {
-                recomputed_files += 1;
                 let content_str = String::from_utf8_lossy(&content_bytes).to_string();
-                file_sources.insert(rel_path.clone(), content_str);
-
-                let extractor = match extractor_opt {
-                    Some(ref e) => e,
-                    None => extractor_opt.insert(AstExtractor::new()?),
-                };
-
                 let mut dummy_id = 0u32;
                 let (file_symbols, file_edges, file_imports) = extractor
-                    .parse_file_with_imports(&rel_path, &content_bytes, &mut dummy_id)?;
+                    .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
 
                 let entry = FileCacheEntry {
                     relative_path: rel_path.clone(),
                     blake3_hash: content_hash,
-                    mtime_nanos: mtime,
+                    mtime_nanos: *mtime,
                     symbols: file_symbols,
                     edges: file_edges,
                     imports: file_imports,
                     source_bytes: content_bytes.len(),
                 };
-                cache.insert(entry);
+
+                Ok(ProcessedFile::Recomputed {
+                    rel_path: rel_path.clone(),
+                    content_str,
+                    entry,
+                })
+            })
+            .collect::<Result<Vec<_>, EngineError>>()?;
+
+        let mut existing_paths = HashSet::with_capacity(processed_results.len());
+        let mut ordered_paths = Vec::with_capacity(processed_results.len());
+        let mut cached_files = 0;
+        let mut recomputed_files = 0;
+        let mut file_sources = HashMap::new();
+        let mut total_bytes = 0usize;
+
+        for item in processed_results {
+            match item {
+                ProcessedFile::Cached {
+                    rel_path,
+                    mtime,
+                    needs_mtime_update,
+                    mut cached_entry,
+                } => {
+                    cached_files += 1;
+                    total_bytes += cached_entry.source_bytes;
+                    existing_paths.insert(rel_path.clone());
+                    ordered_paths.push(rel_path);
+
+                    if needs_mtime_update {
+                        cached_entry.mtime_nanos = mtime;
+                        cache.insert(cached_entry);
+                    }
+                }
+                ProcessedFile::Recomputed {
+                    rel_path,
+                    content_str,
+                    entry,
+                } => {
+                    recomputed_files += 1;
+                    total_bytes += entry.source_bytes;
+                    existing_paths.insert(rel_path.clone());
+                    ordered_paths.push(rel_path.clone());
+                    file_sources.insert(rel_path, content_str);
+                    cache.insert(entry);
+                }
             }
         }
 
@@ -182,7 +230,6 @@ impl LoadedRepository {
             let _ = cache.save_to_file(&cache_file);
         }
 
-        let ordered_paths: Vec<PathBuf> = accepted_files;
         let (symbols, edges, imports) = cache.compile_symbols_edges_and_imports(&ordered_paths);
 
         let total_files = ordered_paths.len();
