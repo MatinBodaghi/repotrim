@@ -652,3 +652,52 @@ fn test_mcp_run_benchmark() {
     assert!(val["metrics"].as_array().unwrap().len() >= 2);
     assert!(val["summary"].as_array().unwrap().len() >= 2);
 }
+
+#[test]
+fn test_mcp_path_confinement_blocks_unauthorized_access() {
+    let root = repo_root();
+
+    // An external path guaranteed to be outside repo_root
+    let temp = std::env::temp_dir().join(format!("repotrim_mcp_sec_{}", std::process::id()));
+    std::fs::create_dir_all(&temp).unwrap();
+    let outside_str = temp.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. tools/call: query_graph_stats on path outside allowed root
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"query_graph_stats","arguments":{{"path":"{}"}}}}}}"#,
+            "\n",
+        ),
+        outside_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Valid UTF-8 output");
+    let lines: Vec<&str> = output_str.trim().split('\n').collect();
+
+    assert_eq!(lines.len(), 2);
+
+    let resp: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp["id"], 2);
+    assert!(resp.get("error").is_some(), "Expected JSON-RPC error for path escape");
+    let error_code = resp["error"]["code"].as_i64().unwrap();
+    assert_eq!(error_code, -32602, "Error code must be INVALID_PARAMS (-32602)");
+    let error_msg = resp["error"]["message"].as_str().unwrap();
+    assert!(
+        error_msg.contains("escapes allowed root boundaries"),
+        "Error message should mention escaping allowed root boundaries: {}",
+        error_msg
+    );
+
+    let _ = std::fs::remove_dir_all(&temp);
+}
