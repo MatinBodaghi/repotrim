@@ -8,8 +8,8 @@ use repotrim_engine::{
     BenchmarkSummary, CoeditCache, CoeditConfig, CommunityConfig, CommunityDetector,
     ContextSelector, ContextStrategy, DiffResolver, EdgeWeightLearner, GitCommitMiner,
     HybridRetriever, ImpactAnalyzer, IntentResolver, LayerWeights, LoadedRepository, LodLevel,
-    ModelProfile, NavigatorConfig, PprSolver, RepositoryWatcher, RetrievalConfig, SearchMode,
-    SymbolId, SymbolKind, TaskContext, TokenizerModel,
+    ModelProfile, NavigatorConfig, PprSolver, RepositoryWatcher, RetrievalConfig, RootGuard,
+    SearchMode, SecurityError, SymbolId, SymbolKind, TaskContext, TokenizerModel,
 };
 
 use crate::protocol::{
@@ -21,6 +21,7 @@ use crate::protocol::{
 /// Handles incoming MCP requests and manages workspace repository caching with live watcher sync.
 pub struct McpHandler {
     default_root: PathBuf,
+    root_guard: RootGuard,
     cached_repo: Option<(
         PathBuf,
         Arc<RwLock<LoadedRepository>>,
@@ -36,16 +37,59 @@ impl Default for McpHandler {
 
 impl McpHandler {
     pub fn new() -> Self {
+        let default_root = PathBuf::from(".");
+        let mut root_guard = RootGuard::with_root(&default_root);
+        Self::load_env_allowed_roots(&mut root_guard);
         Self {
-            default_root: PathBuf::from("."),
+            default_root,
+            root_guard,
             cached_repo: None,
         }
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
+        let default_root = root.into();
+        let mut root_guard = RootGuard::with_root(&default_root);
+        Self::load_env_allowed_roots(&mut root_guard);
         Self {
-            default_root: root.into(),
+            default_root,
+            root_guard,
             cached_repo: None,
+        }
+    }
+
+    pub fn with_allowed_roots<P: Into<PathBuf>, I: IntoIterator<Item = PathBuf>>(
+        root: P,
+        allowed_roots: I,
+    ) -> Self {
+        let default_root = root.into();
+        let mut guard_roots = vec![default_root.clone()];
+        guard_roots.extend(allowed_roots);
+        let mut root_guard = RootGuard::new(guard_roots);
+        Self::load_env_allowed_roots(&mut root_guard);
+        Self {
+            default_root,
+            root_guard,
+            cached_repo: None,
+        }
+    }
+
+    pub fn add_allowed_root<P: AsRef<Path>>(&mut self, root: P) {
+        self.root_guard.add_allowed_root(root);
+    }
+
+    pub fn allowed_roots(&self) -> &[PathBuf] {
+        self.root_guard.allowed_roots()
+    }
+
+    fn load_env_allowed_roots(guard: &mut RootGuard) {
+        if let Ok(env_roots) = std::env::var("REPOTRIM_ALLOWED_ROOTS") {
+            for part in env_roots.split([',', ';']) {
+                let trimmed = part.trim();
+                if !trimmed.is_empty() {
+                    guard.add_allowed_root(trimmed);
+                }
+            }
         }
     }
 
@@ -115,7 +159,30 @@ impl McpHandler {
                     .get("arguments")
                     .cloned()
                     .unwrap_or(serde_json::json!({}));
-                let tool_result = self.execute_tool(tool_name, arguments);
+                let tool_result = match self.execute_tool(tool_name, arguments) {
+                    Ok(res) => res,
+                    Err(SecurityError::PathEscapesRoot {
+                        requested,
+                        allowed_roots,
+                    }) => {
+                        return Some(JsonRpcResponse::error(
+                            id,
+                            INVALID_PARAMS,
+                            format!(
+                                "Path '{}' escapes allowed root boundaries: {:?}",
+                                requested.display(),
+                                allowed_roots
+                            ),
+                        ));
+                    }
+                    Err(err) => {
+                        return Some(JsonRpcResponse::error(
+                            id,
+                            INVALID_PARAMS,
+                            format!("Security violation: {}", err),
+                        ));
+                    }
+                };
                 Some(JsonRpcResponse::success(
                     id,
                     serde_json::to_value(tool_result).unwrap(),
@@ -595,9 +662,23 @@ impl McpHandler {
         ]
     }
 
-    /// Dispatches tool execution to the appropriate internal tool logic.
-    fn execute_tool(&mut self, name: &str, arguments: serde_json::Value) -> ToolCallResult {
-        match name {
+    /// Dispatches tool execution to the appropriate internal tool logic,
+    /// verifying that any requested target path or output location is confined to allowed roots.
+    fn execute_tool(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<ToolCallResult, SecurityError> {
+        // Enforce RootGuard confinement on any supplied path argument
+        if let Some(p) = arguments.get("path").and_then(|v| v.as_str()) {
+            self.root_guard.resolve(p)?;
+        }
+        // Enforce RootGuard confinement on any supplied output argument
+        if let Some(out) = arguments.get("output").and_then(|v| v.as_str()) {
+            self.root_guard.resolve(out)?;
+        }
+
+        let res = match name {
             "trim_context" => self.tool_trim_context(arguments),
             "query_graph_stats" => self.tool_query_graph_stats(arguments),
             "inspect_symbol" => self.tool_inspect_symbol(arguments),
@@ -614,15 +695,19 @@ impl McpHandler {
             "expand_symbol" => self.tool_expand_symbol(arguments),
             "navigate_codebase" => self.tool_navigate_codebase(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
-        }
+        };
+        Ok(res)
     }
 
-    /// Resolves target directory from optional argument or default root.
+    /// Resolves target directory from optional argument or default root,
+    /// returning the canonicalized path within the allowed root boundary.
     fn resolve_path(&self, args: &serde_json::Value) -> PathBuf {
-        args.get("path")
+        let requested = args
+            .get("path")
             .and_then(|p| p.as_str())
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.default_root.clone())
+            .unwrap_or_else(|| self.default_root.clone());
+        self.root_guard.resolve(&requested).unwrap_or(requested)
     }
 
     /// Retrieves or loads the repository with incremental caching and live watcher synchronization.

@@ -29,6 +29,21 @@ impl McpServer {
         }
     }
 
+    /// Creates an MCP server initialized with a default root and explicit allowed roots.
+    pub fn with_allowed_roots<P: Into<std::path::PathBuf>, I: IntoIterator<Item = std::path::PathBuf>>(
+        root: P,
+        allowed_roots: I,
+    ) -> Self {
+        Self {
+            handler: McpHandler::with_allowed_roots(root, allowed_roots),
+        }
+    }
+
+    /// Adds an allowed root directory to the server's path confinement guard.
+    pub fn add_allowed_root<P: AsRef<std::path::Path>>(&mut self, root: P) {
+        self.handler.add_allowed_root(root);
+    }
+
     /// Runs the stdio event loop using process standard input and standard output.
     pub fn run_stdio(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let stdin = std::io::stdin();
