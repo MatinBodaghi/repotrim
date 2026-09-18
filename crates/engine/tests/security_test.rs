@@ -82,3 +82,62 @@ fn test_multiple_roots_confinement() {
 
     let _ = fs::remove_dir_all(&base);
 }
+
+#[test]
+fn test_cache_isolation_ignores_hostile_repo_cache_fixtures() {
+    use repotrim_engine::{
+        get_cache_dir_for_root, get_cache_file_for_root, LoadedRepository,
+    };
+    use std::io::Write;
+
+    let temp_repo =
+        std::env::temp_dir().join(format!("repotrim_hostile_cache_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_repo);
+
+    let src_dir = temp_repo.join("src");
+    let hostile_cache_dir = temp_repo.join(".repotrim");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::create_dir_all(&hostile_cache_dir).unwrap();
+
+    // Legitimate source file
+    let lib_rs = src_dir.join("lib.rs");
+    let mut f = File::create(&lib_rs).unwrap();
+    writeln!(f, "pub fn legitimate_fn() -> u32 {{ 1337 }}").unwrap();
+
+    // Plant a hostile, forged .repotrim/cache.bin inside target repository
+    let hostile_cache_bin = hostile_cache_dir.join("cache.bin");
+    let forged_payload = b"FORGED_MALICIOUS_CACHE_BINARY_DATA_WITH_POISONED_SYMBOLS";
+    fs::write(&hostile_cache_bin, forged_payload).unwrap();
+
+    // Plant a hostile .repotrim/coedit.bin inside target repository
+    let hostile_coedit_bin = hostile_cache_dir.join("coedit.bin");
+    fs::write(&hostile_coedit_bin, b"FORGED_COEDIT_DATA").unwrap();
+
+    // Clean any pre-existing external cache for this test directory
+    let external_cache_dir = get_cache_dir_for_root(&temp_repo);
+    let external_cache_file = get_cache_file_for_root(&temp_repo);
+    let _ = fs::remove_dir_all(&external_cache_dir);
+
+    // Load repository with caching enabled
+    let loaded = LoadedRepository::load(&temp_repo).expect("Repository load must succeed");
+
+    // Invariant 1: Symbols must be parsed exclusively from clean disk source code
+    assert_eq!(loaded.symbols.len(), 1);
+    assert_eq!(loaded.symbols[0].name, "legitimate_fn");
+
+    // Invariant 2: The hostile repository cache inside <repo>/.repotrim/ must be untouched and ignored
+    assert!(hostile_cache_bin.exists());
+    let hostile_content = fs::read(&hostile_cache_bin).unwrap();
+    assert_eq!(hostile_content, forged_payload);
+
+    // Invariant 3: The legitimate binary cache must be written to external OS cache directory
+    assert!(
+        external_cache_file.exists(),
+        "External cache file must be written to dirs::cache_dir(), not repo tree"
+    );
+
+    // Clean up
+    let _ = fs::remove_dir_all(&temp_repo);
+    let _ = fs::remove_dir_all(&external_cache_dir);
+}
+
