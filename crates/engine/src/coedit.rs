@@ -197,7 +197,13 @@ impl GitCommitMiner {
     /// Inspects the current HEAD commit hash in the specified directory.
     pub fn get_head_hash(root: &Path) -> Result<String, EngineError> {
         let output = Command::new("git")
-            .args(["rev-parse", "HEAD"])
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "--no-pager",
+                "rev-parse",
+                "HEAD",
+            ])
             .current_dir(root)
             .output();
 
@@ -240,6 +246,9 @@ impl GitCommitMiner {
         let max_commits_str = config.max_commits.to_string();
         let output = Command::new("git")
             .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "--no-pager",
                 "log",
                 "-p",
                 "--unified=0",

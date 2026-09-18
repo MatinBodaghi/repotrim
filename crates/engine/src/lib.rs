@@ -45,7 +45,7 @@ pub use cache::{
     get_mtime_nanos, FileCacheEntry, RepositoryCache, CACHE_VERSION,
 };
 pub use csr::CsrMatrix;
-pub use diff::DiffResolver;
+pub use diff::{is_valid_git_revision, DiffResolver};
 pub use import::{normalize_path, resolve_module_path, FileImport};
 pub use loader::{CacheReport, LoadedRepository};
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};

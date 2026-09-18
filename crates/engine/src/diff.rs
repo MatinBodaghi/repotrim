@@ -168,12 +168,35 @@ impl DiffResolver {
             .map(|(id, w)| (id, (w / max_weight).clamp(0.1, 1.0)))
             .collect()
     }
+}
+
+/// Validates that a git revision string conforms to safe characters `^[A-Za-z0-9._/~^@{}-]+$`
+/// and does not begin with a dash (`-`), preventing command-line option injection attacks.
+pub fn is_valid_git_revision(revision: &str) -> bool {
+    let rev = revision.trim();
+    if rev.is_empty() || rev.starts_with('-') {
+        return false;
+    }
+    rev.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '.' | '_' | '/' | '~' | '^' | '@' | '{' | '}' | '-')
+    })
+}
+
+impl DiffResolver {
 
     /// Executes `git diff` in the specified directory to extract uncommitted changes (both staged and unstaged).
     pub fn get_git_diff(working_dir: &Path) -> Result<String, EngineError> {
-        // Try `git diff HEAD` first to capture both staged and unstaged changes against HEAD
+        // Try `git diff HEAD --` first to capture both staged and unstaged changes against HEAD
         let output = Command::new("git")
-            .args(["diff", "HEAD"])
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "--no-pager",
+                "diff",
+                "HEAD",
+                "--",
+            ])
             .current_dir(working_dir)
             .output();
 
@@ -183,9 +206,15 @@ impl DiffResolver {
                 if !diff_str.trim().is_empty() {
                     return Ok(diff_str);
                 }
-                // If diff HEAD was empty, also try `git diff` alone in case HEAD was identical
+                // If diff HEAD was empty, also try `git diff --` alone in case HEAD was identical
                 let unstaged_output = Command::new("git")
-                    .args(["diff"])
+                    .args([
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "--no-pager",
+                        "diff",
+                        "--",
+                    ])
                     .current_dir(working_dir)
                     .output();
                 if let Ok(u_out) = unstaged_output {
@@ -197,9 +226,15 @@ impl DiffResolver {
                 Ok(diff_str)
             }
             Ok(out) => {
-                // If `git diff HEAD` failed (e.g. unborn branch), try `git diff` alone
+                // If `git diff HEAD` failed (e.g. unborn branch), try `git diff --` alone
                 let fallback = Command::new("git")
-                    .args(["diff"])
+                    .args([
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "--no-pager",
+                        "diff",
+                        "--",
+                    ])
                     .current_dir(working_dir)
                     .output();
                 if let Ok(fb) = fallback {
@@ -222,10 +257,25 @@ impl DiffResolver {
         }
     }
 
-    /// Executes `git diff <revision>` in the specified directory to extract changes against a branch or commit.
+    /// Executes `git diff <revision> --` in the specified directory to extract changes against a branch or commit.
     pub fn get_git_diff_against(working_dir: &Path, revision: &str) -> Result<String, EngineError> {
+        let rev = revision.trim();
+        if !is_valid_git_revision(rev) {
+            return Err(EngineError::InvalidInput(format!(
+                "Invalid git revision '{}': must match safe character set and cannot start with '-'",
+                revision
+            )));
+        }
+
         let output = Command::new("git")
-            .args(["diff", revision])
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "--no-pager",
+                "diff",
+                rev,
+                "--",
+            ])
             .current_dir(working_dir)
             .output();
 
@@ -235,7 +285,7 @@ impl DiffResolver {
                 let err_msg = String::from_utf8_lossy(&out.stderr).to_string();
                 Err(EngineError::GitError(format!(
                     "git diff {} exited with code {:?}: {}",
-                    revision,
+                    rev,
                     out.status.code(),
                     err_msg
                 )))
@@ -331,4 +381,39 @@ index 111..222 100644
         assert_eq!(resolved[0].0, SymbolId(0));
         assert_eq!(resolved[0].1, 1.0);
     }
+
+    #[test]
+    fn test_is_valid_git_revision() {
+        assert!(is_valid_git_revision("HEAD"));
+        assert!(is_valid_git_revision("HEAD~1"));
+        assert!(is_valid_git_revision("HEAD^2"));
+        assert!(is_valid_git_revision("main"));
+        assert!(is_valid_git_revision("feature/branch-name_123"));
+        assert!(is_valid_git_revision("v1.0.0"));
+        assert!(is_valid_git_revision("HEAD@{1}"));
+        assert!(is_valid_git_revision("a1b2c3d4e5f6"));
+
+        // Malicious or flag-like inputs must be rejected
+        assert!(!is_valid_git_revision(""));
+        assert!(!is_valid_git_revision("   "));
+        assert!(!is_valid_git_revision("--output=/tmp/leak"));
+        assert!(!is_valid_git_revision("-o/tmp/leak"));
+        assert!(!is_valid_git_revision("--exec=malicious"));
+        assert!(!is_valid_git_revision("; rm -rf /"));
+        assert!(!is_valid_git_revision("HEAD & touch hacked"));
+        assert!(!is_valid_git_revision("`touch hacked`"));
+        assert!(!is_valid_git_revision("HEAD $(touch hacked)"));
+        assert!(!is_valid_git_revision("HEAD|touch"));
+    }
+
+    #[test]
+    fn test_get_git_diff_against_rejects_flag_injection() {
+        let temp = std::env::temp_dir();
+        let res = DiffResolver::get_git_diff_against(&temp, "--output=/tmp/leak");
+        assert!(
+            matches!(res, Err(EngineError::InvalidInput(_))),
+            "Flag injection must return EngineError::InvalidInput"
+        );
+    }
 }
+
