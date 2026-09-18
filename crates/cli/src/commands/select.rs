@@ -391,7 +391,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
                 );
             (selected, md, Some(report), None, Some(mckp))
         } else {
-            let budget = explicit_budget.unwrap();
+            let budget = explicit_budget.unwrap_or(0);
             let (selected, md, mckp) = selector.select_and_format_context_weighted_joint_lod(
                 &graph,
                 &seed_pairs,
@@ -420,7 +420,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
         };
         (selected, md, Some(report), sens, None)
     } else {
-        let budget = explicit_budget.unwrap();
+        let budget = explicit_budget.unwrap_or(0);
         if args.diagnostics {
             let (selected, md, sens) = selector
                 .select_and_format_context_weighted_with_sensitivity(
@@ -479,7 +479,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             selected_symbols.len().to_string().bold(),
             total_tokens_used.to_string().bold(),
             tokenizer_model.name().cyan(),
-            explicit_budget.unwrap(),
+            explicit_budget.unwrap_or(0),
             select_duration
         );
     }
@@ -586,7 +586,7 @@ pub fn execute(args: SelectArgs) -> Result<(), Box<dyn std::error::Error>> {
             let budget_val = if let Some(ref report) = auto_report_opt {
                 serde_json::json!(report.knee_tokens)
             } else {
-                serde_json::json!(explicit_budget.unwrap())
+                serde_json::json!(explicit_budget.unwrap_or(0))
             };
             let mut json_obj = serde_json::json!({
                 "budget": budget_val,

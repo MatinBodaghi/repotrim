@@ -21,6 +21,8 @@
 //! 7. **Evaluation, Benchmarks & Diagnostics**: Ground-truth knapsack oracle, 7-tier ablation
 //!    harness, real-world agent exploration benchmark runner, and engine error models.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 // ============================================================================
 // 1. Representation & Parsing Subsystem
 // ============================================================================
