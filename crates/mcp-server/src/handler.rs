@@ -15,8 +15,8 @@ use repotrim_engine::{
 
 use crate::protocol::{
     InitializeResult, JsonRpcRequest, JsonRpcResponse, ServerCapabilities, ServerInfo,
-    ToolCallResult, ToolDefinition, ToolsCapability, ToolsListResult, INVALID_PARAMS,
-    MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND,
+    ToolCallResult, ToolDefinition, ToolsCapability, ToolsListResult, INTERNAL_ERROR,
+    INVALID_PARAMS, MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND,
 };
 
 /// Handles incoming MCP requests and manages workspace repository caching with live watcher sync.
@@ -114,10 +114,14 @@ impl McpHandler {
                         version: env!("CARGO_PKG_VERSION").to_string(),
                     },
                 };
-                Some(JsonRpcResponse::success(
-                    id,
-                    serde_json::to_value(result).unwrap(),
-                ))
+                match serde_json::to_value(result) {
+                    Ok(val) => Some(JsonRpcResponse::success(id, val)),
+                    Err(e) => Some(JsonRpcResponse::error(
+                        id,
+                        INTERNAL_ERROR,
+                        format!("Failed to serialize initialize result: {}", e),
+                    )),
+                }
             }
             "notifications/initialized" => {
                 eprintln!("repotrim-mcp: Client handshake completed (notifications/initialized)");
@@ -128,10 +132,14 @@ impl McpHandler {
                 let list = ToolsListResult {
                     tools: self.declared_tools(),
                 };
-                Some(JsonRpcResponse::success(
-                    id,
-                    serde_json::to_value(list).unwrap(),
-                ))
+                match serde_json::to_value(list) {
+                    Ok(val) => Some(JsonRpcResponse::success(id, val)),
+                    Err(e) => Some(JsonRpcResponse::error(
+                        id,
+                        INTERNAL_ERROR,
+                        format!("Failed to serialize tools list: {}", e),
+                    )),
+                }
             }
             "tools/call" => {
                 let params = match req.params {
@@ -184,10 +192,14 @@ impl McpHandler {
                         ));
                     }
                 };
-                Some(JsonRpcResponse::success(
-                    id,
-                    serde_json::to_value(tool_result).unwrap(),
-                ))
+                match serde_json::to_value(tool_result) {
+                    Ok(val) => Some(JsonRpcResponse::success(id, val)),
+                    Err(e) => Some(JsonRpcResponse::error(
+                        id,
+                        INTERNAL_ERROR,
+                        format!("Failed to serialize tool result: {}", e),
+                    )),
+                }
             }
             _ => {
                 if is_notification {
@@ -734,7 +746,10 @@ impl McpHandler {
             self.cached_repo = Some((target_path.to_path_buf(), repo_arc, watcher));
         }
 
-        let (_, repo_arc, _) = self.cached_repo.as_ref().unwrap();
+        let (_, repo_arc, _) = self
+            .cached_repo
+            .as_ref()
+            .ok_or_else(|| "Cached repository not found".to_string())?;
         repo_arc
             .write()
             .map_err(|_| "Repository lock poisoned".to_string())
@@ -1042,10 +1057,14 @@ impl McpHandler {
                 });
             }
             if let Some(ref sens) = sensitivity_opt {
-                json_val["sensitivity"] = serde_json::to_value(sens).unwrap();
+                if let Ok(v) = serde_json::to_value(sens) {
+                    json_val["sensitivity"] = v;
+                }
             }
             if let Some(ref mckp) = mckp_opt {
-                json_val["joint_lod"] = serde_json::to_value(mckp).unwrap();
+                if let Ok(v) = serde_json::to_value(mckp) {
+                    json_val["joint_lod"] = v;
+                }
             }
             if structured || format_str == "json" {
                 let task_ctx = query_opt.as_deref().map(TaskContext::from_query);
@@ -1061,9 +1080,14 @@ impl McpHandler {
                     &repo.file_sources,
                     task_ctx,
                 );
-                json_val["structured_context"] = serde_json::to_value(&structured_ctx).unwrap();
+                if let Ok(v) = serde_json::to_value(&structured_ctx) {
+                    json_val["structured_context"] = v;
+                }
             }
-            ToolCallResult::success(serde_json::to_string_pretty(&json_val).unwrap())
+            match serde_json::to_string_pretty(&json_val) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let mut prefix = String::new();
             if let Some(ref rep) = auto_report_opt {
@@ -1711,7 +1735,10 @@ impl McpHandler {
                 "learned_mrr": report.learned_mrr,
                 "mrr_improvement_pct": report.mrr_improvement_pct,
             });
-            ToolCallResult::success(serde_json::to_string_pretty(&res).unwrap())
+            match serde_json::to_string_pretty(&res) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let md = report.to_markdown();
             ToolCallResult::success(md)
@@ -2191,7 +2218,10 @@ impl McpHandler {
         let entrypoints = intel.locate(&task, limit);
 
         if format_str == "json" {
-            ToolCallResult::success(serde_json::to_string_pretty(&entrypoints).unwrap())
+            match serde_json::to_string_pretty(&entrypoints) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let mut out = String::new();
             let _ = writeln!(out, "### Task Entrypoints for: `{}`\n", query);
@@ -2284,7 +2314,10 @@ impl McpHandler {
         };
 
         if format_str == "json" {
-            ToolCallResult::success(serde_json::to_string_pretty(&trace_result).unwrap())
+            match serde_json::to_string_pretty(&trace_result) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let mut out = String::new();
             let _ = writeln!(
@@ -2397,7 +2430,10 @@ impl McpHandler {
         };
 
         if format_str == "json" {
-            ToolCallResult::success(serde_json::to_string_pretty(&expansion).unwrap())
+            match serde_json::to_string_pretty(&expansion) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let mut out = String::new();
             let _ = writeln!(
@@ -2496,7 +2532,10 @@ impl McpHandler {
         };
 
         if format_str == "json" {
-            ToolCallResult::success(serde_json::to_string_pretty(&trajectory).unwrap())
+            match serde_json::to_string_pretty(&trajectory) {
+                Ok(s) => ToolCallResult::success(s),
+                Err(e) => ToolCallResult::error(format!("JSON serialization error: {}", e)),
+            }
         } else {
             let mut out = String::new();
             let _ = writeln!(
