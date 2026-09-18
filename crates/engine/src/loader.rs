@@ -3,6 +3,7 @@ use crate::{
     CodebaseIntelligence, EngineError, FileCacheEntry, FileImport, LayerWeights, MultiplexGraph,
     ReferenceEdge, RepositoryCache, SupportedLanguage, SymbolNode,
 };
+use ignore::WalkBuilder;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,15 @@ pub const IGNORED_DIRS: &[&str] = &[
     ".vscode",
     ".gemini",
     ".repotrim",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "vendor",
+    ".next",
+    "out",
+    "coverage",
+    ".tox",
+    "Pods",
 ];
 
 /// Metrics describing cache hits and recomputed files during repository ingestion.
@@ -75,7 +85,7 @@ impl LoadedRepository {
         };
 
         let mut source_files = Vec::new();
-        scan_directory(&root_path, &root_path, &mut source_files)?;
+        scan_directory(&root_path, &mut source_files)?;
         source_files.sort_by(|a, b| a.1.cmp(&b.1));
 
         let mut existing_paths = HashSet::with_capacity(source_files.len());
@@ -368,21 +378,29 @@ impl LoadedRepository {
 
 fn scan_directory(
     root: &Path,
-    current_dir: &Path,
     files: &mut Vec<(PathBuf, PathBuf)>,
 ) -> Result<(), EngineError> {
-    let entries = fs::read_dir(current_dir).map_err(EngineError::IoError)?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
-
-        if path.is_dir() {
-            if !IGNORED_DIRS.contains(&file_name_str.as_ref()) {
-                scan_directory(root, &path, files)?;
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false)
+        .filter_entry(|entry| {
+            if entry.depth() > 0 && entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                if let Some(name) = entry.file_name().to_str() {
+                    if IGNORED_DIRS.contains(&name) {
+                        return false;
+                    }
+                }
             }
-        } else if SupportedLanguage::from_path(&path).is_some() {
+            true
+        });
+
+    for entry in builder.build().flatten() {
+        let path = entry.into_path();
+        if path.is_file() && SupportedLanguage::from_path(&path).is_some() {
             let rel_path = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
             files.push((path, rel_path));
         }
