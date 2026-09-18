@@ -17,6 +17,7 @@
 //!   15th Working Conference on Reverse Engineering (WCRE), 171-180.
 //!   (Temporal recency and exponential decay weighting of software evolution).
 
+use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -462,7 +463,11 @@ impl CoeditCache {
         }
 
         let bytes = fs::read(cache_path).ok()?;
-        let graph: CoeditGraph = bincode::deserialize(&bytes).ok()?;
+        let graph: CoeditGraph = bincode::DefaultOptions::new()
+            .with_limit(crate::cache::MAX_CACHE_SIZE_BYTES)
+            .allow_trailing_bytes()
+            .deserialize(&bytes)
+            .ok()?;
 
         if graph.head_hash == expected_head {
             Some(graph)
@@ -471,12 +476,16 @@ impl CoeditCache {
         }
     }
 
-    /// Saves the `CoeditGraph` to `.repotrim/coedit.bin`.
+    /// Saves the `CoeditGraph` to externalized cache file.
     pub fn save_to_file(cache_path: &Path, graph: &CoeditGraph) -> Result<(), EngineError> {
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent).map_err(EngineError::IoError)?;
         }
-        let bytes = bincode::serialize(graph).map_err(|e| EngineError::GitError(e.to_string()))?;
+        let bytes = bincode::DefaultOptions::new()
+            .with_limit(crate::cache::MAX_CACHE_SIZE_BYTES)
+            .allow_trailing_bytes()
+            .serialize(graph)
+            .map_err(|e| EngineError::GitError(e.to_string()))?;
         fs::write(cache_path, bytes).map_err(EngineError::IoError)?;
         Ok(())
     }

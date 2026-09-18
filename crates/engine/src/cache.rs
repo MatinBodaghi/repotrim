@@ -1,3 +1,4 @@
+use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -7,6 +8,16 @@ use std::time::UNIX_EPOCH;
 use crate::error::EngineError;
 use crate::import::FileImport;
 use crate::symbol::{ReferenceEdge, SymbolId, SymbolNode};
+
+/// Maximum allowable bincode payload size (64 MB) to prevent unbounded memory allocation.
+pub const MAX_CACHE_SIZE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Constructs standard hardened bincode options with a 64 MB size limit.
+fn bincode_options() -> impl bincode::Options {
+    bincode::DefaultOptions::new()
+        .with_limit(MAX_CACHE_SIZE_BYTES)
+        .allow_trailing_bytes()
+}
 
 /// Current cache schema version. Incremented whenever the binary structure changes.
 pub const CACHE_VERSION: u32 = 4;
@@ -86,7 +97,7 @@ impl RepositoryCache {
             Err(_) => return Self::new(),
         };
 
-        match bincode::deserialize::<RepositoryCache>(&bytes) {
+        match bincode_options().deserialize::<RepositoryCache>(&bytes) {
             Ok(cache) if cache.version == CACHE_VERSION => cache,
             _ => Self::new(),
         }
@@ -99,8 +110,9 @@ impl RepositoryCache {
             fs::create_dir_all(parent).map_err(EngineError::IoError)?;
         }
 
-        let encoded =
-            bincode::serialize(self).map_err(|e| EngineError::IoError(std::io::Error::other(e)))?;
+        let encoded = bincode_options()
+            .serialize(self)
+            .map_err(|e| EngineError::IoError(std::io::Error::other(e)))?;
 
         // Write to a temporary sibling file and atomically rename to avoid partial writes
         let temp_path = path_ref.with_extension("tmp");
@@ -110,28 +122,21 @@ impl RepositoryCache {
         Ok(())
     }
 
-    /// Checks if a file's cache entry matches the given timestamp and optional content hash.
+    /// Checks if a file's cache entry matches the given BLAKE3 content hash.
+    ///
+    /// Deprecates modification-time-only trust: the disk bytes' BLAKE3 hash must
+    /// match the stored BLAKE3 hash to guarantee integrity against poisoned or tampered files.
     pub fn get_valid_entry(
         &self,
         rel_path: &Path,
-        mtime_nanos: u128,
-        content_hash: Option<[u8; 32]>,
+        content_hash: [u8; 32],
     ) -> Option<&FileCacheEntry> {
         let entry = self.entries.get(rel_path)?;
-
-        // Fast path: exact timestamp match
-        if entry.mtime_nanos == mtime_nanos && mtime_nanos > 0 {
-            return Some(entry);
+        if entry.blake3_hash == content_hash {
+            Some(entry)
+        } else {
+            None
         }
-
-        // Secondary path: timestamp changed, but content hash is identical
-        if let Some(hash) = content_hash {
-            if entry.blake3_hash == hash {
-                return Some(entry);
-            }
-        }
-
-        None
     }
 
     /// Inserts or updates a file's cache entry.
@@ -328,4 +333,55 @@ mod tests {
         // edge from baz (was 99 -> now 2)
         assert_eq!(edges[1].source, SymbolId(2));
     }
+
+    #[test]
+    fn test_get_valid_entry_blake3_verification() {
+        let mut cache = RepositoryCache::new();
+        let path = PathBuf::from("src/test.rs");
+        let sym = dummy_symbol(1, "test_fn", "src/test.rs");
+        let hash = [42u8; 32];
+
+        cache.insert(FileCacheEntry {
+            relative_path: path.clone(),
+            blake3_hash: hash,
+            mtime_nanos: 1000,
+            symbols: vec![sym],
+            edges: vec![],
+            imports: vec![],
+            source_bytes: 50,
+        });
+
+        // Exact match
+        assert!(cache.get_valid_entry(&path, hash).is_some());
+
+        // Mismatched hash returns None even if path exists
+        let forged_hash = [99u8; 32];
+        assert!(cache.get_valid_entry(&path, forged_hash).is_none());
+
+        // Unknown path returns None
+        assert!(cache
+            .get_valid_entry(&PathBuf::from("src/other.rs"), hash)
+            .is_none());
+    }
+
+    #[test]
+    fn test_bincode_options_limit_rejection() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("repotrim_bincode_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let cache_file = temp_dir.join("cache.bin");
+
+        // Malicious/corrupted bincode payload
+        let malicious_bytes = vec![0xFF; 1024];
+        fs::write(&cache_file, &malicious_bytes).unwrap();
+
+        // Loading should safely fall back to an empty cache without panicking
+        let cache = RepositoryCache::load_from_file(&cache_file);
+        assert_eq!(cache.entries.len(), 0);
+        assert_eq!(cache.version, CACHE_VERSION);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
+

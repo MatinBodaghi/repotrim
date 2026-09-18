@@ -90,57 +90,47 @@ impl LoadedRepository {
             let metadata = fs::metadata(abs_path).map_err(EngineError::IoError)?;
             let mtime = get_mtime_nanos(&metadata);
 
+            let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
+            let content_hash = compute_blake3_hash(&content_bytes);
+            total_bytes += content_bytes.len();
+
             let mut is_cached = false;
             if use_cache {
-                if let Some(entry) = cache.get_valid_entry(rel_path, mtime, None) {
+                if let Some(entry) = cache.get_valid_entry(rel_path, content_hash) {
                     is_cached = true;
-                    total_bytes += entry.source_bytes;
-                }
-            }
-
-            if is_cached {
-                cached_files += 1;
-            } else {
-                let content_bytes = fs::read(abs_path).map_err(EngineError::IoError)?;
-                let content_hash = compute_blake3_hash(&content_bytes);
-                total_bytes += content_bytes.len();
-
-                let content_str = String::from_utf8_lossy(&content_bytes).to_string();
-                file_sources.insert(rel_path.clone(), content_str);
-
-                if use_cache {
-                    if let Some(entry) = cache.get_valid_entry(rel_path, mtime, Some(content_hash))
-                    {
+                    cached_files += 1;
+                    if entry.mtime_nanos != mtime {
                         let mut updated_entry = entry.clone();
                         updated_entry.mtime_nanos = mtime;
                         cache.insert(updated_entry);
-                        cached_files += 1;
-                        is_cached = true;
                     }
                 }
+            }
 
-                if !is_cached {
-                    recomputed_files += 1;
-                    if extractor_opt.is_none() {
-                        extractor_opt = Some(AstExtractor::new()?);
-                    }
-                    let extractor = extractor_opt.as_ref().unwrap();
+            if !is_cached {
+                recomputed_files += 1;
+                let content_str = String::from_utf8_lossy(&content_bytes).to_string();
+                file_sources.insert(rel_path.clone(), content_str);
 
-                    let mut dummy_id = 0u32;
-                    let (file_symbols, file_edges, file_imports) = extractor
-                        .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
-
-                    let entry = FileCacheEntry {
-                        relative_path: rel_path.clone(),
-                        blake3_hash: content_hash,
-                        mtime_nanos: mtime,
-                        symbols: file_symbols,
-                        edges: file_edges,
-                        imports: file_imports,
-                        source_bytes: content_bytes.len(),
-                    };
-                    cache.insert(entry);
+                if extractor_opt.is_none() {
+                    extractor_opt = Some(AstExtractor::new()?);
                 }
+                let extractor = extractor_opt.as_ref().unwrap();
+
+                let mut dummy_id = 0u32;
+                let (file_symbols, file_edges, file_imports) = extractor
+                    .parse_file_with_imports(rel_path, &content_bytes, &mut dummy_id)?;
+
+                let entry = FileCacheEntry {
+                    relative_path: rel_path.clone(),
+                    blake3_hash: content_hash,
+                    mtime_nanos: mtime,
+                    symbols: file_symbols,
+                    edges: file_edges,
+                    imports: file_imports,
+                    source_bytes: content_bytes.len(),
+                };
+                cache.insert(entry);
             }
         }
 
