@@ -211,8 +211,11 @@ impl ContextSelector {
         let (knee_tokens, knee_ratio, knee_idx) = match knee {
             Some(k) => (k.token_cost, k.utility_ratio, k.index),
             None => {
-                let last = trace.last().unwrap();
-                (last.cumulative_tokens, 1.0, trace.len().saturating_sub(1))
+                if let Some(last) = trace.last() {
+                    (last.cumulative_tokens, 1.0, trace.len().saturating_sub(1))
+                } else {
+                    (0, 1.0, 0)
+                }
             }
         };
 
@@ -862,12 +865,15 @@ impl ContextSelector {
         let (knee_tokens, knee_ratio, _) = match knee {
             Some(k) => (k.token_cost, k.utility_ratio, k.index),
             None => {
-                let last = full_mckp.trace.last().unwrap();
-                (
-                    last.cumulative_tokens,
-                    1.0,
-                    full_mckp.trace.len().saturating_sub(1),
-                )
+                if let Some(last) = full_mckp.trace.last() {
+                    (
+                        last.cumulative_tokens,
+                        1.0,
+                        full_mckp.trace.len().saturating_sub(1),
+                    )
+                } else {
+                    (0, 1.0, 0)
+                }
             }
         };
 

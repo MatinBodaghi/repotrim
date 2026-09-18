@@ -23,6 +23,8 @@ pub enum EngineError {
     InvalidInput(String),
     #[error("Security violation: {0}")]
     SecurityError(#[from] crate::security::SecurityError),
+    #[error("Internal engine error: {0}")]
+    InternalError(String),
 }
 
 impl From<notify::Error> for EngineError {

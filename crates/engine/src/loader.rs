@@ -112,10 +112,10 @@ impl LoadedRepository {
                 let content_str = String::from_utf8_lossy(&content_bytes).to_string();
                 file_sources.insert(rel_path.clone(), content_str);
 
-                if extractor_opt.is_none() {
-                    extractor_opt = Some(AstExtractor::new()?);
-                }
-                let extractor = extractor_opt.as_ref().unwrap();
+                let extractor = match extractor_opt {
+                    Some(ref e) => e,
+                    None => extractor_opt.insert(AstExtractor::new()?),
+                };
 
                 let mut dummy_id = 0u32;
                 let (file_symbols, file_edges, file_imports) = extractor

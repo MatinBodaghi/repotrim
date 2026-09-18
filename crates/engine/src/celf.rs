@@ -1395,7 +1395,9 @@ impl CelfOptimizer {
                 current_tokens += delta_c;
                 let delta_gain = (top.marginal_density * (delta_c as f32)).max(0.0);
                 cumulative_utility += delta_gain;
-                *current_state.get_mut(&top.symbol_id).unwrap() = j + 1;
+                if let Some(state) = current_state.get_mut(&top.symbol_id) {
+                    *state = j + 1;
+                }
 
                 if let Some(sym) = graph.symbol(top.symbol_id) {
                     *file_token_costs.entry(sym.file_path.clone()).or_default() += delta_c;
@@ -1413,7 +1415,7 @@ impl CelfOptimizer {
                 }
 
                 let from_level = frontier[j].level;
-                let to_level = next_option.level.unwrap();
+                let to_level = next_option.level.unwrap_or(LodLevel::FullBody);
 
                 trace.push(MckpTraceStep {
                     symbol_id: top.symbol_id,

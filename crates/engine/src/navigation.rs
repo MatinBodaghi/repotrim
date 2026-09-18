@@ -660,11 +660,10 @@ impl NavigationState {
             }
         }
 
-        Ok(self
-            .history
+        self.history
             .last()
-            .expect("History must contain last step")
-            .clone())
+            .cloned()
+            .ok_or_else(|| EngineError::InternalError("Navigation history is empty".to_string()))
     }
 
     /// Synthesizes a unified `StructuredContext` from the evidence accumulated during sequential exploration.

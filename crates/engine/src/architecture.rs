@@ -255,7 +255,10 @@ impl ArchitectureReport {
         // Step 4: Classify subsystems into Architectural Layers
         let mut subsystems: Vec<SubsystemCommunity> = Vec::new();
         for (comm_name, sym_ids) in community_symbols {
-            let first_sym = graph.symbol(sym_ids[0]).unwrap();
+            let first_sym = match sym_ids.first().and_then(|&id| graph.symbol(id)) {
+                Some(s) => s,
+                None => continue,
+            };
             let (_, root_dir) = detect_subsystem_for_file(&first_sym.file_path, root_path);
 
             let out_coupling = outgoing_coupling.remove(&comm_name).unwrap_or_default();

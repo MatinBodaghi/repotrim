@@ -6,22 +6,22 @@ use std::sync::OnceLock;
 use tiktoken_rs::CoreBPE;
 
 #[cfg(feature = "exact-tokens")]
-static CL100K_BPE: OnceLock<CoreBPE> = OnceLock::new();
+static CL100K_BPE: OnceLock<Option<CoreBPE>> = OnceLock::new();
 #[cfg(feature = "exact-tokens")]
-static O200K_BPE: OnceLock<CoreBPE> = OnceLock::new();
+static O200K_BPE: OnceLock<Option<CoreBPE>> = OnceLock::new();
 
 #[cfg(feature = "exact-tokens")]
-fn get_cl100k_bpe() -> &'static CoreBPE {
-    CL100K_BPE.get_or_init(|| {
-        tiktoken_rs::cl100k_base().expect("Failed to initialize cl100k_base tokenizer")
-    })
+fn get_cl100k_bpe() -> Option<&'static CoreBPE> {
+    CL100K_BPE
+        .get_or_init(|| tiktoken_rs::cl100k_base().ok())
+        .as_ref()
 }
 
 #[cfg(feature = "exact-tokens")]
-fn get_o200k_bpe() -> &'static CoreBPE {
-    O200K_BPE.get_or_init(|| {
-        tiktoken_rs::o200k_base().expect("Failed to initialize o200k_base tokenizer")
-    })
+fn get_o200k_bpe() -> Option<&'static CoreBPE> {
+    O200K_BPE
+        .get_or_init(|| tiktoken_rs::o200k_base().ok())
+        .as_ref()
 }
 
 /// Supported token accounting model for budget constraints.
@@ -81,7 +81,11 @@ pub fn count_tokens(text: &str, model: TokenizerModel) -> usize {
         TokenizerModel::Cl100kBase => {
             #[cfg(feature = "exact-tokens")]
             {
-                get_cl100k_bpe().encode_ordinary(text).len()
+                if let Some(bpe) = get_cl100k_bpe() {
+                    bpe.encode_ordinary(text).len()
+                } else {
+                    estimate_tokens_calibrated(text)
+                }
             }
             #[cfg(not(feature = "exact-tokens"))]
             {
@@ -91,7 +95,11 @@ pub fn count_tokens(text: &str, model: TokenizerModel) -> usize {
         TokenizerModel::O200kBase => {
             #[cfg(feature = "exact-tokens")]
             {
-                get_o200k_bpe().encode_ordinary(text).len()
+                if let Some(bpe) = get_o200k_bpe() {
+                    bpe.encode_ordinary(text).len()
+                } else {
+                    estimate_tokens_calibrated(text)
+                }
             }
             #[cfg(not(feature = "exact-tokens"))]
             {
@@ -139,11 +147,12 @@ pub fn estimate_tokens(text: &str) -> usize {
         );
 
         if is_multi_punct {
-            let next_c = chars.next().unwrap();
-            token_count += 1;
-            in_word = false;
-            prev_char = Some(next_c);
-            continue;
+            if let Some(next_c) = chars.next() {
+                token_count += 1;
+                in_word = false;
+                prev_char = Some(next_c);
+                continue;
+            }
         }
 
         if c.is_ascii_punctuation() {
