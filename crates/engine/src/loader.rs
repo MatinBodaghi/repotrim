@@ -284,6 +284,33 @@ impl LoadedRepository {
         self.load_sources_for_files(&paths)
     }
 
+    /// Loads source file contents on-demand only for the requested symbols,
+    /// avoiding full repository memory residency.
+    pub fn load_sources_for_symbols<'a, I>(&mut self, symbols: I) -> Result<(), EngineError>
+    where
+        I: IntoIterator<Item = &'a SymbolNode>,
+    {
+        let paths: HashSet<PathBuf> = symbols.into_iter().map(|s| s.file_path.clone()).collect();
+        self.load_sources_for_files(&paths)
+    }
+
+    /// Reads a specific source text slice for a symbol directly by byte offset from disk,
+    /// avoiding full-file in-memory residency.
+    pub fn read_symbol_source(&self, symbol: &SymbolNode) -> Result<String, EngineError> {
+        let abs_path = self.root_path.join(&symbol.file_path);
+        let mut file = fs::File::open(&abs_path).map_err(EngineError::IoError)?;
+        use std::io::{Read, Seek, SeekFrom};
+        if symbol.span.start_byte >= symbol.span.end_byte {
+            return Ok(String::new());
+        }
+        let len = symbol.span.end_byte - symbol.span.start_byte;
+        file.seek(SeekFrom::Start(symbol.span.start_byte as u64))
+            .map_err(EngineError::IoError)?;
+        let mut buffer = vec![0u8; len];
+        file.read_exact(&mut buffer).map_err(EngineError::IoError)?;
+        Ok(String::from_utf8_lossy(&buffer).to_string())
+    }
+
     /// Constructs the in-memory MultiplexGraph using default layer weights.
     pub fn build_graph(&self) -> MultiplexGraph {
         MultiplexGraph::build_with_imports(
@@ -603,6 +630,57 @@ mod tests {
         // Explicit remove on already removed file -> Ok(false)
         let removed_again = repo.remove_file(Path::new("src/util.rs")).unwrap();
         assert!(!removed_again);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_stream_source_by_byte_offset_and_selective_loading() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("repotrim_stream_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(temp_dir.join("src")).unwrap();
+
+        let file1 = temp_dir.join("src/lib.rs");
+        fs::write(
+            &file1,
+            "pub fn first_func() -> u32 {\n    42\n}\n\npub fn second_func() -> &'static str {\n    \"hello\"\n}\n",
+        )
+        .unwrap();
+
+        let mut repo = LoadedRepository::load_with_options(&temp_dir, false).expect("load repo");
+        assert_eq!(repo.symbols.len(), 2);
+
+        // Test direct byte-offset slice streaming
+        let first_sym = repo
+            .symbols
+            .iter()
+            .find(|s| s.name == "first_func")
+            .unwrap()
+            .clone();
+        let first_source = repo.read_symbol_source(&first_sym).expect("read first symbol");
+        assert!(first_source.contains("pub fn first_func"));
+        assert!(first_source.contains("42"));
+
+        let second_sym = repo
+            .symbols
+            .iter()
+            .find(|s| s.name == "second_func")
+            .unwrap()
+            .clone();
+        let second_source = repo.read_symbol_source(&second_sym).expect("read second symbol");
+        assert!(second_source.contains("pub fn second_func"));
+        assert!(second_source.contains("\"hello\""));
+
+        // Clear file_sources to simulate zero whole-file residency
+        repo.file_sources.clear();
+        assert!(repo.file_sources.is_empty());
+
+        // Selectively load sources only for second symbol
+        repo.load_sources_for_symbols(std::iter::once(&second_sym))
+            .expect("load sources for symbol");
+        assert_eq!(repo.file_sources.len(), 1);
+        assert!(repo.file_sources.contains_key(Path::new("src/lib.rs")));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

@@ -78,6 +78,49 @@ impl ContextFormatter {
         }
     }
 
+    /// Renders a single symbol at a given Level-of-Detail (LOD), streaming source
+    /// content on-demand by byte offset from disk if not present in memory.
+    pub fn render_symbol_with_root(
+        root: &std::path::Path,
+        symbol: &SymbolNode,
+        lod: LodLevel,
+        file_source: Option<&str>,
+    ) -> String {
+        if file_source.is_some() {
+            return Self::render_symbol(symbol, lod, file_source);
+        }
+
+        match lod {
+            LodLevel::SignatureOnly | LodLevel::SignatureAndDoc => {
+                Self::render_symbol(symbol, lod, None)
+            }
+            LodLevel::FullBody => {
+                let abs_path = root.join(&symbol.file_path);
+                if let Ok(mut file) = std::fs::File::open(&abs_path) {
+                    use std::io::{Read, Seek, SeekFrom};
+                    if symbol.span.start_byte < symbol.span.end_byte {
+                        let len = symbol.span.end_byte - symbol.span.start_byte;
+                        if file.seek(SeekFrom::Start(symbol.span.start_byte as u64)).is_ok() {
+                            let mut buf = vec![0u8; len];
+                            if file.read_exact(&mut buf).is_ok() {
+                                return String::from_utf8_lossy(&buf).trim().to_string();
+                            }
+                        }
+                    }
+                }
+                Self::render_symbol(symbol, LodLevel::SignatureAndDoc, None)
+            }
+            LodLevel::SlicedBody => {
+                let abs_path = root.join(&symbol.file_path);
+                if let Ok(content) = std::fs::read_to_string(&abs_path) {
+                    Self::render_symbol(symbol, lod, Some(&content))
+                } else {
+                    Self::render_symbol(symbol, LodLevel::SignatureAndDoc, None)
+                }
+            }
+        }
+    }
+
     /// Dynamically allocates Level-of-Detail (LOD) to selected symbols based on seed proximity,
     /// PPR score priority, and the available token budget using the default fast heuristic.
     pub fn assign_lod(
@@ -512,6 +555,27 @@ impl ContextFormatter {
         }
 
         output.trim_end().to_string()
+    }
+
+    /// Renders selected symbols into structured Markdown with file paths, line numbers,
+    /// and container-scoped nesting, streaming file sources on-demand from disk if
+    /// not present in memory.
+    pub fn format_markdown_with_root(
+        root: &std::path::Path,
+        symbols: &[SymbolNode],
+        lod_map: &HashMap<SymbolId, LodLevel>,
+        file_sources: &HashMap<PathBuf, String>,
+    ) -> String {
+        let mut loaded_sources = file_sources.clone();
+        for sym in symbols {
+            if !loaded_sources.contains_key(&sym.file_path) {
+                let abs = root.join(&sym.file_path);
+                if let Ok(src) = std::fs::read_to_string(&abs) {
+                    loaded_sources.insert(sym.file_path.clone(), src);
+                }
+            }
+        }
+        Self::format_markdown(symbols, lod_map, &loaded_sources)
     }
 
     /// Indents each non-empty line of a string with the given indentation prefix.
@@ -1426,5 +1490,34 @@ mod tests {
         assert_eq!(pruned_syms.len(), pruned_lods.len());
         // Seed f5 should be preserved
         assert!(pruned_syms.iter().any(|s| s.name == "f5"));
+    }
+
+    #[test]
+    fn test_render_symbol_with_root_streaming() {
+        let temp_dir = std::env::temp_dir().join(format!("repotrim_format_stream_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join("src")).unwrap();
+
+        let file = temp_dir.join("src/example.rs");
+        let content = "pub fn compute() -> usize {\n    let val = 100;\n    val * 2\n}\n";
+        std::fs::write(&file, content).unwrap();
+
+        let repo = crate::loader::LoadedRepository::load_with_options(&temp_dir, false).unwrap();
+        let sym = repo.symbols.iter().find(|s| s.name == "compute").unwrap();
+
+        // Render with empty in-memory sources using render_symbol_with_root
+        let rendered = ContextFormatter::render_symbol_with_root(&temp_dir, sym, LodLevel::FullBody, None);
+        assert!(rendered.contains("pub fn compute"));
+        assert!(rendered.contains("val * 2"));
+
+        let mut lods = HashMap::new();
+        lods.insert(sym.id, LodLevel::FullBody);
+        let empty_sources = HashMap::new();
+        let md = ContextFormatter::format_markdown_with_root(&temp_dir, &repo.symbols, &lods, &empty_sources);
+        assert!(md.contains("### File: `src/example.rs`") || md.contains("### File: `src\\example.rs`"));
+        assert!(md.contains("pub fn compute() -> usize"));
+        assert!(md.contains("val * 2"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
