@@ -33,6 +33,7 @@ pub mod loader;
 pub mod multiplex;
 pub mod parser;
 pub mod resolver;
+pub mod security;
 pub mod slicer;
 pub mod symbol;
 pub mod watcher;
@@ -47,6 +48,7 @@ pub use loader::{CacheReport, LoadedRepository};
 pub use multiplex::{MultiplexCsrGraph, RelationWeights};
 pub use parser::{AstExtractor, SupportedLanguage};
 pub use resolver::ScopedResolver;
+pub use security::{canonicalize_clean, normalize_verbatim, RootGuard, SecurityError};
 pub use slicer::AstSlicer;
 pub use symbol::{
     EdgeKind, LodLevel, NodeType, ReferenceEdge, RelationType, SymbolId, SymbolKind, SymbolNode,

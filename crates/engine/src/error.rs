@@ -21,6 +21,8 @@ pub enum EngineError {
     BudgetExceeded(usize, usize),
     #[error("Invalid input argument: {0}")]
     InvalidInput(String),
+    #[error("Security violation: {0}")]
+    SecurityError(#[from] crate::security::SecurityError),
 }
 
 impl From<notify::Error> for EngineError {
