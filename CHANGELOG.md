@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-19
+
+### Security
+- **Path Confinement via `RootGuard` (Phase 1 / T1.1)**:
+  - Implemented canonical path validator `RootGuard` restricting all MCP tool reads and analysis to explicitly allowed directories.
+  - Added repeatable `--allow-root` CLI option and `REPOTRIM_ALLOWED_ROOTS` environment variable, defaulting to server launch directory.
+  - Returns JSON-RPC error code `-32602` (Invalid params) on unauthorized path escapes.
+- **Relocated Keyed Binary Cache & Bincode Deserialization Hardening (Phase 1 / T1.2)**:
+  - Relocated cache storage from analyzed target repositories to the OS user cache directory (`dirs::cache_dir()/repotrim/<hash>/`), eliminating unsolicited filesystem writes.
+  - Hardened bincode deserialization with a 64 MB maximum buffer limit (`bincode::DefaultOptions::new().with_limit(64 * 1024 * 1024)`).
+  - Enforced BLAKE3 content hash disk verification on cache hits to eliminate cache tampering and prompt-injection risks.
+  - Added `--no-cache` CLI and MCP flag to bypass caching entirely when desired.
+- **Subprocess Git Argument Sanitization (Phase 1 / T1.4)**:
+  - Enforced revision argument validation rejecting arguments beginning with `-` to block option injection attacks.
+  - Inserted explicit `--` boundaries before revision arguments, neutralized custom Git hooks via `-c core.hooksPath=/dev/null`, and added `--no-pager`.
+- **Formal Security Policy & Threat Model (Phase 1 / T1.5)**:
+  - Authored `SECURITY.md` formalizing threat boundaries, prompt injection vectors, cache guarantees, and responsible disclosure instructions.
+
+### Fixed
+- **Zero-Panic Reliability Across Workspace (Phase 1 / T1.3)**:
+  - Eliminated all 13 unhandled `unwrap()` and `expect()` sites across MCP handler dispatch, returning structured JSON-RPC error objects.
+  - Refactored panicking sites across engine modules (`tokens.rs`, `selector.rs`, `navigation.rs`, `loader.rs`, `celf.rs`, `architecture.rs`) into typed `EngineError` variants.
+  - Enforced `#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]` across all workspace crates.
+- **Directory Traversal Loop Defenses (Phase 2 / T2.1)**:
+  - Replaced custom recursive directory scanner with `ignore::WalkBuilder`, eliminating recursive stack frames and call-stack overflow risks.
+  - Disabled symlink resolution (`follow_links(false)`) and added symlink metadata guards to terminate circular traversal loops safely.
+  - Honored repository `.gitignore` hierarchies, global git ignores, and expanded default `IGNORED_DIRS` (`.venv`, `venv`, `__pycache__`, `vendor`, `.next`, `out`, `coverage`, `.tox`, `Pods`).
+
+### Performance
+- **Data-Parallel AST Extraction with Rayon (Phase 2 / T2.2)**:
+  - Parallelized cold file reading, BLAKE3 hashing, and tree-sitter AST extraction using `rayon::par_iter()`, maximizing throughput across all CPU cores.
+  - Maintained 100% deterministic, reproducible dense `SymbolId` assignments via contiguous index compilation.
+- **Bounded Resident Memory & Streaming Source Rendering (Phase 2 / T2.3)**:
+  - Implemented `read_symbol_source` streaming exact byte ranges via file seek operations, avoiding whole-file in-memory residency.
+  - Added on-demand source loading (`load_sources_for_symbols`, `render_symbol_with_root`, `format_markdown_with_root`) to keep resident memory flat during large codebase analysis.
+- **Configurable File Size Limits (Phase 2 / T2.1)**:
+  - Enforced `DEFAULT_MAX_FILE_BYTES` (2 MB) limit skipping oversized minified or generated assets before memory allocation, reported via `CacheReport.skipped_files`.
+
 ## [0.11.0] - 2026-09-15
 
 ### Added
