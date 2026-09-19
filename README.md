@@ -611,6 +611,9 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
 31. **Formal Mathematical Foundations & Theoretical Proofs:**
     - Formal theorems and proofs of monotonicity, submodularity, knapsack approximation bounds, and adaptive exploration optimality: [`docs/THEORY.md`](docs/THEORY.md).
     - George L. Nemhauser, Laurence A. Wolsey, Marshall L. Fisher. *"An analysis of approximations for maximizing submodular set functions — I"*. In *Mathematical Programming*, 14(1): 265–294, 1978. [DOI: 10.1007/BF01588971](https://doi.org/10.1007/BF01588971).
+32. **Multi-Repository Polyglot Evaluation & Cross-Language Recall@Budget:**
+    - Christopher D. Manning, Prabhakar Raghavan, Hinrich Schütze. *"Introduction to Information Retrieval"*. Cambridge University Press, 2008. Chapter 8 (Evaluation in information retrieval, Recall-Precision curves). [DOI: 10.1017/CBO9780511809071](https://doi.org/10.1017/CBO9780511809071).
+    - Empirical multi-language evaluation across Python, TypeScript, and Go repositories: [`docs/benchmarks/external_corpus_evaluation.md`](docs/benchmarks/external_corpus_evaluation.md).
 
 ---
 
