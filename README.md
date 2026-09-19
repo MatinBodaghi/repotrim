@@ -524,8 +524,10 @@ RepoTrim's mathematical architecture builds on foundational algorithms and liter
    - Max Brunsfeld et al. *"Tree-sitter: An incremental parsing system for programming tools"*. [tree-sitter.github.io](https://tree-sitter.github.io).
 5. **Fast Content-Addressed Tree Hashing (BLAKE3):**
    - Jack O'Connor, Jean-Philippe Aumasson, Samuel Neves, Zooko Wilcox-O'Hearn. *"BLAKE3: One function, fast everywhere"*, 2020. [github.com/BLAKE3-team/BLAKE3-specs](https://github.com/BLAKE3-team/BLAKE3-specs).
-6. **Model Context Protocol (MCP):**
+6. **Model Context Protocol (MCP) & Context Optimization:**
    - Anthropic. *"Model Context Protocol Specification"*, 2024. [modelcontextprotocol.io](https://modelcontextprotocol.io).
+   - Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, Percy Liang. *"Lost in the Middle: How Language Models Use Long Contexts"*. In *Transactions of the Association for Computational Linguistics (TACL)*, 12: 157–173, 2024. [DOI: 10.1162/tacl_a_00638](https://doi.org/10.1162/tacl_a_00638).
+   - Whole-session token cost benchmark: [`docs/benchmarks/mcp_session_cost.md`](docs/benchmarks/mcp_session_cost.md).
 7. **Graph Modularity & Community Detection:**
    - Mark E. J. Newman, Michelle Girvan. *"Finding and evaluating community structure in networks"*. In *Physical Review E*, 69(2), 026113, 2004. [DOI: 10.1103/PhysRevE.69.026113](https://doi.org/10.1103/PhysRevE.69.026113).
    - Vincent D. Blondel, Jean-Loup Guillaume, Renaud Lambiotte, Etienne Lefebvre. *"Fast unfolding of communities in large networks"*. In *Journal of Statistical Mechanics: Theory and Experiment*, P10008, 2008. [DOI: 10.1088/1742-5468/2008/10/P10008](https://doi.org/10.1088/1742-5468/2008/10/P10008).
