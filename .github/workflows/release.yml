@@ -89,3 +89,39 @@ jobs:
             ${{ env.ASSET_PATH }}
             ${{ env.ASSET_PATH }}.sha256
           generate_release_notes: true
+
+  publish-crates:
+    name: Publish Crates to crates.io
+    needs: [build-and-upload]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is not configured; skipping crates.io publishing."
+            exit 0
+          fi
+
+          echo "Publishing repotrim-engine..."
+          cargo publish -p repotrim-engine --token "$CARGO_REGISTRY_TOKEN"
+
+          echo "Waiting 30 seconds for crates.io index propagation..."
+          sleep 30
+
+          echo "Publishing repotrim-mcp..."
+          cargo publish -p repotrim-mcp --token "$CARGO_REGISTRY_TOKEN"
+
+          echo "Waiting 30 seconds for crates.io index propagation..."
+          sleep 30
+
+          echo "Publishing repotrim CLI..."
+          cargo publish -p repotrim --token "$CARGO_REGISTRY_TOKEN"
+
