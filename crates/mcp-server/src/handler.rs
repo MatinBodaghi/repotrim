@@ -455,6 +455,7 @@ impl McpHandler {
     fn tool_analyze_graph(&mut self, args: serde_json::Value) -> ToolCallResult {
         let aspect = args
             .get("aspect")
+            .or_else(|| args.get("mode"))
             .and_then(|a| a.as_str())
             .map(|s| s.to_lowercase())
             .unwrap_or_else(|| {
