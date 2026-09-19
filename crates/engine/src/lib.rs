@@ -22,22 +22,35 @@
 //!    harness, real-world agent exploration benchmark runner, and engine error models.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+#![warn(missing_docs)]
 
 // ============================================================================
 // 1. Representation & Parsing Subsystem
 // ============================================================================
 
+/// Binary cache management and persistent graph storage.
 pub mod cache;
+/// Compressed Sparse Row (CSR) matrix representation.
 pub mod csr;
+/// Git diff parsing and line-to-symbol mapping.
 pub mod diff;
+/// Import statement resolution and module dependency tracking.
 pub mod import;
+/// Repository scanning, loading, and source ingestion.
 pub mod loader;
+/// Multiplex Code Property Graph representation.
 pub mod multiplex;
+/// Tree-sitter AST parsing and symbol extraction.
 pub mod parser;
+/// Scoped identifier and type reference resolver.
 pub mod resolver;
+/// Security boundary and canonical path confinement (`RootGuard`).
 pub mod security;
+/// AST program slicing and Level-of-Detail reduction.
 pub mod slicer;
+/// Symbol nodes, edge kinds, and taxonomy.
 pub mod symbol;
+/// Live file watcher and background graph synchronizer.
 pub mod watcher;
 
 pub use cache::{
@@ -63,11 +76,17 @@ pub use watcher::{is_ignored_path, RepositoryWatcher, WatcherEvent};
 // 2. Diffusion, Ranking & Graphs Subsystem
 // ============================================================================
 
+/// Mining git commit history for logical co-edit couplings.
 pub mod coedit;
+/// Louvain community detection and subsystem clustering.
 pub mod community;
+/// Multiplex code property graph representation and adjacency.
 pub mod graph;
+/// Knee-curve (diminishing returns) threshold detection.
 pub mod knee;
+/// Approximate Personalized PageRank via forward-push diffusion.
 pub mod ppr;
+/// Supervised random walk edge weight optimization.
 pub mod weight_learning;
 
 pub use coedit::{CoeditCache, CoeditConfig, CoeditGraph, CoeditPair, GitCommitMiner};
@@ -84,10 +103,15 @@ pub use weight_learning::{EdgeWeightLearner, LayerLearningStat, WeightLearningRe
 // 3. Submodular Optimization & Packing Subsystem
 // ============================================================================
 
+/// Cost-Effective Lazy Forward (CELF) submodular knapsack optimizer.
 pub mod celf;
+/// Token cost models and Level-of-Detail render estimators.
 pub mod cost;
+/// Probabilistic evidence coverage kernels and coverage states.
 pub mod evidence;
+/// Multi-factor submodular utility functions and knapsack constraints.
 pub mod submodular;
+/// BPE subword and heuristic token accounting models.
 pub mod tokens;
 
 pub use celf::{
@@ -105,9 +129,13 @@ pub use tokens::{count_tokens, estimate_tokens, estimate_tokens_calibrated, Toke
 // 4. Causal Paths & Context Assembly Subsystem
 // ============================================================================
 
+/// Structured context objects, JSON serialization, and omission diagnostics.
 pub mod context_object;
+/// Markdown context formatting and Mermaid diagram generation.
 pub mod formatter;
+/// Boltzmann energy-guided causal path finding.
 pub mod path;
+/// High-level context selection orchestrator and auto-budgeting.
 pub mod selector;
 
 pub use context_object::{
@@ -125,11 +153,17 @@ pub use selector::{AutoBudgetReport, ContextSelector};
 // 5. Codebase Intelligence & Primitives Subsystem
 // ============================================================================
 
+/// Architectural subsystem classification and layering reports.
 pub mod architecture;
+/// Change impact blast-radius analysis and downstream caller tracing.
 pub mod impact;
+/// Commit intent inference and query routing.
 pub mod intent;
+/// LLM architecture profiles and context calibration.
 pub mod model;
+/// Intelligence primitives: local expansion, entrypoint ranking, and causal tracing.
 pub mod primitives;
+/// Task context classification and multi-layer weighting.
 pub mod task;
 
 pub use architecture::{
@@ -148,7 +182,9 @@ pub use task::{TaskContext, TaskKind, TaskMetadata};
 // 6. Agent Navigation & Sequential Exploration Subsystem
 // ============================================================================
 
+/// Adaptive sequential navigation agent and MDP exploration policy.
 pub mod navigation;
+/// Hybrid dense-lexical retrieval (BM25 + BGE / RRF fusion).
 pub mod retrieval;
 
 pub use navigation::{
@@ -165,9 +201,13 @@ pub use retrieval::{
 // 7. Evaluation, Benchmarks & Diagnostics Subsystem
 // ============================================================================
 
+/// Engine error types and failure models.
 pub mod error;
+/// Empirical evaluation harness, ground truth metrics, and baselines.
 pub mod eval;
+/// Autonomous agent session trace recorder and benchmark runner.
 pub mod harness;
+/// Ground-truth brute-force knapsack oracle.
 pub mod oracle;
 
 pub use error::EngineError;

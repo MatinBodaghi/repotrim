@@ -48,19 +48,28 @@ pub fn get_coedit_file_for_root(root: &Path) -> PathBuf {
 /// Extracted AST symbol and edge metadata cached per individual source file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCacheEntry {
+    /// Relative path to the file from repository root.
     pub relative_path: PathBuf,
+    /// Blake3 256-bit cryptographic digest of the file's raw bytes.
     pub blake3_hash: [u8; 32],
+    /// Modification timestamp in nanoseconds since UNIX epoch.
     pub mtime_nanos: u128,
+    /// AST symbol nodes extracted from this file.
     pub symbols: Vec<SymbolNode>,
+    /// Syntactic dependency and reference edges originating in this file.
     pub edges: Vec<ReferenceEdge>,
+    /// Import declarations resolved in this file.
     pub imports: Vec<FileImport>,
+    /// Total byte length of the source file.
     pub source_bytes: usize,
 }
 
 /// Global repository cache containing per-file Merkle fingerprints and parsed AST symbols.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryCache {
+    /// Format version number for schema compatibility verification.
     pub version: u32,
+    /// Cached file entries indexed by relative path.
     pub entries: HashMap<PathBuf, FileCacheEntry>,
 }
 

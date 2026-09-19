@@ -15,12 +15,19 @@ impl fmt::Display for SymbolId {
 /// The category or syntactic kind of a symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SymbolKind {
+    /// Standalone function declaration.
     Function,
+    /// Associated function or method within a class/struct.
     Method,
+    /// Structure, class, or object definition.
     Struct,
+    /// Enumeration declaration.
     Enum,
+    /// Interface, protocol, or trait declaration.
     Trait,
+    /// Type alias or typedef declaration.
     TypeAlias,
+    /// Source file or package module declaration.
     Module,
 }
 
@@ -40,13 +47,18 @@ pub enum LodLevel {
 /// Precise source code location span for an extracted symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TextSpan {
+    /// Starting byte offset in source file.
     pub start_byte: usize,
+    /// Ending byte offset in source file.
     pub end_byte: usize,
+    /// 0-indexed starting line row.
     pub start_row: usize,
+    /// 0-indexed ending line row.
     pub end_row: usize,
 }
 
 impl TextSpan {
+    /// Creates a new `TextSpan` from byte offsets and line rows.
     pub fn new(start_byte: usize, end_byte: usize, start_row: usize, end_row: usize) -> Self {
         Self {
             start_byte,
@@ -60,14 +72,23 @@ impl TextSpan {
 /// Extracted AST symbol node with isolated signature, docstring, and incremental cache hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolNode {
+    /// Unique symbol identifier in graph.
     pub id: SymbolId,
+    /// Identifier name of symbol.
     pub name: String,
+    /// Syntactic symbol category.
     pub kind: SymbolKind,
+    /// Relative path to declaring source file.
     pub file_path: PathBuf,
+    /// Precise source byte and line span.
     pub span: TextSpan,
+    /// Signature declaration string.
     pub signature: String,
+    /// Extracted documentation comment or docstring.
     pub docstring: Option<String>,
+    /// Estimated BPE token cost of full symbol implementation.
     pub token_cost: usize,
+    /// Cryptographic Blake3 hash of symbol source text.
     pub ast_hash: [u8; 32],
     /// Name of the enclosing class, struct, or container if this symbol is a member/method.
     #[serde(default)]
@@ -87,18 +108,26 @@ impl SymbolNode {
 /// Kind of relationship represented by a reference edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EdgeKind {
+    /// Hierarchical AST enclosure (e.g. method inside class).
     AstParent,
+    /// Explicit function or method invocation.
     Call,
+    /// Type annotation, inheritance, or generic parameter reference.
     TypeRef,
+    /// Module import or require statement.
     Import,
+    /// Historical git commit co-editing association.
     CoEdit,
 }
 
 /// Directed reference from an extracted symbol to a target identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ReferenceEdge {
+    /// Source symbol originating the reference.
     pub source: SymbolId,
+    /// Target identifier string referenced by source.
     pub target_ident: String,
+    /// Categorical edge relationship.
     pub kind: EdgeKind,
 }
 

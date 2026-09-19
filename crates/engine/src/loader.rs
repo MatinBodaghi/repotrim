@@ -38,10 +38,15 @@ pub const DEFAULT_MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
 /// Metrics describing cache hits and recomputed files during repository ingestion.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CacheReport {
+    /// Total number of supported source files discovered in repository.
     pub total_files: usize,
+    /// Number of files reused directly from binary cache.
     pub cached_files: usize,
+    /// Number of files reparsed due to modification or absence from cache.
     pub recomputed_files: usize,
+    /// Number of files skipped due to exceeding maximum file size limits.
     pub skipped_files: usize,
+    /// Proportion of files satisfied by cache hits in [0.0, 1.0].
     pub hit_ratio: f32,
 }
 
@@ -62,14 +67,23 @@ enum ProcessedFile {
 /// Encapsulates parsed repository files, AST symbol/edge data, and cache diagnostics.
 #[derive(Debug)]
 pub struct LoadedRepository {
+    /// Canonical filesystem root path of the repository.
     pub root_path: PathBuf,
+    /// Map of relative file paths to their raw text contents.
     pub file_sources: HashMap<PathBuf, String>,
+    /// All extracted symbol nodes across parsed files.
     pub symbols: Vec<SymbolNode>,
+    /// All directed reference and dependency edges between symbols.
     pub edges: Vec<ReferenceEdge>,
+    /// All resolved file-level import statements.
     pub imports: Vec<FileImport>,
+    /// Cumulative byte size of all parsed source files.
     pub total_bytes: usize,
+    /// Ingestion cache statistics and hit/miss counts.
     pub cache_report: CacheReport,
+    /// Persistent Merkle cache containing per-file fingerprints.
     pub cache: RepositoryCache,
+    /// Maximum allowable file size before skipping AST parsing.
     pub max_file_bytes: usize,
 }
 

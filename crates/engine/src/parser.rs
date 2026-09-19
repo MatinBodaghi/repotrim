@@ -20,10 +20,15 @@ const GO_QUERY_SOURCE: &str = include_str!("../queries/go.scm");
 /// Programming languages supported for AST symbol and reference extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SupportedLanguage {
+    /// Rust source code (`.rs`).
     Rust,
+    /// Python source code (`.py`).
     Python,
+    /// TypeScript source code (`.ts`).
     TypeScript,
+    /// TypeScript React JSX source code (`.tsx`, `.jsx`, `.js`).
     Tsx,
+    /// Go source code (`.go`).
     Go,
 }
 

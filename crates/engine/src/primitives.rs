@@ -47,6 +47,7 @@ pub enum EdgeDirection {
 }
 
 impl EdgeDirection {
+    /// Returns the static string representation of the edge direction ("OUTGOING", "INCOMING").
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Outgoing => "OUTGOING",

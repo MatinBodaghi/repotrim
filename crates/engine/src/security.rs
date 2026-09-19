@@ -14,13 +14,18 @@ pub enum SecurityError {
     /// Attempted path access escapes all configured allowed root directories.
     #[error("Path '{}' escapes allowed root boundaries: {allowed_roots:?}", requested.display())]
     PathEscapesRoot {
+        /// The unconfined or escaping path requested by the client.
         requested: PathBuf,
+        /// The list of permitted canonical root boundaries.
         allowed_roots: Vec<PathBuf>,
     },
 
     /// The specified path does not exist on the filesystem.
     #[error("Path '{}' was not found on the filesystem", requested.display())]
-    PathNotFound { requested: PathBuf },
+    PathNotFound {
+        /// The missing target path.
+        requested: PathBuf,
+    },
 
     /// An I/O error occurred while resolving or canonicalizing the path.
     #[error("I/O error during security path resolution: {0}")]

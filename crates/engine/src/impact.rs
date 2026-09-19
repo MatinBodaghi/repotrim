@@ -22,6 +22,7 @@ pub enum RiskLevel {
 }
 
 impl RiskLevel {
+    /// Returns the static string representation of the risk level ("LOW", "MEDIUM", "HIGH", "CRITICAL").
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Low => "LOW",
@@ -35,23 +36,36 @@ impl RiskLevel {
 /// Quantitative metrics summarizing the change impact analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpactSummary {
+    /// Assessed architectural risk classification.
     pub risk_level: RiskLevel,
+    /// Continuous composite risk score in [0.0, 1.0].
     pub risk_score: f32,
+    /// Count of explicitly mutated source symbols.
     pub mutated_count: usize,
+    /// Count of directly impacted first-degree dependent symbols.
     pub direct_impact_count: usize,
+    /// Count of transitively reachable dependent symbols.
     pub transitive_impact_count: usize,
+    /// Count of test symbols affected by the change.
     pub affected_tests_count: usize,
+    /// Count of distinct source files containing affected symbols.
     pub affected_files_count: usize,
 }
 
 /// Comprehensive change impact report detailing mutations, ripple effects, and affected tests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpactReport {
+    /// Quantitative numerical metrics and risk classification.
     pub summary: ImpactSummary,
+    /// Explicitly mutated symbols identified from git diff or seeds.
     pub mutated_symbols: Vec<SymbolNode>,
+    /// First-degree caller and dependent symbols directly affected.
     pub direct_impact: Vec<SymbolNode>,
+    /// High-risk transitive dependencies reached via dependency diffusion.
     pub transitive_impact: Vec<SymbolNode>,
+    /// Verification and test functions covering the impacted components.
     pub affected_tests: Vec<SymbolNode>,
+    /// Formatted Markdown context skeleton ready for model prompting.
     pub context_markdown: String,
 }
 

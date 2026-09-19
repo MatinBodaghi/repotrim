@@ -21,9 +21,13 @@ use crate::tokens::{count_tokens, TokenizerModel};
 /// - `full`: Complete unpruned source implementation. Default: `1.00`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LodWeights {
+    /// Utility weight for signature-only render tier (default: 0.35).
     pub signature: f32,
+    /// Utility weight for signature plus docstring tier (default: 0.60).
     pub doc: f32,
+    /// Utility weight for sliced control-flow skeleton tier (default: 0.85).
     pub sliced: f32,
+    /// Utility weight for complete unpruned source tier (default: 1.00).
     pub full: f32,
 }
 

@@ -243,6 +243,7 @@ impl BenchmarkScenario {
 
 /// Empirical benchmark runner executing evaluations over code property graphs.
 pub struct BenchmarkRunner {
+    /// List of evaluation scenarios to execute.
     pub scenarios: Vec<BenchmarkScenario>,
 }
 
@@ -880,14 +881,23 @@ impl BenchmarkRunner {
 pub struct BenchmarkSummary {
     /// Strategy being summarized.
     pub strategy: ContextStrategy,
+    /// Display name of the strategy.
     pub strategy_name: String,
+    /// Average tokens consumed across trials.
     pub mean_tokens: usize,
+    /// Average percentage reduction in tokens relative to whole-file baseline.
     pub mean_token_reduction_pct: f32,
+    /// Average direct symbol recall percentage.
     pub mean_direct_recall_pct: f32,
+    /// Average transitive dependency recall percentage.
     pub mean_transitive_recall_pct: f32,
+    /// Average context precision percentage.
     pub mean_precision_pct: f32,
+    /// Average subgraph cohesion score.
     pub mean_cohesion_pct: f32,
+    /// Average orphan symbol rate percentage.
     pub mean_orphan_rate_pct: f32,
+    /// Average execution latency in microseconds.
     pub mean_latency_us: u128,
     /// Mean input tokens inspected during exploration.
     #[serde(default)]

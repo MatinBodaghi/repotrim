@@ -11,12 +11,20 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatcherEvent {
     /// A supported file was created or modified and incrementally patched.
-    FilePatched { path: PathBuf },
+    FilePatched {
+        /// Relative path of the patched file.
+        path: PathBuf,
+    },
     /// A supported file was removed and unindexed.
-    FileRemoved { path: PathBuf },
+    FileRemoved {
+        /// Relative path of the deleted file.
+        path: PathBuf,
+    },
     /// The multiplex graph was rebuilt after one or more file changes.
     GraphUpdated {
+        /// Total symbols in the updated graph.
         num_symbols: usize,
+        /// Total edges in the updated graph.
         num_edges: usize,
     },
 }

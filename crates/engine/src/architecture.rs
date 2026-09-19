@@ -107,26 +107,42 @@ pub struct SubsystemCommunity {
 /// Identified central architectural hub in the repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchitecturalHub {
+    /// Unique symbol identifier in the graph.
     pub id: SymbolId,
+    /// Identifier name of the hub symbol.
     pub name: String,
+    /// AST symbol kind (struct, trait, function, etc.).
     pub kind: SymbolKind,
+    /// Relative file path containing the symbol declaration.
     pub file_path: PathBuf,
+    /// Architectural layer classification.
     pub layer: ArchitecturalLayer,
+    /// Number of incoming dependency edges (callers and dependents).
     pub in_degree: usize,
+    /// Number of outgoing dependency edges.
     pub out_degree: usize,
+    /// Global Personalized PageRank centrality score.
     pub pagerank_score: f32,
+    /// Extracted documentation comment or docstring, if present.
     pub docstring: Option<String>,
 }
 
 /// Public API interface or entrypoint definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicApiSymbol {
+    /// Identifier name of the public API symbol.
     pub name: String,
+    /// AST symbol kind (function, class, struct, interface).
     pub kind: SymbolKind,
+    /// Source file path where the symbol is declared.
     pub file_path: PathBuf,
+    /// Subsystem or package containing this symbol.
     pub subsystem: String,
+    /// Declaration signature string.
     pub signature: String,
+    /// Extracted documentation comment or docstring, if present.
     pub docstring: Option<String>,
+    /// Estimated token cost of the full symbol definition.
     pub token_cost: usize,
 }
 
