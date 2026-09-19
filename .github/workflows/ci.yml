@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,13 +35,19 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy lint check
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: Run unit & integration tests
-        run: cargo test --workspace --all-targets
+      - name: Run default unit & integration tests
+        run: cargo test --workspace --all-targets --locked
+
+      - name: Run tests without default features (heuristic tokenization)
+        run: cargo test -p repotrim-engine --no-default-features --locked
+
+      - name: Run tests with all features enabled
+        run: cargo test --workspace --all-targets --all-features --locked
 
       - name: Build release binary
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --locked
 
   msrv:
     name: MSRV Check (1.90.0)
@@ -56,4 +62,7 @@ jobs:
           toolchain: "1.90.0"
 
       - name: Verify MSRV check
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Verify MSRV tests
+        run: cargo test -p repotrim-engine --no-default-features --locked
