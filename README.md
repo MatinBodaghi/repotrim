@@ -178,6 +178,17 @@ Empirical evaluation measuring Recall@Budget and token savings across external c
 | `web-dashboard-ui` | TypeScript / React | 200 | **63.6%** | **75.0%** |
 | `distributed-rate-limiter` | Go / Microservices | 250 | **59.1%** | **100.0%** |
 
+### 3. Comparative Analysis vs. Alternative Approaches ([`docs/benchmarks/comparative_analysis.md`](docs/benchmarks/comparative_analysis.md))
+
+Ablation contrasting RepoTrim against Aider-style Global PageRank repo-maps, Lexical Search, and Whole-File Dumps:
+
+| Context Strategy | Algorithmic Mechanism | Token Reduction % | Direct Dep Recall | Optimality Bound |
+| :--- | :--- | :---: | :---: | :---: |
+| **Whole-File Dump** | Raw file concatenation | 0.0% (Exhausts budget) | 84.6% | None |
+| **Lexical Search (Grep)** | BM25 / substring line match | 92.6% | 38.5% | None |
+| **Aider Repo Map** | Static Global PageRank ($d=0.85$) | 92.3% | 0.0% (Root-biased) | None |
+| **RepoTrim (Ours)** | **Multiplex CPG + PPR + CELF** | **92.3%** | **61.5%** | **$(1 - 1/e) \approx 63.2\%$** |
+
 ---
 
 ## Documentation Roadmap
@@ -185,6 +196,7 @@ Empirical evaluation measuring Recall@Budget and token savings across external c
 - [Installation Guide](docs/INSTALL.md): Pre-built binaries, Cargo setup, and building from source.
 - [Troubleshooting & FAQ](docs/TROUBLESHOOTING.md): MSRV, C compiler setup, MCP pipe debugging, and security remedies.
 - [MCP Tool Specifications](docs/MCP_TOOLS.md): Complete parameter references and JSON-RPC contracts.
+- [Comparative Benchmark Analysis](docs/benchmarks/comparative_analysis.md): Empirical study vs. Aider repo-maps and file dumps.
 - [Architectural Specification](docs/ARCHITECTURE.md): Multi-layer CPG, CSR matrix, caching, and subsystem design.
 - [Mathematical Foundations](docs/THEORY.md): Formal proofs of submodularity, knapsack bounds, and convergence.
 - [Security Policy](SECURITY.md): Threat model, `RootGuard` confinement, and vulnerability reporting.
