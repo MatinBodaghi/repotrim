@@ -238,3 +238,41 @@ fn test_max_tokens_budgeting_on_unbounded_tools() {
     let text3 = resp3["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text3.contains("Output truncated to stay within max_tokens budget"));
 }
+
+#[test]
+fn test_mcp_protocol_version_negotiation() {
+    let root = repo_root();
+
+    // 1. Negotiation with earlier supported version "2024-10-07"
+    let input1 = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-10-07"}}"#;
+    let mut writer1 = Vec::new();
+    let mut server1 = McpServer::with_root(&root);
+    server1
+        .run_loop(Cursor::new(input1.as_bytes()), &mut writer1)
+        .expect("Server loop failed");
+    let resp1: serde_json::Value =
+        serde_json::from_str(String::from_utf8(writer1).unwrap().trim()).unwrap();
+    assert_eq!(resp1["result"]["protocolVersion"], "2024-10-07");
+
+    // 2. Negotiation with standard version "2024-11-05"
+    let input2 = r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}"#;
+    let mut writer2 = Vec::new();
+    let mut server2 = McpServer::with_root(&root);
+    server2
+        .run_loop(Cursor::new(input2.as_bytes()), &mut writer2)
+        .expect("Server loop failed");
+    let resp2: serde_json::Value =
+        serde_json::from_str(String::from_utf8(writer2).unwrap().trim()).unwrap();
+    assert_eq!(resp2["result"]["protocolVersion"], "2024-11-05");
+
+    // 3. Fallback on unknown version to default standard "2024-11-05"
+    let input3 = r#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"unknown-future-version"}}"#;
+    let mut writer3 = Vec::new();
+    let mut server3 = McpServer::with_root(&root);
+    server3
+        .run_loop(Cursor::new(input3.as_bytes()), &mut writer3)
+        .expect("Server loop failed");
+    let resp3: serde_json::Value =
+        serde_json::from_str(String::from_utf8(writer3).unwrap().trim()).unwrap();
+    assert_eq!(resp3["result"]["protocolVersion"], "2024-11-05");
+}

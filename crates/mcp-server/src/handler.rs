@@ -14,9 +14,9 @@ use repotrim_engine::{
 };
 
 use crate::protocol::{
-    InitializeResult, JsonRpcRequest, JsonRpcResponse, ServerCapabilities, ServerInfo,
-    ToolCallResult, ToolDefinition, ToolsCapability, ToolsListResult, INTERNAL_ERROR,
-    INVALID_PARAMS, MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND,
+    negotiate_protocol_version, InitializeResult, JsonRpcRequest, JsonRpcResponse,
+    ServerCapabilities, ServerInfo, ToolCallResult, ToolDefinition, ToolsCapability,
+    ToolsListResult, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND,
 };
 
 /// Handles incoming MCP requests and manages workspace repository caching with live watcher sync.
@@ -102,8 +102,15 @@ impl McpHandler {
 
         match req.method.as_str() {
             "initialize" => {
+                let client_ver = req
+                    .params
+                    .as_ref()
+                    .and_then(|p| p.get("protocolVersion"))
+                    .and_then(|v| v.as_str());
+                let negotiated_version = negotiate_protocol_version(client_ver);
+
                 let result = InitializeResult {
-                    protocol_version: MCP_PROTOCOL_VERSION.to_string(),
+                    protocol_version: negotiated_version.to_string(),
                     capabilities: ServerCapabilities {
                         tools: ToolsCapability {
                             list_changed: Some(false),

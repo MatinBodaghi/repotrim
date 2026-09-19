@@ -3,6 +3,24 @@ use serde::{Deserialize, Serialize};
 /// Standard MCP protocol specification version supported by RepoTrim.
 pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
+/// Supported MCP protocol versions for negotiation.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2024-10-07"];
+
+/// Negotiates protocol version against supported server capabilities.
+pub fn negotiate_protocol_version(client_version: Option<&str>) -> &'static str {
+    match client_version {
+        Some(v) => {
+            for &supported in SUPPORTED_PROTOCOL_VERSIONS {
+                if supported == v {
+                    return supported;
+                }
+            }
+            MCP_PROTOCOL_VERSION
+        }
+        None => MCP_PROTOCOL_VERSION,
+    }
+}
+
 /// JSON-RPC 2.0 Request or Notification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
@@ -190,5 +208,13 @@ mod tests {
         let serialized = serde_json::to_string(&init).unwrap();
         assert!(serialized.contains(r#""protocolVersion":"2024-11-05""#));
         assert!(serialized.contains(r#""name":"repotrim-mcp""#));
+    }
+
+    #[test]
+    fn test_protocol_version_negotiation() {
+        assert_eq!(negotiate_protocol_version(Some("2024-11-05")), "2024-11-05");
+        assert_eq!(negotiate_protocol_version(Some("2024-10-07")), "2024-10-07");
+        assert_eq!(negotiate_protocol_version(Some("unknown")), "2024-11-05");
+        assert_eq!(negotiate_protocol_version(None), "2024-11-05");
     }
 }
