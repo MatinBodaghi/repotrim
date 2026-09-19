@@ -16,6 +16,6 @@ repository = "https://github.com/matinbodaghi/repotrim"
 homepage = "https://github.com/matinbodaghi/repotrim"
 documentation = "https://docs.rs/repotrim"
 readme = "README.md"
-keywords = ["codebase", "llm", "context", "prompt", "ast"]
+keywords = ["mcp", "llm", "context", "codebase", "ast"]
 categories = ["development-tools", "command-line-utilities", "algorithms"]
 

@@ -8,9 +8,11 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
+readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Model Context Protocol (MCP) server for RepoTrim"
+exclude = ["tests/*"]
 
 [lib]
 name = "repotrim_mcp"
