@@ -191,3 +191,50 @@ fn test_legacy_mcp_aliases_backward_compatibility() {
         assert!(!content.is_empty());
     }
 }
+
+#[test]
+fn test_max_tokens_budgeting_on_unbounded_tools() {
+    let root = repo_root();
+    let root_str = root.display().to_string().replace('\\', "/");
+
+    let input = format!(
+        concat!(
+            // 1. initialize
+            r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2024-11-05"}}}}"#,
+            "\n",
+            // 2. notifications/initialized
+            r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#,
+            "\n",
+            // 3. analyze_graph with tight max_tokens
+            r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"analyze_graph","arguments":{{"max_tokens":50,"path":"{}"}}}}}}"#,
+            "\n",
+            // 4. generate_architecture_docs with tight max_tokens
+            r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"generate_architecture_docs","arguments":{{"max_tokens":80,"path":"{}"}}}}}}"#,
+            "\n"
+        ),
+        root_str, root_str
+    );
+
+    let reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+    let mut server = McpServer::with_root(&root);
+    server
+        .run_loop(reader, &mut writer)
+        .expect("Server loop failed");
+
+    let output_str = String::from_utf8(writer).expect("Invalid UTF-8 from server");
+    let lines: Vec<&str> = output_str.trim().lines().collect();
+    assert_eq!(lines.len(), 3);
+
+    // Response 2: analyze_graph budgeted
+    let resp2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(resp2["id"], 2);
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text2.contains("Output truncated to stay within max_tokens budget"));
+
+    // Response 3: generate_architecture_docs budgeted
+    let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(resp3["id"], 3);
+    let text3 = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text3.contains("Output truncated to stay within max_tokens budget"));
+}

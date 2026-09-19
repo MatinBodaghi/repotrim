@@ -259,6 +259,7 @@ impl McpHandler {
                     "properties": {
                         "aspect": { "type": "string", "enum": ["stats", "communities", "coedits"], "description": "Analysis aspect" },
                         "resolution": { "type": "number", "description": "Modularity resolution" },
+                        "max_tokens": { "type": "integer", "description": "Max token budget" },
                         "path": { "type": "string", "description": "Target directory" }
                     }
                 }),
@@ -296,7 +297,8 @@ impl McpHandler {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Target directory" },
-                        "output": { "type": "string", "description": "Destination file path" }
+                        "output": { "type": "string", "description": "Destination file path" },
+                        "max_tokens": { "type": "integer", "description": "Max token budget" }
                     }
                 }),
             },
@@ -452,7 +454,51 @@ impl McpHandler {
         self.tool_search_symbols(args)
     }
 
+    fn enforce_text_budget(text: String, max_tokens: Option<usize>) -> String {
+        let max = match max_tokens {
+            Some(m) if m > 0 => m,
+            _ => return text,
+        };
+        let current_tokens = count_tokens(&text, TokenizerModel::FastHeuristic);
+        if current_tokens <= max {
+            return text;
+        }
+
+        let notice = format!(
+            "\n\n... [Output truncated to stay within max_tokens budget of {}]",
+            max
+        );
+        let notice_tokens = count_tokens(&notice, TokenizerModel::FastHeuristic);
+        let target = max.saturating_sub(notice_tokens);
+
+        let mut lines = text.lines().collect::<Vec<_>>();
+        while !lines.is_empty() {
+            lines.pop();
+            let candidate = lines.join("\n");
+            if count_tokens(&candidate, TokenizerModel::FastHeuristic) <= target {
+                return format!("{}{}", candidate, notice);
+            }
+        }
+
+        let char_cutoff = (target * 4).min(text.len());
+        let mut truncated = text[..char_cutoff].to_string();
+        truncated.push_str(&notice);
+        truncated
+    }
+
     fn tool_analyze_graph(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let max_tokens = args
+            .get("max_tokens")
+            .or_else(|| args.get("maxTokens"))
+            .or_else(|| args.get("budget"))
+            .and_then(|v| {
+                if let Some(s) = v.as_str() {
+                    s.parse::<usize>().ok()
+                } else {
+                    v.as_u64().map(|u| u as usize)
+                }
+            });
+
         let aspect = args
             .get("aspect")
             .or_else(|| args.get("mode"))
@@ -471,11 +517,18 @@ impl McpHandler {
                 }
             });
 
-        match aspect.as_str() {
+        let mut res = match aspect.as_str() {
             "communities" | "community" | "louvain" => self.tool_detect_communities(args),
             "coedits" | "coedit" | "coupling" => self.tool_mine_coedits(args),
             _ => self.tool_query_graph_stats(args),
+        };
+
+        if let Some(max) = max_tokens {
+            for block in &mut res.content {
+                block.text = Self::enforce_text_budget(std::mem::take(&mut block.text), Some(max));
+            }
         }
+        res
     }
 
     fn tool_trim_context(&mut self, args: serde_json::Value) -> ToolCallResult {
@@ -1279,7 +1332,25 @@ impl McpHandler {
             }
         }
 
-        ToolCallResult::success(markdown)
+        let max_tokens = args
+            .get("max_tokens")
+            .or_else(|| args.get("maxTokens"))
+            .or_else(|| args.get("budget"))
+            .and_then(|v| {
+                if let Some(s) = v.as_str() {
+                    s.parse::<usize>().ok()
+                } else {
+                    v.as_u64().map(|u| u as usize)
+                }
+            });
+
+        let result_text = if let Some(max) = max_tokens {
+            Self::enforce_text_budget(markdown, Some(max))
+        } else {
+            markdown
+        };
+
+        ToolCallResult::success(result_text)
     }
 
     fn tool_analyze_impact(&mut self, args: serde_json::Value) -> ToolCallResult {

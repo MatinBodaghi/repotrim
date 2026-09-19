@@ -99,6 +99,7 @@ fn test_mcp_tool_schemas_snapshot() {
                 let props = &schema["properties"];
                 assert!(props["aspect"].is_object());
                 assert!(props["resolution"].is_object());
+                assert!(props["max_tokens"].is_object());
                 assert!(props["path"].is_object());
             }
             "analyze_impact" => {
@@ -136,6 +137,7 @@ fn test_mcp_tool_schemas_snapshot() {
                 let props = &schema["properties"];
                 assert!(props["path"].is_object());
                 assert!(props["output"].is_object());
+                assert!(props["max_tokens"].is_object());
             }
             _ => panic!("Unexpected tool: {}", name),
         }
