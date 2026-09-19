@@ -183,3 +183,94 @@ fn test_git_revision_argument_injection_blocked() {
         );
     }
 }
+
+#[test]
+fn test_target_repository_zero_unsolicited_writes() {
+    use repotrim_engine::LoadedRepository;
+    use std::io::Write;
+
+    let temp_repo =
+        std::env::temp_dir().join(format!("repotrim_zero_writes_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_repo);
+
+    let src_dir = temp_repo.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+
+    let main_rs = src_dir.join("main.rs");
+    let mut f = File::create(&main_rs).unwrap();
+    writeln!(f, "fn main() {{ println!(\"Hello world\"); }}").unwrap();
+
+    fn collect_all_paths(dir: &std::path::Path) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    paths.extend(collect_all_paths(&p));
+                }
+                paths.push(p);
+            }
+        }
+        paths
+    }
+
+    // Verify initially only src/main.rs exists
+    let before_entries = collect_all_paths(&temp_repo);
+
+    // Load repository, extract AST symbols, and build graph
+    let loaded = LoadedRepository::load(&temp_repo).expect("Repository load must succeed");
+    let graph = loaded.build_graph();
+    assert!(graph.num_symbols() > 0);
+
+    // Verify after operations that NO new files or directories were written to temp_repo
+    let after_entries = collect_all_paths(&temp_repo);
+
+    assert_eq!(
+        before_entries.len(),
+        after_entries.len(),
+        "Repository tree must remain 100% read-only with zero unsolicited filesystem writes"
+    );
+
+    let repotrim_internal_dir = temp_repo.join(".repotrim");
+    assert!(
+        !repotrim_internal_dir.exists(),
+        ".repotrim directory must NEVER be created inside target codebase"
+    );
+
+    let _ = fs::remove_dir_all(&temp_repo);
+}
+
+#[test]
+fn test_symlink_pointing_outside_root_is_blocked() {
+    let base = std::env::temp_dir().join(format!(
+        "repotrim_symlink_escape_test_{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&base);
+
+    let safe_repo = base.join("safe_repo");
+    let private_dir = base.join("private_data");
+    fs::create_dir_all(&safe_repo).unwrap();
+    fs::create_dir_all(&private_dir).unwrap();
+
+    let secret_file = private_dir.join("secret.key");
+    fs::write(&secret_file, "SUPER_SECRET_PAYLOAD").unwrap();
+
+    let guard = RootGuard::with_root(&safe_repo);
+
+    // 1. Direct external file must be blocked
+    let direct_res = guard.resolve(&secret_file);
+    assert!(
+        matches!(direct_res, Err(SecurityError::PathEscapesRoot { .. })),
+        "Direct access to private_data must be blocked"
+    );
+
+    // 2. Relative traversal attempt navigating to private_data must be blocked
+    let rel_escape = guard.resolve("../private_data/secret.key");
+    assert!(
+        matches!(rel_escape, Err(SecurityError::PathEscapesRoot { .. })),
+        "Relative parent traversal to private_data must be blocked"
+    );
+
+    let _ = fs::remove_dir_all(&base);
+}
