@@ -1,0 +1,93 @@
+name: Bug Report
+description: File a bug or unexpected behavior in RepoTrim CLI or MCP server
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Before opening a bug report, please check our [Troubleshooting Guide](https://github.com/MatinBodaghi/repotrim/blob/main/docs/TROUBLESHOOTING.md) to see if your issue has a documented resolution.
+
+  - type: input
+    id: version
+    attributes:
+      label: RepoTrim Version
+      description: What version of RepoTrim or repotrim-mcp are you using? (Run `repotrim --version` or `repotrim-mcp --version`)
+      placeholder: "repotrim 0.12.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client Integration
+      description: What MCP client or environment are you running RepoTrim with?
+      options:
+        - "Claude Desktop"
+        - "Cursor"
+        - "Windsurf"
+        - "Claude Code CLI"
+        - "Standalone CLI (repotrim binary)"
+        - "Custom MCP Client / IDE"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System & Architecture
+      options:
+        - "Linux (x86_64)"
+        - "Linux (aarch64)"
+        - "macOS (Apple Silicon / aarch64)"
+        - "macOS (Intel / x86_64)"
+        - "Windows 11 / 10 (x86_64 MSVC)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem Description
+      description: A clear and concise description of what the problem is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide clear steps or commands to reproduce the behavior.
+      placeholder: |
+        1. Run `repotrim select --seed ...`
+        2. In MCP client, invoke `trim_context` with params ...
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal Logs & Stderr Output
+      description: Please paste any relevant stderr logs (run with `RUST_LOG=debug`). Remember that stdout is reserved for JSON-RPC messages.
+      render: shell
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Confirmation Checklist
+      options:
+        - label: "I have consulted docs/TROUBLESHOOTING.md before opening this issue."
+          required: true
+        - label: "I have verified that no sensitive credentials, API keys, or private code tokens are in the pasted logs."
+          required: true

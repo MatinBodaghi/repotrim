@@ -1,0 +1,40 @@
+# Top-most EditorConfig file
+root = true
+
+# Default configuration for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Rust
+[*.rs]
+indent_style = space
+indent_size = 4
+
+# Go
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Serialization, manifests, and documentation
+[*.{yml,yaml,json,toml,md}]
+indent_style = space
+indent_size = 2
+
+# Web / TypeScript / JavaScript
+[*.{js,jsx,ts,tsx,css,html}]
+indent_style = space
+indent_size = 2
+
+# Tree-sitter query files
+[*.scm]
+indent_style = space
+indent_size = 2
+
+# Makefiles
+[Makefile]
+indent_style = tab

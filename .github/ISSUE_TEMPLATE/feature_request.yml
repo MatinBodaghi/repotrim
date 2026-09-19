@@ -1,0 +1,44 @@
+name: Feature Request
+description: Suggest an idea, optimization, or algorithm enhancement for RepoTrim
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an enhancement to RepoTrim! RepoTrim prioritizes mathematically grounded, reproducible optimizations for code context minimization.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Use Case
+      description: Is your feature request related to a specific workflow bottleneck or problem? (e.g. "I'm always running out of budget when exploring ...")
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution or Algorithmic Mechanism
+      description: Describe your proposed enhancement, AST heuristic, or graph-theoretic approach.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative approaches or workarounds you have evaluated.
+
+  - type: textarea
+    id: citations
+    attributes:
+      label: Academic Citations / Technical References
+      description: If this proposal relies on published papers, graph heuristics, or submodular algorithms, please cite authors, title, year, and algorithm name.
+
+  - type: checkboxes
+    id: willingness
+    attributes:
+      label: Contribution
+      options:
+        - label: "I am interested in contributing or testing a pull request for this feature."
