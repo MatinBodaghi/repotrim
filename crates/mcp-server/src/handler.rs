@@ -295,45 +295,130 @@ impl McpHandler {
                 }),
             },
             ToolDefinition {
-                name: "query_graph_stats".to_string(),
-                description: "Retrieve repository code graph connectivity metrics, syntax entity counts, and global PageRank architectural hubs.".to_string(),
+                name: "find_symbols".to_string(),
+                description: "Find symbols by hybrid search, discover entrypoints, or inspect declarations.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query, issue prompt, or symbol name"
+                        },
+                        "symbol": {
+                            "type": "string",
+                            "description": "Specific symbol name to inspect in detail"
+                        },
+                        "targetFiles": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of target files to prioritize"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of symbols to return (default: 10)"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["hybrid", "lexical", "dense"],
+                            "description": "Search mode ('hybrid', 'lexical', 'dense'; default: 'hybrid')"
+                        },
+                        "expand": {
+                            "type": "boolean",
+                            "description": "Enable query expansion (default: false)"
+                        },
+                        "inspect": {
+                            "type": "boolean",
+                            "description": "Include symbol declaration and caller details (default: false)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output format ('markdown' or 'json'; default: 'markdown')"
+                        },
                         "path": {
                             "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
+                            "description": "Target directory (default: '.')"
                         }
                     }
                 }),
             },
             ToolDefinition {
-                name: "inspect_symbol".to_string(),
-                description: "Inspect a symbol's declaration details, token cost, outgoing dependencies with transition weights, and incoming callers across the workspace.".to_string(),
+                name: "analyze_graph".to_string(),
+                description: "Analyze code graph connectivity, PageRank hubs, communities, or git co-edits.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "aspect": {
+                            "type": "string",
+                            "enum": ["stats", "communities", "coedits"],
+                            "description": "Analysis aspect ('stats', 'communities', 'coedits'; default: 'stats')"
+                        },
+                        "resolution": {
+                            "type": "number",
+                            "description": "Modularity resolution parameter gamma (default: 1.0)"
+                        },
+                        "hierarchy": {
+                            "type": "boolean",
+                            "description": "Return multi-scale community hierarchy (default: false)"
+                        },
+                        "drift": {
+                            "type": "boolean",
+                            "description": "Analyze architectural drift and misplaced symbols (default: false)"
+                        },
+                        "maxCommits": {
+                            "type": "integer",
+                            "description": "Maximum historical git commits to mine (default: 200)"
+                        },
+                        "minSupport": {
+                            "type": "integer",
+                            "description": "Minimum co-edit support occurrences (default: 2)"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output format ('markdown' or 'json'; default: 'markdown')"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Target directory (default: '.')"
+                        }
+                    }
+                }),
+            },
+            ToolDefinition {
+                name: "analyze_impact".to_string(),
+                description: "Analyze the semantic blast radius and ripple effects of code changes (from git diff or a target symbol). Classifies direct mutations, 1st-order callers, transitive dependencies, affected test candidates, and computes an architectural risk score.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "symbol": {
                             "type": "string",
-                            "description": "Name of the symbol to inspect"
+                            "description": "Optional target symbol name to evaluate blast radius for"
+                        },
+                        "fromDiff": {
+                            "type": "boolean",
+                            "description": "Optional flag to infer modified symbols from git diff (default: true if no symbol provided)"
+                        },
+                        "diffAgainst": {
+                            "type": "string",
+                            "description": "Optional git revision or branch to diff against (e.g. 'origin/main', 'HEAD~1')"
+                        },
+                        "budget": {
+                            "description": "Maximum token budget for blast radius context outline (default: 1000)"
+                        },
+                        "tokenizer": {
+                            "type": "string",
+                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
+                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "description": "Output serialization format (default: 'markdown')"
                         },
                         "path": {
                             "type": "string",
                             "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    },
-                    "required": ["symbol"]
-                }),
-            },
-            ToolDefinition {
-                name: "clean_cache".to_string(),
-                description: "Clear the incremental AST Merkle cache (.repotrim directory) to force a fresh re-scan.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory containing .repotrim cache (default: '.')"
                         }
                     }
                 }),
@@ -385,202 +470,6 @@ impl McpHandler {
                 }),
             },
             ToolDefinition {
-                name: "analyze_impact".to_string(),
-                description: "Analyze the semantic blast radius and ripple effects of code changes (from git diff or a target symbol). Classifies direct mutations, 1st-order callers, transitive dependencies, affected test candidates, and computes an architectural risk score.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": {
-                            "type": "string",
-                            "description": "Optional target symbol name to evaluate blast radius for"
-                        },
-                        "fromDiff": {
-                            "type": "boolean",
-                            "description": "Optional flag to infer modified symbols from git diff (default: true if no symbol provided)"
-                        },
-                        "diffAgainst": {
-                            "type": "string",
-                            "description": "Optional git revision or branch to diff against (e.g. 'origin/main', 'HEAD~1')"
-                        },
-                        "budget": {
-                            "description": "Maximum token budget for blast radius context outline (default: 1000)"
-                        },
-                        "tokenizer": {
-                            "type": "string",
-                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
-                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    }
-                }),
-            },
-            ToolDefinition {
-                name: "mine_coedits".to_string(),
-                description: "Mine historical Git commit co-edits and logical couplings, analyze layer empirical co-change rates, and learn principled layer weights.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        },
-                        "maxCommits": {
-                            "type": "number",
-                            "description": "Maximum historical commits to analyze (default: 200)"
-                        },
-                        "minSupport": {
-                            "type": "number",
-                            "description": "Minimum co-edit occurrences required (default: 2)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output format ('markdown' or 'json', default: 'markdown')"
-                        }
-                    }
-                }),
-            },
-            ToolDefinition {
-                name: "detect_communities".to_string(),
-                description: "Detect multi-resolution topological communities, analyze hierarchical modularity (Macro/Meso/Micro), and spotlight architectural drift / misplaced symbols.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        },
-                        "resolution": {
-                            "type": "number",
-                            "description": "Modularity resolution parameter gamma (default: 1.0, <1.0 for macro, >1.0 for micro)"
-                        },
-                        "hierarchy": {
-                            "type": "boolean",
-                            "description": "Whether to return multi-scale hierarchy (Macro, Meso, Micro; default: false)"
-                        },
-                        "drift": {
-                            "type": "boolean",
-                            "description": "Whether to analyze architectural drift and misplaced symbols (default: false)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output format ('markdown' or 'json', default: 'markdown')"
-                        }
-                    }
-                }),
-            },
-            ToolDefinition {
-                name: "search_symbols".to_string(),
-                description: "Perform hybrid lexical (BM25+) and dense semantic (subword feature hashing) symbol retrieval across the repository.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query or natural language description (e.g. 'PPR solver', 'select context', 'knapsack')"
-                        },
-                        "limit": {
-                            "type": "number",
-                            "description": "Maximum number of symbols to retrieve (default: 10)"
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["hybrid", "lexical", "dense"],
-                            "description": "Retrieval scoring mode ('hybrid' RRF, 'lexical' BM25+, 'dense' cosine; default: 'hybrid')"
-                        },
-                        "expand": {
-                            "type": "boolean",
-                            "description": "Enable Rocchio Pseudo-Relevance Feedback (PRF) query expansion (default: false)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format ('markdown' or 'json', default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    },
-                    "required": ["query"]
-                }),
-            },
-            ToolDefinition {
-                name: "run_benchmark".to_string(),
-                description: "Execute rigorous empirical evaluation harness and Aider comparative benchmark. Evaluates context selection strategies (Whole-File Dump, Naive Keyword/Grep, Aider Repo Map with Global PageRank, RepoTrim Vanilla, and RepoTrim Full with multiplex CPG, learned layer weights, co-edit edges, forward-push diffusion, CELF knapsack, community cohesion, and MCKP joint LOD) across token budget adherence, token reduction %, 1st-order direct dependency recall, 2nd-order transitive recall, context precision, community cohesion, orphan symbol rate, and execution latency.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "scenario": {
-                            "type": "string",
-                            "description": "Specific benchmark scenario name or ID filter (e.g. 'context_selector', 'ppr_solver', 'diff_resolver', 'multi_seed_subsystem', 'query_intent_random_walk')"
-                        },
-                        "budget": {
-                            "type": "integer",
-                            "description": "Override token budget for the benchmark scenarios"
-                        },
-                        "strategies": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": ["whole_file", "naive_grep", "aider_repo_map", "repo_trim_vanilla", "repo_trim_full"]
-                            },
-                            "description": "List of context strategies to benchmark (default: all 5 strategies)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format ('markdown' or 'json', default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    }
-                }),
-            },
-            ToolDefinition {
-                name: "locate_entrypoints".to_string(),
-                description: "Discovers top-ranked codebase entrypoint symbols for an agent task or issue prompt. Evaluates seed hints, concept keywords, BM25+ lexical and trigram fuzzy matching, and target file constraints.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Natural language task prompt, issue description, or symbol hint"
-                        },
-                        "targetFiles": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Optional list of target files or globs to prioritize during search"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of ranked candidate entrypoints to return (default: 10)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    },
-                    "required": ["query"]
-                }),
-            },
-            ToolDefinition {
                 name: "trace_paths".to_string(),
                 description: "Discovers and scores constrained multi-hop causal execution paths between source and target symbols using Boltzmann path energy scoring, and renders Mermaid sequence diagrams.".to_string(),
                 input_schema: serde_json::json!({
@@ -613,32 +502,6 @@ impl McpHandler {
                         }
                     },
                     "required": ["source", "target"]
-                }),
-            },
-            ToolDefinition {
-                name: "expand_symbol".to_string(),
-                description: "Expands a localized submodular knapsack context cluster around a focal symbol within a token budget ceiling, extracting relevant syntax definitions and causal connection paths.".to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "symbol": {
-                            "type": "string",
-                            "description": "Focal symbol name to expand context around"
-                        },
-                        "budget": {
-                            "description": "Maximum token budget ceiling for expansion cluster (default: 1000)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
-                    },
-                    "required": ["symbol"]
                 }),
             },
             ToolDefinition {
@@ -693,20 +556,23 @@ impl McpHandler {
 
         let res = match name {
             "trim_context" => self.tool_trim_context(arguments),
+            "find_symbols" => self.tool_find_symbols(arguments),
+            "analyze_graph" => self.tool_analyze_graph(arguments),
+            "analyze_impact" => self.tool_analyze_impact(arguments),
+            "trace_paths" => self.tool_trace_paths(arguments),
+            "navigate_codebase" => self.tool_navigate_codebase(arguments),
+            "generate_blueprint" => self.tool_generate_blueprint(arguments),
+            "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
+            // Backward-compatibility aliases for legacy tools
             "query_graph_stats" => self.tool_query_graph_stats(arguments),
             "inspect_symbol" => self.tool_inspect_symbol(arguments),
             "clean_cache" => self.tool_clean_cache(arguments),
-            "generate_blueprint" => self.tool_generate_blueprint(arguments),
-            "generate_architecture_docs" => self.tool_generate_architecture_docs(arguments),
-            "analyze_impact" => self.tool_analyze_impact(arguments),
             "mine_coedits" => self.tool_mine_coedits(arguments),
             "detect_communities" => self.tool_detect_communities(arguments),
             "search_symbols" => self.tool_search_symbols(arguments),
             "run_benchmark" => self.tool_run_benchmark(arguments),
             "locate_entrypoints" => self.tool_locate_entrypoints(arguments),
-            "trace_paths" => self.tool_trace_paths(arguments),
             "expand_symbol" => self.tool_expand_symbol(arguments),
-            "navigate_codebase" => self.tool_navigate_codebase(arguments),
             _ => ToolCallResult::error(format!("Unsupported tool '{}'", name)),
         };
         Ok(res)
@@ -753,6 +619,70 @@ impl McpHandler {
         repo_arc
             .write()
             .map_err(|_| "Repository lock poisoned".to_string())
+    }
+
+    fn tool_find_symbols(&mut self, args: serde_json::Value) -> ToolCallResult {
+        // 1. If explicit 'symbol' parameter is provided, inspect it directly
+        if let Some(sym) = args.get("symbol").and_then(|s| s.as_str()) {
+            if !sym.trim().is_empty() {
+                let mut inspect_args = args.clone();
+                inspect_args["symbol"] = serde_json::json!(sym);
+                return self.tool_inspect_symbol(inspect_args);
+            }
+        }
+
+        // 2. If 'targetFiles' or 'target_files' are passed, use locate_entrypoints
+        if args.get("targetFiles").is_some() || args.get("target_files").is_some() {
+            let mut ep_args = args.clone();
+            if let Some(tf) = args.get("target_files") {
+                ep_args["targetFiles"] = tf.clone();
+            }
+            return self.tool_locate_entrypoints(ep_args);
+        }
+
+        // 3. If query is provided and inspect flag is set, attempt symbol inspection first
+        if let Some(q) = args.get("query").and_then(|s| s.as_str()) {
+            if args
+                .get("inspect")
+                .and_then(|i| i.as_bool())
+                .unwrap_or(false)
+            {
+                let mut inspect_args = args.clone();
+                inspect_args["symbol"] = serde_json::json!(q);
+                let inspect_res = self.tool_inspect_symbol(inspect_args);
+                if !inspect_res.is_error {
+                    return inspect_res;
+                }
+            }
+        }
+
+        // 4. Fallback to hybrid search_symbols
+        self.tool_search_symbols(args)
+    }
+
+    fn tool_analyze_graph(&mut self, args: serde_json::Value) -> ToolCallResult {
+        let aspect = args
+            .get("aspect")
+            .and_then(|a| a.as_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_else(|| {
+                if args.get("resolution").is_some()
+                    || args.get("hierarchy").is_some()
+                    || args.get("drift").is_some()
+                {
+                    "communities".to_string()
+                } else if args.get("maxCommits").is_some() || args.get("minSupport").is_some() {
+                    "coedits".to_string()
+                } else {
+                    "stats".to_string()
+                }
+            });
+
+        match aspect.as_str() {
+            "communities" | "community" | "louvain" => self.tool_detect_communities(args),
+            "coedits" | "coedit" | "coupling" => self.tool_mine_coedits(args),
+            _ => self.tool_query_graph_stats(args),
+        }
     }
 
     fn tool_trim_context(&mut self, args: serde_json::Value) -> ToolCallResult {
