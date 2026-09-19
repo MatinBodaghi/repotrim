@@ -146,22 +146,15 @@ mod tests {
         let resp3: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(resp3["id"], 3);
         let tools = resp3["result"]["tools"].as_array().expect("Tools array");
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 8);
         let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(tool_names.contains(&"trim_context"));
-        assert!(tool_names.contains(&"query_graph_stats"));
-        assert!(tool_names.contains(&"inspect_symbol"));
-        assert!(tool_names.contains(&"clean_cache"));
+        assert!(tool_names.contains(&"find_symbols"));
+        assert!(tool_names.contains(&"analyze_graph"));
+        assert!(tool_names.contains(&"analyze_impact"));
+        assert!(tool_names.contains(&"trace_paths"));
+        assert!(tool_names.contains(&"navigate_codebase"));
         assert!(tool_names.contains(&"generate_blueprint"));
         assert!(tool_names.contains(&"generate_architecture_docs"));
-        assert!(tool_names.contains(&"analyze_impact"));
-        assert!(tool_names.contains(&"mine_coedits"));
-        assert!(tool_names.contains(&"detect_communities"));
-        assert!(tool_names.contains(&"search_symbols"));
-        assert!(tool_names.contains(&"run_benchmark"));
-        assert!(tool_names.contains(&"locate_entrypoints"));
-        assert!(tool_names.contains(&"trace_paths"));
-        assert!(tool_names.contains(&"expand_symbol"));
-        assert!(tool_names.contains(&"navigate_codebase"));
     }
 }

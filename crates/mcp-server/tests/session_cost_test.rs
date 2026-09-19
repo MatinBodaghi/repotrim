@@ -177,12 +177,19 @@ fn test_tools_list_token_budget_invariant() {
     let resp: serde_json::Value = serde_json::from_str(output_str.trim()).expect("Valid JSON-RPC");
     let resp_str = serde_json::to_string(&resp).expect("Serialize");
     let token_count = count_tokens(&resp_str, TokenizerModel::FastHeuristic);
+    let bpe_tokens = count_tokens(&resp_str, TokenizerModel::Cl100kBase);
 
     eprintln!(
-        "Standalone tools/list response: {} characters, {} tokens",
+        "Standalone tools/list response: {} characters, {} FastHeuristic tokens, {} Cl100k tokens",
         resp_str.len(),
-        token_count
+        token_count,
+        bpe_tokens
     );
 
     assert!(token_count > 0);
+    assert!(
+        bpe_tokens <= 1200,
+        "tools/list BPE tokens must be <= 1200, got: {}",
+        bpe_tokens
+    );
 }

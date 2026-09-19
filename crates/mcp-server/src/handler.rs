@@ -220,317 +220,109 @@ impl McpHandler {
         vec![
             ToolDefinition {
                 name: "trim_context".to_string(),
-                description: "Extract mathematically optimal prompt context within a token budget using Personalized PageRank and CELF knapsack optimization. Seeds can be explicit symbol names, a natural language query, or inferred from current git diff.".to_string(),
+                description: "Extract optimal context under token budget via PPR and knapsack."
+                    .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "seeds": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Optional list of seed symbol identifiers to anchor context around (e.g. ['ContextSelector', 'select_context'])"
-                        },
-                        "query": {
-                            "type": "string",
-                            "description": "Optional natural language intent, search terms, or error message to automatically infer seeds"
-                        },
-                        "fromDiff": {
-                            "type": "boolean",
-                            "description": "Optional flag to automatically infer seeds from current uncommitted git changes"
-                        },
-                        "budget": {
-                            "description": "Maximum token budget for selected context, or 'auto' for Knee-Curve tuning (default: 1000)"
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')"
-                        },
-                        "tokenizer": {
-                            "type": "string",
-                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
-                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "diagnostics": {
-                            "type": "boolean",
-                            "description": "Optional flag to include knapsack numerical stability and sensitivity diagnostics"
-                        },
-                        "jointLod": {
-                            "type": "boolean",
-                            "description": "Optional flag to enable Multiple-Choice Knapsack (MCKP) joint symbol selection and Level-of-Detail (LOD) optimization"
-                        },
-                        "useCoedits": {
-                            "type": "boolean",
-                            "description": "Optional flag to include historical Git commit co-edit edges in the multiplex graph"
-                        },
-                        "learnWeights": {
-                            "type": "boolean",
-                            "description": "Optional flag to dynamically calibrate multiplex layer weights using empirical Git commit history"
-                        },
-                        "communityBoost": {
-                            "type": "number",
-                            "description": "Optional intra-community cohesion boost multiplier (e.g. 0.35) to focus context selection on seeds' topological communities"
-                        },
-                        "retrievalMode": {
-                            "type": "string",
-                            "enum": ["hybrid", "lexical", "dense"],
-                            "description": "Query seed retrieval scoring mode ('hybrid' RRF, 'lexical' BM25+, 'dense' cosine; default: 'hybrid')"
-                        },
-                        "queryExpand": {
-                            "type": "boolean",
-                            "description": "Optional flag to enable Rocchio Pseudo-Relevance Feedback (PRF) query expansion for natural language queries"
-                        },
-                        "structured": {
-                            "type": "boolean",
-                            "description": "Optional flag to return a fully structured context graph with typed edges, causal paths, cost breakdown, and omission diagnostics"
-                        }
+                        "seeds": { "type": "array", "items": { "type": "string" }, "description": "Seed symbol identifiers" },
+                        "query": { "type": "string", "description": "Natural language query or intent" },
+                        "fromDiff": { "type": "boolean", "description": "Infer seeds from git diff" },
+                        "budget": { "description": "Token budget integer or 'auto'" },
+                        "model": { "type": "string", "description": "Target LLM architecture" },
+                        "format": { "type": "string", "enum": ["markdown", "json"], "description": "Output format" },
+                        "path": { "type": "string", "description": "Target directory" }
                     }
                 }),
             },
             ToolDefinition {
                 name: "find_symbols".to_string(),
-                description: "Find symbols by hybrid search, discover entrypoints, or inspect declarations.".to_string(),
+                description: "Find symbols via search, entrypoint location, or inspection."
+                    .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query, issue prompt, or symbol name"
-                        },
-                        "symbol": {
-                            "type": "string",
-                            "description": "Specific symbol name to inspect in detail"
-                        },
-                        "targetFiles": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Optional list of target files to prioritize"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of symbols to return (default: 10)"
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["hybrid", "lexical", "dense"],
-                            "description": "Search mode ('hybrid', 'lexical', 'dense'; default: 'hybrid')"
-                        },
-                        "expand": {
-                            "type": "boolean",
-                            "description": "Enable query expansion (default: false)"
-                        },
-                        "inspect": {
-                            "type": "boolean",
-                            "description": "Include symbol declaration and caller details (default: false)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output format ('markdown' or 'json'; default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target directory (default: '.')"
-                        }
+                        "query": { "type": "string", "description": "Search query or task prompt" },
+                        "symbol": { "type": "string", "description": "Exact symbol name to inspect" },
+                        "targetFiles": { "type": "array", "items": { "type": "string" }, "description": "Files to prioritize" },
+                        "limit": { "type": "integer", "description": "Max symbols to return" },
+                        "path": { "type": "string", "description": "Target directory" }
                     }
                 }),
             },
             ToolDefinition {
                 name: "analyze_graph".to_string(),
-                description: "Analyze code graph connectivity, PageRank hubs, communities, or git co-edits.".to_string(),
+                description: "Analyze graph topology, PageRank hubs, communities, or co-edits."
+                    .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "aspect": {
-                            "type": "string",
-                            "enum": ["stats", "communities", "coedits"],
-                            "description": "Analysis aspect ('stats', 'communities', 'coedits'; default: 'stats')"
-                        },
-                        "resolution": {
-                            "type": "number",
-                            "description": "Modularity resolution parameter gamma (default: 1.0)"
-                        },
-                        "hierarchy": {
-                            "type": "boolean",
-                            "description": "Return multi-scale community hierarchy (default: false)"
-                        },
-                        "drift": {
-                            "type": "boolean",
-                            "description": "Analyze architectural drift and misplaced symbols (default: false)"
-                        },
-                        "maxCommits": {
-                            "type": "integer",
-                            "description": "Maximum historical git commits to mine (default: 200)"
-                        },
-                        "minSupport": {
-                            "type": "integer",
-                            "description": "Minimum co-edit support occurrences (default: 2)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output format ('markdown' or 'json'; default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target directory (default: '.')"
-                        }
+                        "aspect": { "type": "string", "enum": ["stats", "communities", "coedits"], "description": "Analysis aspect" },
+                        "resolution": { "type": "number", "description": "Modularity resolution" },
+                        "path": { "type": "string", "description": "Target directory" }
                     }
                 }),
             },
             ToolDefinition {
                 name: "analyze_impact".to_string(),
-                description: "Analyze the semantic blast radius and ripple effects of code changes (from git diff or a target symbol). Classifies direct mutations, 1st-order callers, transitive dependencies, affected test candidates, and computes an architectural risk score.".to_string(),
+                description: "Analyze semantic blast radius of code changes or diff.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "symbol": {
-                            "type": "string",
-                            "description": "Optional target symbol name to evaluate blast radius for"
-                        },
-                        "fromDiff": {
-                            "type": "boolean",
-                            "description": "Optional flag to infer modified symbols from git diff (default: true if no symbol provided)"
-                        },
-                        "diffAgainst": {
-                            "type": "string",
-                            "description": "Optional git revision or branch to diff against (e.g. 'origin/main', 'HEAD~1')"
-                        },
-                        "budget": {
-                            "description": "Maximum token budget for blast radius context outline (default: 1000)"
-                        },
-                        "tokenizer": {
-                            "type": "string",
-                            "enum": ["fast", "calibrated", "exact", "cl100k", "o200k"],
-                            "description": "Tokenizer model for exact or heuristic token counting ('fast', 'calibrated', 'exact' / 'cl100k', 'o200k'; default: 'fast')"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
+                        "symbol": { "type": "string", "description": "Target symbol to evaluate" },
+                        "fromDiff": { "type": "boolean", "description": "Infer changes from git diff" },
+                        "budget": { "description": "Token budget integer" },
+                        "path": { "type": "string", "description": "Target directory" }
                     }
                 }),
             },
             ToolDefinition {
                 name: "generate_blueprint".to_string(),
-                description: "Generate an agent-ready high-density feature specification blueprint with inferred seed anchors, target implementation files, and relevant interface definitions.".to_string(),
+                description: "Generate feature blueprint with seeds and interfaces.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "task": {
-                            "type": "string",
-                            "description": "Feature specification or bug fix description"
-                        },
-                        "budget": {
-                            "description": "Recommended token budget for context slicing, or 'auto' for Knee-Curve tuning (default: 3000)"
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Target LLM architecture for auto-budgeting presets (e.g. 'claude', 'gpt-4o', 'deepseek', 'ollama')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
+                        "task": { "type": "string", "description": "Task description" },
+                        "budget": { "description": "Token budget integer or 'auto'" },
+                        "path": { "type": "string", "description": "Target directory" }
                     },
                     "required": ["task"]
                 }),
             },
             ToolDefinition {
                 name: "generate_architecture_docs".to_string(),
-                description: "Generate comprehensive, durable repository architecture documentation (ARCHITECTURE.md) including subsystem topology, architectural layers, central hubs, Mermaid diagrams, and public API inventories.".to_string(),
+                description: "Generate repository architecture documentation.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        },
-                        "output": {
-                            "type": "string",
-                            "description": "Optional destination file path to write generated documentation to (e.g. 'docs/ARCHITECTURE.md')"
-                        },
-                        "resolution": {
-                            "type": "number",
-                            "description": "Optional modularity resolution parameter gamma (default: 1.0, <1.0 for macro, >1.0 for micro)"
-                        }
+                        "path": { "type": "string", "description": "Target directory" },
+                        "output": { "type": "string", "description": "Destination file path" }
                     }
                 }),
             },
             ToolDefinition {
                 name: "trace_paths".to_string(),
-                description: "Discovers and scores constrained multi-hop causal execution paths between source and target symbols using Boltzmann path energy scoring, and renders Mermaid sequence diagrams.".to_string(),
+                description: "Score multi-hop causal execution paths between symbols.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "source": {
-                            "type": "string",
-                            "description": "Source entrypoint symbol name"
-                        },
-                        "target": {
-                            "type": "string",
-                            "description": "Target destination symbol name"
-                        },
-                        "task": {
-                            "type": "string",
-                            "description": "Optional natural language task description to condition Boltzmann path scoring"
-                        },
-                        "includeMermaid": {
-                            "type": "boolean",
-                            "description": "Whether to render a Mermaid sequence diagram in the output (default: true)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
+                        "source": { "type": "string", "description": "Source entrypoint symbol" },
+                        "target": { "type": "string", "description": "Target destination symbol" },
+                        "task": { "type": "string", "description": "Task description" },
+                        "path": { "type": "string", "description": "Target directory" }
                     },
                     "required": ["source", "target"]
                 }),
             },
             ToolDefinition {
                 name: "navigate_codebase".to_string(),
-                description: "Autonomously navigates the codebase using an adaptive submodular greedy policy (Golovin & Krause, 2011) to discover relevant symbols, causal execution paths, and typed context within a strict token budget ceiling.".to_string(),
+                description: "Navigate codebase using adaptive submodular policy.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Natural language task prompt, issue description, or symbol query"
-                        },
-                        "budget": {
-                            "type": "integer",
-                            "description": "Initial token budget ceiling for sequential exploration (default: 2000)"
-                        },
-                        "maxSteps": {
-                            "type": "integer",
-                            "description": "Maximum number of sequential exploration steps (default: 15)"
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["markdown", "json"],
-                            "description": "Output serialization format (default: 'markdown')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Target codebase directory to scan (default: '.')"
-                        }
+                        "query": { "type": "string", "description": "Search query or task prompt" },
+                        "budget": { "type": "integer", "description": "Token budget ceiling" },
+                        "path": { "type": "string", "description": "Target directory" }
                     },
                     "required": ["query"]
                 }),
