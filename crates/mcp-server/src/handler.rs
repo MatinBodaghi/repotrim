@@ -16,7 +16,7 @@ use repotrim_engine::{
 use crate::protocol::{
     negotiate_protocol_version, InitializeResult, JsonRpcRequest, JsonRpcResponse,
     ServerCapabilities, ServerInfo, ToolCallResult, ToolDefinition, ToolsCapability,
-    ToolsListResult, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND,
+    ToolsListResult, INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND,
 };
 
 /// Handles incoming MCP requests and manages workspace repository caching with live watcher sync.
@@ -99,6 +99,20 @@ impl McpHandler {
         // Notifications do not specify an id and do not expect a response
         let is_notification = req.id.is_none();
         let id = req.id.unwrap_or(serde_json::Value::Null);
+
+        if req.jsonrpc != "2.0" {
+            if is_notification {
+                return None;
+            }
+            return Some(JsonRpcResponse::error(
+                id,
+                INVALID_REQUEST,
+                format!(
+                    "Invalid JSON-RPC protocol version: '{}', expected '2.0'",
+                    req.jsonrpc
+                ),
+            ));
+        }
 
         match req.method.as_str() {
             "initialize" => {
