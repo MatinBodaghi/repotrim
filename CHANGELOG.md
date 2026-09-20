@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-20
+
+### Added
+- **Consolidated MCP Protocol Tool Surface (Phase 4 / T4.2)**:
+  - Unified overlapping MCP context extraction tools into 8 focused tools: `trim_context`, `find_symbols`, `analyze_graph`, `analyze_impact`, `trace_paths`, `navigate_codebase`, `generate_blueprint`, and `generate_architecture_docs`.
+  - Maintained backward-compatibility aliases (`search_symbols`, `detect_communities`, `mine_coedits`, `extract_context`, etc.) ensuring unbroken operation for existing agent harnesses.
+  - Authored comprehensive tool contracts and schema documentation in `docs/MCP_TOOLS.md`.
+- **Client Protocol Version Negotiation (Phase 3 / T3.3)**:
+  - Added protocol version negotiation during MCP `initialize` handshake, supporting `2024-11-05` and `latest`.
+- **Protocol Conformance & Security Regression Test Suites (Phase 3 / T3.1, T3.2)**:
+  - Built comprehensive JSON-RPC conformance suite in `crates/mcp-server/tests/conformance_test.rs` validating whitespace tolerance, continuous stream survivability, and parameter parsing.
+  - Added security regression tests in `crates/engine/tests/security_test.rs` covering symlink traversal defenses and path isolation.
+- **Whole-Session Token Cost Benchmark Harness & Schema Snapshots (Phase 4 / T4.1, T4.3)**:
+  - Added automated test asserting MCP `tools/list` handshake payload remains $\le 1,200$ tokens in CI (`crates/mcp-server/tests/session_cost_test.rs`).
+  - Added schema snapshot testing in `crates/mcp-server/tests/tool_schema_snapshot_test.rs`.
+  - Authored empirical benchmark report in `docs/benchmarks/mcp_session_cost.md`.
+- **Polyglot Multi-Repository Evaluation (Phase 4 / T4.5)**:
+  - Added external repository evaluation suite in `crates/engine/tests/external_corpus_test.rs` across Python, TypeScript, and Go codebases.
+  - Published multi-repository evaluation results in `docs/benchmarks/external_corpus_evaluation.md`.
+
+### Changed
+- **Token Budget Bounds on Unbounded Tools (Phase 4 / T4.4)**:
+  - Enforced strict `max_tokens` parameter across `query_graph_stats`, `inspect_symbol`, and `analyze_impact`, guaranteeing tool responses never overflow agent context windows.
+- **Compressed Tool Descriptions & Schemas (Phase 4 / T4.2)**:
+  - Re-authored MCP tool docstrings and parameter schemas into dense specifications, cutting initial handshake overhead by over $50\%$.
+
 ## [0.12.0] - 2026-09-19
 
 ### Security
