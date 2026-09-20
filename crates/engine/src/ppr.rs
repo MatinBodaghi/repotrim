@@ -196,6 +196,15 @@ impl PprSolver {
         let alpha = self.config.alpha;
         let epsilon = self.config.epsilon;
 
+        let _span = tracing::trace_span!(
+            "ppr_solve",
+            num_nodes = n,
+            num_seeds = seeds.len(),
+            alpha = alpha,
+            epsilon = epsilon
+        )
+        .entered();
+
         let mut p = vec![0.0_f32; n];
         let mut r = vec![0.0_f32; n];
         let mut in_queue = vec![false; n];
@@ -300,6 +309,15 @@ impl PprSolver {
             let bound = (effective_eps / alpha) * deg_in.max(1.0);
             error_bounds.insert(id, bound);
         }
+
+        tracing::debug!(
+            iterations = iterations,
+            max_residual = max_residual,
+            total_residual = total_residual,
+            truncated = truncated,
+            scores = scores.len(),
+            "PPR forward-push diffusion completed"
+        );
 
         PprResult {
             scores,

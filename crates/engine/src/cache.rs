@@ -98,17 +98,45 @@ impl RepositoryCache {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Self {
         let path_ref = path.as_ref();
         if !path_ref.exists() {
+            tracing::debug!(path = %path_ref.display(), "Cache file does not exist, initializing empty cache");
             return Self::new();
         }
 
         let bytes = match fs::read(path_ref) {
             Ok(b) => b,
-            Err(_) => return Self::new(),
+            Err(e) => {
+                tracing::debug!(path = %path_ref.display(), error = %e, "Failed to read cache file");
+                return Self::new();
+            }
         };
 
         match bincode_options().deserialize::<RepositoryCache>(&bytes) {
-            Ok(cache) if cache.version == CACHE_VERSION => cache,
-            _ => Self::new(),
+            Ok(cache) if cache.version == CACHE_VERSION => {
+                tracing::debug!(
+                    path = %path_ref.display(),
+                    entries = cache.entries.len(),
+                    bytes = bytes.len(),
+                    "Repository cache loaded successfully"
+                );
+                cache
+            }
+            Ok(cache) => {
+                tracing::debug!(
+                    path = %path_ref.display(),
+                    version = cache.version,
+                    expected = CACHE_VERSION,
+                    "Cache schema version mismatch, creating fresh cache"
+                );
+                Self::new()
+            }
+            Err(e) => {
+                tracing::debug!(
+                    path = %path_ref.display(),
+                    error = %e,
+                    "Cache deserialization failed, creating fresh cache"
+                );
+                Self::new()
+            }
         }
     }
 
@@ -125,8 +153,15 @@ impl RepositoryCache {
 
         // Write to a temporary sibling file and atomically rename to avoid partial writes
         let temp_path = path_ref.with_extension("tmp");
-        fs::write(&temp_path, encoded).map_err(EngineError::IoError)?;
+        fs::write(&temp_path, &encoded).map_err(EngineError::IoError)?;
         fs::rename(&temp_path, path_ref).map_err(EngineError::IoError)?;
+
+        tracing::debug!(
+            path = %path_ref.display(),
+            entries = self.entries.len(),
+            bytes = encoded.len(),
+            "Repository cache persisted successfully"
+        );
 
         Ok(())
     }

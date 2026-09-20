@@ -2,6 +2,14 @@ use repotrim_mcp::McpServer;
 use std::path::PathBuf;
 
 fn main() {
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
     let mut root_path = PathBuf::from(".");
     let mut allowed_roots = Vec::new();

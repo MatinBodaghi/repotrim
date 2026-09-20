@@ -96,6 +96,9 @@ impl McpHandler {
 
     /// Dispatches a JSON-RPC request to the appropriate handler method.
     pub fn handle_request(&mut self, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+        let _span =
+            tracing::info_span!("mcp_request", method = %req.method, id = ?req.id).entered();
+
         // Notifications do not specify an id and do not expect a response
         let is_notification = req.id.is_none();
         let id = req.id.unwrap_or(serde_json::Value::Null);
@@ -185,16 +188,26 @@ impl McpHandler {
                     }
                 };
 
+                let _tool_span = tracing::debug_span!("mcp_tool_call", tool = %tool_name).entered();
+
                 let arguments = params
                     .get("arguments")
                     .cloned()
                     .unwrap_or(serde_json::json!({}));
                 let tool_result = match self.execute_tool(tool_name, arguments) {
-                    Ok(res) => res,
+                    Ok(res) => {
+                        tracing::debug!(tool = %tool_name, is_error = res.is_error, "Tool execution completed");
+                        res
+                    }
                     Err(SecurityError::PathEscapesRoot {
                         requested,
                         allowed_roots,
                     }) => {
+                        tracing::warn!(
+                            tool = %tool_name,
+                            path = %requested.display(),
+                            "Path escapes allowed roots"
+                        );
                         return Some(JsonRpcResponse::error(
                             id,
                             INVALID_PARAMS,
@@ -206,6 +219,7 @@ impl McpHandler {
                         ));
                     }
                     Err(err) => {
+                        tracing::warn!(tool = %tool_name, error = %err, "Security violation in tool call");
                         return Some(JsonRpcResponse::error(
                             id,
                             INVALID_PARAMS,

@@ -629,6 +629,8 @@ impl CelfOptimizer {
             return (Vec::new(), Vec::new());
         }
 
+        let _span = tracing::debug_span!("celf_optimize", budget = budget).entered();
+
         // If threshold greedy is configured, execute Badanidiyuru & Vondrák (2014)
         if let Some(eps) = self.config.threshold_epsilon {
             return self.optimize_threshold_greedy(graph, ppr_scores, budget, eps);
@@ -768,6 +770,14 @@ impl CelfOptimizer {
                 return (vec![best_id], vec![singleton_step]);
             }
         }
+
+        tracing::debug!(
+            selected_symbols = selected_list.len(),
+            consumed_tokens = current_tokens,
+            budget = budget,
+            cumulative_utility = cumulative_utility,
+            "CELF knapsack optimization completed"
+        );
 
         (selected_list, trace)
     }

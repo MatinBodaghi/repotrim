@@ -119,6 +119,13 @@ impl LoadedRepository {
         #[cfg(not(windows))]
         let root_path = fs::canonicalize(&root_path).unwrap_or(root_path);
 
+        let _span = tracing::debug_span!(
+            "repo_load",
+            path = %root_path.display(),
+            use_cache = use_cache
+        )
+        .entered();
+
         let cache_file = get_cache_file_for_root(&root_path);
 
         let mut cache = if use_cache {
@@ -262,6 +269,17 @@ impl LoadedRepository {
             skipped_files,
             hit_ratio,
         };
+
+        tracing::debug!(
+            total_files = cache_report.total_files,
+            cached_files = cache_report.cached_files,
+            recomputed_files = cache_report.recomputed_files,
+            skipped_files = cache_report.skipped_files,
+            symbols = symbols.len(),
+            edges = edges.len(),
+            hit_ratio = cache_report.hit_ratio,
+            "Repository loading and AST parsing completed"
+        );
 
         Ok(Self {
             root_path,
