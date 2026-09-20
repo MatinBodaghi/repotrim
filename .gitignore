@@ -97,3 +97,16 @@ crates/mcp-server/.repotrim/
 # --- Antigravity & Local Agent Harness Configs ---
 mcp_config.json
 .agents/mcp_config.json
+
+# --- Internal AI-Agent Development Instructions (local-only) ---
+# These govern how an AI coding agent should behave while developing
+# THIS repository (commit style, push policy). They are not user-
+# or contributor-facing documentation. Keep locally; do not publish.
+/AGENTS.md
+/.agents/rules/
+
+# --- Internal Engineering History & Planning (local-only) ---
+# Phase-by-phase build logs, evolution narratives, and AI-generated
+# audit/plan documents. Historical value for the maintainer only.
+/docs/internal/
+
