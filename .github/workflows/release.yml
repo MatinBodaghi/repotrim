@@ -83,7 +83,7 @@ jobs:
           echo "ASSET_PATH=$staging.zip" >> $env:GITHUB_ENV
 
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ env.ASSET_PATH }}
