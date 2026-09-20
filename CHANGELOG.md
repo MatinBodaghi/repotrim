@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-20
+
+### Added
+- **Structured Observability & Diagnostics (Phase 8 / T8.1)**:
+  - Integrated `tracing` and `tracing-subscriber` across `repotrim-engine`, `repotrim-cli`, and `repotrim-mcp`.
+  - Enforced strict stdio stream isolation by binding log subscribers exclusively to `std::io::stderr`, guaranteeing zero JSON-RPC pipe corruption on `stdout`.
+  - Added structured spans and diagnostic logging across repository loading, sparse forward-push PPR diffusion, CELF submodular knapsack packing, and cryptographic Merkle cache lookups.
+  - Authored `crates/mcp-server/tests/tracing_test.rs` verifying stdout stream purity under active tracing.
+- **Automated Multi-Platform Release Distribution & crates.io Publishing (Phase 5 / T5.3)**:
+  - Expanded release matrix in `.github/workflows/release.yml` to build `aarch64-unknown-linux-gnu` alongside x86_64 Linux, Windows MSVC, and macOS (Intel & Apple Silicon).
+  - Automated generation of SHA-256 checksums (`.sha256`) for all release archives.
+  - Added automated sequential topological crates.io publishing workflow on version tags (`repotrim-engine` $\to$ `repotrim-mcp` $\to$ `repotrim`).
+- **Reproducible Toolchain & Supply-Chain Auditing (Phase 5 / T5.2, T5.4)**:
+  - Pinned workspace Minimum Supported Rust Version (MSRV 1.90) with `rustfmt` and `clippy` in `rust-toolchain.toml`.
+  - Configured `deny.toml` and automated `cargo-deny` license/advisory checks in `.github/workflows/security.yml`.
+  - Configured automated weekly dependency scans via `.github/dependabot.yml`.
+- **Public API Documentation & Zero-Warning Lint (Phase 6 / T6.4)**:
+  - Enabled `#![warn(missing_docs)]` across `repotrim-engine` and added docstrings for all 140 public types, methods, and error variants.
+  - Verified clean `cargo doc --workspace --no-deps` generation with 0 warnings.
+- **Comprehensive Onboarding Documentation & Internal Reorganization (Phase 6 / T6.1, T6.2, T6.3)**:
+  - Redesigned `README.md` into a 60-second quickstart front door with copy-pasteable MCP client configurations (Claude Desktop, Cursor, Windsurf, Claude Code CLI).
+  - Authored dedicated cross-platform `docs/INSTALL.md` and diagnostic `docs/TROUBLESHOOTING.md`.
+  - Reorganized internal planning roadmaps into `docs/internal/`.
+- **Community Health & Repository SEO Discoverability (Phase 7 / T7.1, T7.2, T7.3)**:
+  - Added Contributor Covenant v2.1 `CODE_OF_CONDUCT.md`, `.editorconfig`, structured GitHub Issue Forms (`bug_report.yml`, `feature_request.yml`), and PR template enforcing `AGENTS.md`.
+  - Tailored crate-specific keywords in `Cargo.toml` manifests and documented GitHub topics in `.github/REPOSITORY_TOPICS.md`.
+  - Authored `docs/benchmarks/comparative_analysis.md` contrasting RepoTrim against Aider repo-maps and whole-file dumps.
+
 ## [0.13.0] - 2026-09-20
 
 ### Added
