@@ -167,7 +167,7 @@ impl AstExtractor {
         let mut matches = cursor.matches(&bundle.query, root_node, source);
 
         while let Some(m) = matches.next() {
-            for capture in m.captures {
+            for capture in m.captures() {
                 let node = capture.node;
 
                 if Some(capture.index) == fn_capture_idx {
@@ -538,7 +538,7 @@ impl AstExtractor {
             let mut call_node: Option<Node> = None;
             let mut target_node: Option<Node> = None;
 
-            for capture in m.captures {
+            for capture in m.captures() {
                 if Some(capture.index) == call_capture_idx {
                     call_node = Some(capture.node);
                 } else if Some(capture.index) == call_target_idx {
