@@ -11,8 +11,7 @@ Security updates and critical patches are actively provided for the following ve
 | Version | Supported |
 | :--- | :---: |
 | `v1.0.x` | :white_check_mark: |
-| `v0.11.x` | :white_check_mark: |
-| `< 0.11.0` | :x: |
+| `< 1.0.0` | :x: (pre-release; please upgrade) |
 
 ---
 
@@ -22,12 +21,10 @@ If you discover a security vulnerability or potential exploit in RepoTrim:
 
 1. **Do NOT open a public GitHub issue.** Public issues disclose attack vectors before patches can be deployed.
 2. **Submit via GitHub Private Vulnerability Reporting** directly on the [RepoTrim repository](https://github.com/matinbodaghi/repotrim/security/advisories/new).
-3. Alternatively, report the issue via email to the maintainers at: `security@repotrim.dev` (or maintainer contact listed in `Cargo.toml`).
+3. Alternatively, report the issue via email directly to the maintainer at: `matinbodaghi07@gmail.com`.
 
-### Disclosure Timeline & SLA
-- **Acknowledgment:** Within 48 hours of initial report receipt.
-- **Triage & Assessment:** Within 5 business days with preliminary CVSS severity score.
-- **Fix & Advisory:** Coordinated release and security advisory published within 30 days of verification.
+### Disclosure Timeline
+This is a solo-maintained open-source project. Reports are acknowledged as promptly as possible — typically within a few days. Complex issues may take longer to triage and fix. Coordinated disclosure timelines and advisories will be agreed upon with the reporter case by case.
 
 ---
 

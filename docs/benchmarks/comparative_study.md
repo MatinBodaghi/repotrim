@@ -3,7 +3,7 @@
 - **Target Repository:** RepoTrim (`crates/engine/`, `crates/cli/`, `crates/mcp-server/`)
 - **Evaluation Suite:** `crates/engine/tests/benchmark_baselines.rs`
 - **Date:** 2026-09-07
-- **Environment:** AMD Ryzen / Windows 11 (x86_64), Rust stable
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 
 ---
 
@@ -52,22 +52,20 @@ Evaluated across three representative architectural components in the RepoTrim c
 
 ### Benchmark Summary Table
 
-| Target Symbol | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall | Latency |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **`ContextSelector`** | Whole-File Dump | 2,467 | 0.0% | **100.0%** | 313 µs |
-| | Naive Keyword/Grep | 26 | 98.9% | 0.0% | **47 µs** |
-| | Unweighted Global PageRank | 500 | 79.7% | 0.0% | 436 µs |
-| | **RepoTrim (Ours)** | **492** | **80.1%** | **60.0%** | 1,246 µs |
-| **`RepositoryCache`** | Whole-File Dump | 2,545 | 0.0% | **100.0%** | 316 µs |
-| | Naive Keyword/Grep | 87 | 96.6% | 0.0% | **63 µs** |
-| | Unweighted Global PageRank | 500 | 80.4% | 11.1% | 507 µs |
-| | **RepoTrim (Ours)** | **459** | **82.0%** | **77.8%** | 818 µs |
-| **`PprSolver`** | Whole-File Dump | 2,356 | 0.0% | **100.0%** | 281 µs |
-| | Naive Keyword/Grep | 12 | 99.5% | 0.0% | **40 µs** |
-| | Unweighted Global PageRank | 300 | 87.3% | 0.0% | 366 µs |
-| | **RepoTrim (Ours)** | **299** | **87.3%** | **33.3%** | 790 µs |
-
-*Note: Latencies measured in unoptimized debug build mode (`cargo test`). In release builds (`--release`), RepoTrim selection latency drops to **130–240 µs**.*
+| Target Symbol | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall |
+| :--- | :--- | :---: | :---: | :---: |
+| **`ContextSelector`** | Whole-File Dump | 2,467 | 0.0% | **100.0%** |
+| | Naive Keyword/Grep | 26 | 98.9% | 0.0% |
+| | Unweighted Global PageRank | 500 | 79.7% | 0.0% |
+| | **RepoTrim (Ours)** | **492** | **80.1%** | **60.0%** |
+| **`RepositoryCache`** | Whole-File Dump | 2,545 | 0.0% | **100.0%** |
+| | Naive Keyword/Grep | 87 | 96.6% | 0.0% |
+| | Unweighted Global PageRank | 500 | 80.4% | 11.1% |
+| | **RepoTrim (Ours)** | **459** | **82.0%** | **77.8%** |
+| **`PprSolver`** | Whole-File Dump | 2,356 | 0.0% | **100.0%** |
+| | Naive Keyword/Grep | 12 | 99.5% | 0.0% |
+| | Unweighted Global PageRank | 300 | 87.3% | 0.0% |
+| | **RepoTrim (Ours)** | **299** | **87.3%** | **33.3%** |
 
 ---
 

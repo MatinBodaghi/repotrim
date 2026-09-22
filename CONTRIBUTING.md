@@ -121,6 +121,13 @@ If you modify core algorithms (`ppr.rs`, `celf.rs`, `selector.rs`, `retrieval.rs
 cargo run -p repotrim -- benchmark --scenario all
 ```
 
+### 5. MCP Tool Schema Snapshot Stability Gate
+RepoTrim enforces strict SemVer stability for all Model Context Protocol (MCP) tool schemas exposed to AI agent harnesses (see `docs/VERSIONING.md`). Any unintentional modification to tool names, required properties, or payload budget will fail the snapshot test:
+```bash
+cargo test -p repotrim-mcp --test tool_schema_snapshot_test
+```
+Schema changes must be backwards-compatible, accompanied by architectural justification, and explicitly reviewed.
+
 ---
 
 ## 5. Research Attribution & Academic Citations

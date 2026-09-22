@@ -2,7 +2,7 @@
 
 - **Evaluation Suites:** `crates/engine/tests/benchmark_real_scale.rs`, `crates/engine/tests/benchmark_polyglot.rs`, `crates/engine/tests/benchmark_baselines.rs`
 - **Languages Tested:** Rust, Python (FastAPI / Pydantic Enterprise Backend), TypeScript (React / Hooks / Fullstack Monorepo)
-- **Environment:** AMD Ryzen / Windows 11 (x86_64), Rust stable
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 
 ---
 
@@ -15,7 +15,7 @@ AI coding agents (such as Antigravity, Claude Code, Cursor, Windsurf, and Aider)
 
 **RepoTrim** solves this dilemma by framing context assembly as a submodular knapsack problem over a multiplex Code Property Graph (CPG), solved via personalized Andersen-Chung-Lang (ACL) Forward-Push and Cost-Effective Lazy Forward (CELF) selection.
 
-This document presents empirical evaluation results demonstrating RepoTrim's token reduction, dependency recall, memory footprint, and latency across **Rust**, **Python**, and **TypeScript** codebases at both micro and enterprise scale.
+This document presents empirical evaluation results demonstrating RepoTrim's token reduction, dependency recall, and memory footprint across **Rust**, **Python**, and **TypeScript** codebases at both micro and enterprise scale.
 
 ---
 
@@ -33,7 +33,6 @@ We evaluate four distinct context generation strategies:
 - **Tokens Generated:** Estimated token count using 4-character BPE heuristic ($c(v) = \lceil \text{bytes} / 4 \rceil$).
 - **Token Reduction (%):** Relative token savings compared to Whole-File Dump ($1 - \frac{\text{tokens}}{\text{dump\_tokens}}$).
 - **Direct Dependency Recall (%):** Percentage of direct out-neighbor dependencies (callers, callees, field types) successfully captured in the generated context.
-- **Execution Latency:** Total wall-clock time in microseconds ($\mu\text{s}$) to resolve and format the context.
 
 ---
 
@@ -46,39 +45,39 @@ Evaluated via `crates/engine/tests/benchmark_real_scale.rs` against realistic en
 - **TypeScript (React Monorepo)**: 50+ files, 1,852 symbols across `components`, `hooks`, `services`, `store`, `types`, and `utils`.
 - **Rust (Engine Multi-Crate Workspace)**: 50+ files across engine, CLI, and MCP server.
 
-| Scale / Language | Scenario Seed | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall | Latency ($\mu\text{s}$) |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Python (Enterprise)**<br>50+ files, 1,731 syms | `process_refund` | Whole-File Dump | 11,895 | 0.0% | **100.0%** | 1,101 µs |
-| | | Naive Grep | 17 | 99.9% | 0.0% | **281 µs** |
-| | | Unweighted Global PageRank | 996 | 91.6% | 0.0% *(Collapsed)* | 1,724 µs |
-| | | **RepoTrim (Ours)** | **33** | **99.7%** | **100.0%** | **430 µs** |
-| **TypeScript (Enterprise)**<br>50+ files, 1,852 syms | `CheckoutModal` | Whole-File Dump | 8,151 | 0.0% | **100.0%** | 715 µs |
-| | | Naive Grep | 671 | 91.8% | 100.0% *(Noise)* | **265 µs** |
-| | | Unweighted Global PageRank | 999 | 87.7% | 0.0% *(Collapsed)* | 1,469 µs |
-| | | **RepoTrim (Ours)** | **20** | **99.8%** | **100.0%** | **360 µs** |
-| **Rust (Multi-Crate)**<br>Full repotrim workspace | `ContextSelector` | Whole-File Dump | 3,077 | 0.0% | **100.0%** | 254 µs |
-| | | Naive Grep | 19 | 99.4% | 0.0% | **38 µs** |
-| | | Unweighted Global PageRank | 800 | 74.0% | 0.0% *(Collapsed)* | 350 µs |
-| | | **RepoTrim (Ours)** | **797** | **74.1%** | **57.1%** | 1,080 µs |
+| Scale / Language | Scenario Seed | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **Python (Enterprise)**<br>50+ files, 1,731 syms | `process_refund` | Whole-File Dump | 11,895 | 0.0% | **100.0%** |
+| | | Naive Grep | 17 | 99.9% | 0.0% |
+| | | Unweighted Global PageRank | 996 | 91.6% | 0.0% *(Collapsed)* |
+| | | **RepoTrim (Ours)** | **33** | **99.7%** | **100.0%** |
+| **TypeScript (Enterprise)**<br>50+ files, 1,852 syms | `CheckoutModal` | Whole-File Dump | 8,151 | 0.0% | **100.0%** |
+| | | Naive Grep | 671 | 91.8% | 100.0% *(Noise)* |
+| | | Unweighted Global PageRank | 999 | 87.7% | 0.0% *(Collapsed)* |
+| | | **RepoTrim (Ours)** | **20** | **99.8%** | **100.0%** |
+| **Rust (Multi-Crate)**<br>Full repotrim workspace | `ContextSelector` | Whole-File Dump | 3,077 | 0.0% | **100.0%** |
+| | | Naive Grep | 19 | 99.4% | 0.0% |
+| | | Unweighted Global PageRank | 800 | 74.0% | 0.0% *(Collapsed)* |
+| | | **RepoTrim (Ours)** | **797** | **74.1%** | **57.1%** |
 
 ---
 
 ### Table 3.2: Micro-Scale Synthetic Benchmarks (~250 tokens / file)
 
-| Language / Framework | Scenario Seed | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall | Latency ($\mu\text{s}$) |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Python (FastAPI Micro)** | `login` | Whole-File Dump | 294 | 0.0% | **100.0%** | 32 µs |
-| | | Naive Grep | 5 | 98.3% | 0.0% | **8 µs** |
-| | | Global PageRank | 93 | 68.4% | **100.0%** | 134 µs |
-| | | **RepoTrim (Ours)** | **86** | **70.7%** | **100.0%** | 294 µs |
-| **TypeScript (React Micro)** | `UserProfileCard` | Whole-File Dump | 243 | 0.0% | **100.0%** | 23 µs |
-| | | Naive Grep | 7 | 97.1% | 0.0% | **1 µs** |
-| | | Global PageRank | 93 | 61.7% | **100.0%** | 14 µs |
-| | | **RepoTrim (Ours)** | **93** | **61.7%** | **100.0%** | 148 µs |
-| **Rust (Engine Micro)** | `RepositoryCache` | Whole-File Dump | 2,545 | 0.0% | **100.0%** | 216 µs |
-| | | Naive Grep | 87 | 96.6% | 0.0% | **33 µs** |
-| | | Global PageRank | 497 | 80.5% | 11.1% | 307 µs |
-| | | **RepoTrim (Ours)** | **479** | **81.2%** | **77.8%** | 562 µs |
+| Language / Framework | Scenario Seed | Context Strategy | Tokens Generated | Token Reduction | Direct Dep Recall |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| **Python (FastAPI Micro)** | `login` | Whole-File Dump | 294 | 0.0% | **100.0%** |
+| | | Naive Grep | 5 | 98.3% | 0.0% |
+| | | Global PageRank | 93 | 68.4% | **100.0%** |
+| | | **RepoTrim (Ours)** | **86** | **70.7%** | **100.0%** |
+| **TypeScript (React Micro)** | `UserProfileCard` | Whole-File Dump | 243 | 0.0% | **100.0%** |
+| | | Naive Grep | 7 | 97.1% | 0.0% |
+| | | Global PageRank | 93 | 61.7% | **100.0%** |
+| | | **RepoTrim (Ours)** | **93** | **61.7%** | **100.0%** |
+| **Rust (Engine Micro)** | `RepositoryCache` | Whole-File Dump | 2,545 | 0.0% | **100.0%** |
+| | | Naive Grep | 87 | 96.6% | 0.0% |
+| | | Global PageRank | 497 | 80.5% | 11.1% |
+| | | **RepoTrim (Ours)** | **479** | **81.2%** | **77.8%** |
 
 ---
 
@@ -145,7 +144,7 @@ When integrated into AI agent workflows (via Antigravity, Claude Code, or Cursor
 
 1. **Elimination of Token Truncation:** Agents never run out of context budget mid-generation because RepoTrim enforces strict mathematical knapsack constraints.
 2. **Elimination of Import/Type Hallucinations:** By traversing type dependency edges ($E_{\text{Type}}$), RepoTrim automatically includes referenced interfaces (e.g. `UserProfileProps`, `TokenResponse`, `LoginRequest`), preventing compile errors on the first LLM pass.
-3. **Sub-Millisecond Loop Latency:** Running in $<1\text{ ms}$, `repotrim` or `trim_context` can be invoked iteratively before every tool call without noticeable developer delay.
+3. **Interactive Loop Efficiency:** Fast incremental graph indexing allows `repotrim` or `trim_context` to be invoked iteratively before tool calls without noticeable developer delay.
 
 ---
 

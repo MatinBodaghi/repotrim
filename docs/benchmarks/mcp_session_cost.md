@@ -3,7 +3,7 @@
 - **Target Component:** `repotrim-mcp` (Model Context Protocol JSON-RPC Stdio Server)
 - **Evaluation Harness:** `crates/mcp-server/tests/session_cost_test.rs`
 - **Date:** 2026-09-19
-- **Environment:** Windows 11 / Linux (x86_64), Rust stable 1.84+
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 - **Commit Baseline:** Phase 3 Start (`experiment/mcp-session-cost`)
 
 ---

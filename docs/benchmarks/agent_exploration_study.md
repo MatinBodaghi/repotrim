@@ -3,7 +3,7 @@
 - **Target Repository:** RepoTrim (`crates/engine/`, `crates/cli/`, `crates/mcp-server/`)
 - **Evaluation Suite:** `crates/engine/src/harness.rs` (`repotrim harness`)
 - **Date:** 2026-09-15
-- **Environment:** AMD Ryzen / Windows 11 (x86_64), Rust stable 1.84+
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 - **Commit Baseline:** Milestone 6 (`v0.11.0`), Phase 43
 
 ---
