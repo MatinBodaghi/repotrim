@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-23
+
+### Added
+- **Formal Semantic Versioning Contract (`docs/VERSIONING.md`)**:
+  - Established formal SemVer 2.0.0 public interface coverage for the 8 canonical MCP tools (`trim_context`, `find_symbols`, `analyze_graph`, `analyze_impact`, `trace_paths`, `navigate_codebase`, `generate_blueprint`, `generate_architecture_docs`), CLI arguments and flags, structured JSON schemas (`-f json`), and public Rust engine APIs.
+  - Defined a strict one-minor-release deprecation policy and established the 3–4 week pre-release interface surface freeze window.
+- **Automated Tool Schema Snapshot Gate**:
+  - Enforced automated CI snapshot testing in `crates/mcp-server/tests/tool_schema_snapshot_test.rs` asserting tool name stability, concise descriptions ($\le 100$ characters), input parameter schemas, and payload token budgets ($< 4,000$ characters).
+  - Added schema snapshot verification to `CONTRIBUTING.md` as a required quality gate.
+- **Honest Empirical Validation Status & Roadmap**:
+  - Added formal empirical validation status and 4-point post-v1 roadmap to `README.md` (third-party PR mining, production Aider baseline parity, SWE-bench-lite task resolution, and community corpus diversity).
+
+### Changed
+- **Upstream Dependency Modernization**:
+  - Upgraded `tree-sitter` parser runtime from 0.25 to 0.27.0, updating query capture method calls across polyglot grammar queries.
+  - Upgraded `notify` filesystem event watcher from 6.1 to 8.2.0.
+  - Upgraded `clap` command-line argument parser from 4.6.6 to 4.6.7.
+  - Pinned `bincode` at 1.3.3 with explicit `deny.toml` documentation, strictly maintaining the 64 MB deserialization boundary against hostile-cache DoS attacks.
+- **Documentation Authenticity & Provenance Hardening**:
+  - Standardized maintainer identity to `matinbodaghi07@gmail.com` across `Cargo.toml`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`.
+  - Reconciled security contact to GitHub Private Vulnerability Reporting and calibrated response SLA to sustainable solo-maintainer commitments.
+  - Renamed and reframed `synthetic_corpus_evaluation.md` to accurately denote synthetic multi-file test environments.
+  - Standardized benchmark environments across 8 documents to Rust stable 1.90+ and responsibly excised microsecond execution timing claims.
+  - Fixed dangling PR template reference to point to `CONTRIBUTING.md`.
+
 ## [0.14.0] - 2026-09-20
 
 ### Added
