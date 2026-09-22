@@ -3,6 +3,3 @@ contact_links:
   - name: Security Vulnerability Report
     url: https://github.com/MatinBodaghi/repotrim/blob/main/SECURITY.md
     about: Please report security vulnerabilities according to our responsible disclosure policy.
-  - name: Academic Citations & Theoretical Questions
-    url: https://github.com/MatinBodaghi/repotrim/discussions
-    about: Ask questions regarding Personalized PageRank, submodular optimization, or CELF knapsack mechanics.

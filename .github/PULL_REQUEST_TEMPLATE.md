@@ -20,7 +20,7 @@
 
 Before submitting this pull request, please verify each of the following:
 
-- [ ] **Commit Style Guide (`AGENTS.md`):**
+- [ ] **Commit Style Guide (see `CONTRIBUTING.md`):**
   - [ ] Summary line is imperative, capitalized, $\le 50$ chars, and has no trailing period.
   - [ ] Blank line between summary and body.
   - [ ] Body paragraphs are hard-wrapped to 72 characters.
