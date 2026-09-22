@@ -3,7 +3,7 @@
 - **Target Systems:** OpenAI / Anthropic / Meta tokenizer vocabularies (`cl100k_base`, `o200k_base`)
 - **Evaluation Suite:** `crates/engine/tests/token_calibration_test.rs`
 - **Languages Evaluated:** Polyglot (Rust, Python, TypeScript, Go)
-- **Environment:** AMD Ryzen / Windows 11 (x86_64), Rust stable
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 
 ---
 

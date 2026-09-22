@@ -1,7 +1,7 @@
 # RepoTrim Self-Indexing Benchmark (Dogfooding)
 
 - **Target Codebase:** RepoTrim Workspace (`crates/engine/`, `crates/cli/`, `crates/mcp-server/`)
-- **Environment:** AMD Ryzen / Windows 11 (x86_64), Rust stable
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 
 ---
 
