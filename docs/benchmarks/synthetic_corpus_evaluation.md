@@ -1,9 +1,9 @@
-# External Multi-Repository Benchmark Evaluation: Polyglot Recall@Budget
+# Synthetic Multi-Language Benchmark Evaluation: Polyglot Recall@Budget
 
 - **Evaluation Suite:** `crates/engine/tests/external_corpus_test.rs`
 - **Target Languages:** Python (ML/Data Science), TypeScript (Modern Frontend/React), Go (Cloud Microservices)
 - **Date:** 2026-09-19
-- **Environment:** x86_64, Rust stable 1.84+
+- **Environment:** x86_64, Rust stable 1.90+ (profile: release)
 - **Commit Baseline:** `v0.12.0` (Phase 4 Conformance & Comprehensive Testing)
 
 ---
@@ -16,10 +16,12 @@ In realistic AI-assisted software engineering workflows, autonomous agents (e.g.
 
 Both extremes degrade agent reasoning: full-file dumps trigger context pollution, attention degradation (the *"lost-in-the-middle"* phenomenon, Liu et al., 2024), and quadratic latency/cost inflation. Arbitrary line truncation breaks symbol definitions, imports, and method contracts.
 
-RepoTrim solves this by constructing a multi-layer Code Property Graph across languages and applying submodular knapsack optimization under a strict token budget $B$. This benchmark evaluates RepoTrim's **Recall@Budget** and **Token Compression** across three distinct external open-source software architectures:
+RepoTrim solves this by constructing a multi-layer Code Property Graph across languages and applying submodular knapsack optimization under a strict token budget $B$. This benchmark evaluates RepoTrim's **Recall@Budget** and **Token Compression** across three synthetic multi-file fixtures modelled on common real-world architectures (generated dynamically in `crates/engine/tests/external_corpus_test.rs:21` via `create_temp_corpus_repo(name, files)`):
 1. **Python Data Science / ML Pipeline** (`ml-forecast-pipeline`): Deep multi-file class inheritance and data transformations.
 2. **TypeScript / React Frontend Application** (`web-dashboard-ui`): Asynchronous state management, HTTP client abstractions, and component trees.
 3. **Go Distributed Microservice** (`distributed-rate-limiter`): Middleware pipelines, cache storage interfaces, and handler routing.
+
+These synthetic fixtures are hand-constructed to exercise cross-file dependency resolution across heterogeneous languages; they are **not** mined from real external repositories, and results here represent controlled-condition measurements rather than field validation.
 
 ---
 
@@ -106,6 +108,13 @@ The scaling curve demonstrates strictly monotonic recall progression ($\text{Rec
    In strongly typed languages (Go, TypeScript) and dynamic languages (Python), dependency references flow cleanly from caller/instantiator to callee. Seeding at the primary service or class boundary diffuses attention outwards to critical collaborators while pruning unrelated peripheral components (such as footers, plotting scripts, and health-check handlers).
 3. **Mitigating LLM Context Saturation:**
    By filtering out 59% to 64% of non-essential tokens before prompting, RepoTrim prevents distraction in long-context models, preserves valuable prompt space for multi-step agent reasoning, and reduces token transmission costs.
+
+---
+
+## 6. Limitations & Future Work
+
+1. **Controlled Fixture Bias:** The test corpora evaluated here are synthetic integration fixtures rather than organically evolved open-source projects. While architecturally realistic, they do not reflect the full noise, legacy conventions, and edge cases found in large-scale multi-contributor repositories.
+2. **Planned Field Validation:** Full empirical validation against third-party production repositories (with ground truth extracted from accepted pull requests on repositories such as Flask, React, and Gin) and downstream agent task-success measurement on SWE-bench are scheduled for the post-v1.0.0 roadmap.
 
 ---
 

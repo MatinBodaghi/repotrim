@@ -168,9 +168,9 @@ Paired benchmark evaluation comparing unassisted agents (raw file tools) vs. Rep
 | **Diff Resolution** | 7,396 | 32 | **99.6%** | **33.0x gain** |
 | **Diffusion Optimization** | 12,016 | 170 | **98.6%** | **16.1x gain** |
 
-### 2. Multi-Repository Polyglot Evaluation ([`docs/benchmarks/external_corpus_evaluation.md`](docs/benchmarks/external_corpus_evaluation.md))
+### 2. Multi-Language Synthetic Corpus Evaluation ([`docs/benchmarks/synthetic_corpus_evaluation.md`](docs/benchmarks/synthetic_corpus_evaluation.md))
 
-Empirical evaluation measuring Recall@Budget and token savings across external codebases:
+Controlled empirical evaluation measuring Recall@Budget and token savings across synthetic multi-file polyglot fixtures:
 
 | Repository | Ecosystem | Budget ($B$) | Token Savings vs Whole Files | Recall@Budget |
 | :--- | :---: | :---: | :---: | :---: |
