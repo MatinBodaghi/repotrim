@@ -157,6 +157,8 @@ claude mcp add repotrim -- repotrim-mcp --allow-root .
 
 ## Empirical Verification & Benchmark Summary
 
+> **Current validation status:** Benchmarks in `docs/benchmarks/` are measured on RepoTrim's own source tree and on synthetic multi-language fixtures, against reimplemented baselines. Validation against third-party repositories with PR-mined ground truth, and downstream agent task-success measurement, are planned but not yet complete.
+
 ### 1. Agent Exploration Harness Study ([`docs/benchmarks/agent_exploration_study.md`](docs/benchmarks/agent_exploration_study.md))
 
 Paired benchmark evaluation comparing unassisted agents (raw file tools) vs. RepoTrim-assisted agents on software engineering tasks:
@@ -189,10 +191,18 @@ Ablation contrasting RepoTrim against Aider-style Global PageRank repo-maps, Lex
 | **Aider Repo Map** | Static Global PageRank ($d=0.85$) | 92.3% | 0.0% (Root-biased) | None |
 | **RepoTrim (Ours)** | **Multiplex CPG + PPR + CELF** | **92.3%** | **61.5%** | **$(1 - 1/e) \approx 63.2\%$** |
 
+### 4. Post-v1.0.0 Empirical Validation Roadmap
+
+1. **Third-Party PR Mining:** Mine accepted pull requests from 5–10 real open-source repositories (ground truth defined as modified symbols in merged diffs).
+2. **Production Baseline Parity:** Measure Recall@Budget curves directly against production Aider repo-map tooling rather than reimplementations.
+3. **Downstream Task Resolution:** Quantify end-to-end task completion rates of autonomous coding agents on a SWE-bench-lite subset.
+4. **Community Corpus Diversity:** Onboard external maintainers to validate the multi-layer CPG and diffusion engine on diverse real-world topologies.
+
 ---
 
 ## Documentation Roadmap
 
+- [Semantic Versioning & Stability Policy](docs/VERSIONING.md): SemVer 2.0.0 coverage, 8 MCP tools contract, and deprecation lifecycle.
 - [Installation Guide](docs/INSTALL.md): Pre-built binaries, Cargo setup, and building from source.
 - [Troubleshooting & FAQ](docs/TROUBLESHOOTING.md): MSRV, C compiler setup, MCP pipe debugging, and security remedies.
 - [MCP Tool Specifications](docs/MCP_TOOLS.md): Complete parameter references and JSON-RPC contracts.
